@@ -297,8 +297,37 @@ def dashboard_staff():
         elif "clockout" in request.form:
             return redirect(url_for('attendance_clockout', employee_id=current_user.id))
 
-    return render_template("dashboard_staff.html")
+    # Query data for staff user
+    attendance_records = Attendance.query.filter_by(employee_id=current_user.id).all()
+    leaves = LeaveRequest.query.filter_by(employee_id=current_user.id).all()
+    payrolls = Payroll.query.filter_by(employee_id=current_user.id).all()
+    loans = Loan.query.filter_by(employee_id=current_user.id).all()
+    quizzes = QuizResult.query.filter_by(employee_id=current_user.id).all()
+    bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).limit(5).all()
 
+    return render_template(
+        "dashboard_staff.html",
+        attendance_records=attendance_records,
+        leaves=leaves,
+        payrolls=payrolls,
+        loans=loans,
+        quizzes=quizzes,
+        bulletins=bulletins
+    )
+
+# ------------------ PLACEHOLDER ROUTES ------------------
+
+
+
+@app.route('/export_evaluations_pdf')
+@login_required
+def export_evaluations_pdf():
+    return "Export Evaluations PDF (placeholder)"
+
+@app.route('/export_evaluations_excel')
+@login_required
+def export_evaluations_excel():
+    return "Export Evaluations Excel (placeholder)"
 
 # ------------------ HOLIDAY + OVERTIME DASHBOARD ------------------
 @app.route('/holiday_ot_dashboard')
