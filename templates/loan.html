@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Loan Module</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
+        h2 { color:#1976d2; }
+        form { background:#fff; padding:20px; border-radius:8px; margin-bottom:20px; }
+        form input { margin:8px 0; padding:8px; width:100%; }
+        form button { background:#388e3c; color:white; padding:10px; border:none; border-radius:6px; cursor:pointer; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+        .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; }
+        .stats { display:flex; justify-content:space-around; margin:20px; }
+        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:30%; text-align:center; }
+        .print-section { display:none; }
+        @media print {
+            body { background:white; }
+            .no-print { display:none; }
+            .print-section { display:block; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Apply Loan Form -->
+    <div class="no-print">
+        <h2>Apply for Loan</h2>
+        <p><strong>Available Loan Limit:</strong> ₱{{ "%.2f"|format(remaining_limit) }}</p>
+        <form method="POST">
+            <label>Amount (PHP)</label>
+            <input type="number" name="amount" step="0.01" required>
+            <label>Reason</label>
+            <input type="text" name="reason" required>
+            <label>Date Needed</label>
+            <input type="date" name="date_needed" required>
+            <button type="submit">Submit Application</button>
+        </form>
+
+        <!-- Summary Stats -->
+        <div class="stats">
+            <div><h3>Approved</h3><p style="color:green;"><b>{{ approved }}</b></p></div>
+            <div><h3>Pending</h3><p style="color:orange;"><b>{{ pending }}</b></p></div>
+            <div><h3>Rejected</h3><p style="color:red;"><b>{{ rejected }}</b></p></div>
+        </div>
+    </div>
+
+    <!-- Loan History Table -->
+    <h2>Loan History</h2>
+    <table>
+        <tr><th>Amount</th><th>Reason</th><th>Date Needed</th><th>Status</th>
+            {% if current_user.role.lower() == 'admin' %}<th class="no-print">Action</th>{% endif %}
+        </tr>
+        {% for l in loans %}
+        <tr>
+            <td>{{ "%.2f"|format(l.amount) }}</td>
+            <td>{{ l.reason }}</td>
+            <td>{{ l.date_needed }}</td>
+            <td>
+                {% if l.status == "Approved" %}
+                    <span style="color:green; font-weight:bold;">Approved</span>
+                {% elif l.status == "Rejected" %}
+                    <span style="color:red; font-weight:bold;">Rejected</span>
+                {% else %}
+                    <span style="color:orange; font-weight:bold;">Pending</span>
+                {% endif %}
+            </td>
+            {% if current_user.role.lower() == 'admin' %}
+            <td class="no-print">
+                <a href="{{ url_for('loan', action='approve', loan_id=l.id) }}" class="btn">Approve</a>
+                <a href="{{ url_for('loan', action='reject', loan_id=l.id) }}" class="btn">Reject</a>
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </table>
+
+    <!-- Export Options -->
+    <div class="no-print" style="margin-top:20px;">
+        <a href="{{ url_for('loan', action='csv') }}" class="btn">Download CSV</a>
+        <a href="{{ url_for('loan', action='excel') }}" class="btn">Download Excel</a>
+        <a href="{{ url_for('loan', action='print') }}" class="btn">Download PDF / Print</a>
+    </div>
+
+    <!-- Analytics Charts -->
+    <div class="no-print">
+        <h2>Loan Analytics</h2>
+        <canvas id="loanStatusChart" width="400" height="200"></canvas>
+        <canvas id="loanTrendChart" width="400" height="200"></canvas>
+    </div>
+
+    <!-- Print Section -->
+    <div class="print-section">
+        <h2 style="text-align:center;">Loan History (Print View)</h2>
+        <p><strong>Employee:</strong> {{ current_user.first_name }} {{ current_user.last_name }}</p>
+        <p><strong>Total Loans:</strong> {{ loans|length }}</p>
+        <p><strong>Approved:</strong> {{ approved }} | <strong>Pending:</strong> {{ pending }} | <strong>Rejected:</strong> {{ rejected }}</p>
+        <br>
+        <div style="margin-top:50px;">
+            <div>Prepared by: ___________________________</div>
+            <div>Employee Signature: _____________________</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Loan Status Pie Chart
+        var ctxLoan = document.getElementById('loanStatusChart').getContext('2d');
+        new Chart(ctxLoan, {
+            type: 'pie',
+            data: {
+                labels: ['Approved','Pending','Rejected'],
+                datasets: [{
+                    data: [{{ approved }}, {{ pending }}, {{ rejected }}],
+                    backgroundColor: ['#4caf50','#ff9800','#f44336']
+                }]
+            }
+        });
+
+        // Loan Trend Line Chart
+        var ctxLoanTrend = document.getElementById('loanTrendChart').getContext('2d');
+        new Chart(ctxLoanTrend, {
+            type: 'line',
+            data: {
+                labels: {{ loan_labels|tojson }},
+                datasets: [{
+                    label: 'Loan Amounts (after deductions)',
+                    data: {{ loan_values|tojson }},
+                    borderColor: '#1976d2',
+                    fill: false
+                }]
+            }
+        });
+    </script>
+
+    <br class="no-print">
+    <a class="no-print" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+</body>
+</html>

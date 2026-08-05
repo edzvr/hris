@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Payroll Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; }
+        .card { max-width: 1100px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background: #1976d2; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        input { width: 80px; text-align: right; }
+        .btn { display: inline-block; padding: 10px 20px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Payroll Dashboard</h2>
+        <p><b>Cut-off Period:</b> {{ start_cutoff }} to {{ end_cutoff }}</p>
+        <form method="POST">
+            <table>
+                <tr>
+                    <th>Employee</th>
+                    <th>Daily Rate</th>
+                    <th>Allowance</th>
+                    <th>Incentives</th>
+                    <th>Worked Days</th>
+                    <th>Basic Pay</th>
+                    <th>Gross Income</th>
+                    <th>Deductions</th>
+                    <th>Net Pay</th>
+                    <th>Actions</th>
+                </tr>
+                {% for p in payroll_data %}
+                <tr>
+                    <td>{{ p.emp.first_name }} {{ p.emp.last_name }}</td>
+                    <td><input type="number" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}" step="0.01"></td>
+                    <td><input type="number" name="allowance_{{ p.emp.id }}" value="{{ p.emp.allowance or 0 }}" step="0.01"></td>
+                    <td><input type="number" name="incentives_{{ p.emp.id }}" value="{{ p.emp.incentives or 0 }}" step="0.01"></td>
+                    <td>{{ p.worked_days }}</td>
+                    <td>{{ "%.2f"|format(p.basic_pay) }}</td>
+                    <td>{{ "%.2f"|format(p.gross_income) }}</td>
+                    <td>{{ "%.2f"|format(p.deductions) }}</td>
+                    <td><b>{{ "%.2f"|format(p.net_pay) }}</b></td>
+                    <td>
+                        <a href="{{ url_for('payroll', employee_id=p.emp.id) }}" class="btn">View</a>
+                        <a href="{{ url_for('download_payslip', employee_id=p.emp.id, type='weekly') }}" class="btn">Weekly PDF</a>
+                        <a href="{{ url_for('download_payslip', employee_id=p.emp.id, type='monthly') }}" class="btn">Monthly PDF</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            <br>
+            <button type="submit" class="btn" style="width:100%;">💾 Save All Updates</button>
+        </form>
+    </div>
+</body>
+</html>

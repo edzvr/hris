@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Payslip - {{ emp.first_name }} {{ emp.last_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="card">
+    <h2>Payslip</h2>
+    <p><strong>Employee:</strong> {{ emp.first_name }} {{ emp.last_name }}</p>
+
+    <!-- Payslip download buttons -->
+    <a href="{{ url_for('download_payslip', employee_id=current_user.id, format='pdf') }}" class="btn btn-success">
+        Download Weekly Payslip (PDF)
+    </a>
+    <a href="{{ url_for('download_payslip', employee_id=current_user.id, format='monthly') }}" class="btn btn-success">
+        Download Monthly Summary (PDF)
+    </a>
+
+    <!-- Salary history -->
+    <h3>Salary History</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Cutoff Period</th>
+                <th>Gross Income</th>
+                <th>Deductions</th>
+                <th>Net Pay</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in history %}
+            <tr>
+                <td>{{ p.cutoff_start.strftime('%b %d') }} - {{ p.cutoff_end.strftime('%b %d') }}</td>
+                <td>{{ "%.2f"|format(p.gross_income) }}</td>
+                <td>{{ "%.2f"|format(p.total_deductions) }}</td>
+                <td>{{ "%.2f"|format(p.net_pay) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Auto-Expert & Trece-Uno HRIS</title>
+    <!-- external CSS file -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style_new.css') }}">
+    <style>
+        /* Smooth transition for theme switching */
+        body, .login-container, .flash-message, .btn, input {
+            transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Branding Header -->
+        <div class="brand-header">
+            <img src="{{ url_for('static', filename='images/autoxpertlogo.jpg') }}" alt="Auto-Expert Logo">
+            <img src="{{ url_for('static', filename='images/trece-uno-logo.jpg') }}" alt="Trece-Uno Logo">
+            <h1>HRIS Portal</h1>
+        </div>
+
+        <h2>Login</h2>
+
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <!-- LOGIN FORM -->
+        <form method="POST">
+            <input type="hidden" name="action" value="login">
+
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required autofocus>
+
+            <label for="password">Password</label>
+            <div class="password-wrapper">
+                <input type="password" id="password" name="password" required>
+                <button type="button" class="toggle-password" onclick="togglePassword()">👁</button>
+            </div>
+
+            <div class="remember-me">
+                <input type="checkbox" id="remember" name="remember">
+                <label for="remember">Remember Me</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+
+        <hr>
+
+        <!-- FORGOT PASSWORD FORM -->
+        <h3>Forgot Password</h3>
+        <form method="POST">
+            <input type="hidden" name="action" value="forgot">
+
+            <label for="forgot_email">Enter your email:</label>
+            <input type="email" id="forgot_email" name="email" required>
+
+            <button type="submit" class="btn btn-secondary" style="margin-top:15px;">Reset Password</button>
+        </form>
+
+        <a href="{{ url_for('register') }}" style="display:block; text-align:center; margin-top:20px;">
+            Register
+        </a>
+
+        <!-- Theme Toggle -->
+        <div class="theme-toggle">
+            <button type="button" onclick="toggleTheme()">Toggle Light/Dark Mode</button>
+        </div>
+    </div>
+
+    <script>
+        // Toggle password visibility
+        function togglePassword() {
+            const passwordField = document.getElementById("password");
+            passwordField.type = passwordField.type === "password" ? "text" : "password";
+        }
+
+        // Theme toggle with localStorage
+        function toggleTheme() {
+            document.body.classList.toggle("dark-mode");
+            if (document.body.classList.contains("dark-mode")) {
+                localStorage.setItem("theme", "dark");
+            } else {
+                localStorage.setItem("theme", "light");
+            }
+        }
+
+        // Apply saved theme preference on load
+        window.onload = function() {
+            const savedTheme = localStorage.getItem("theme");
+            if (savedTheme === "dark") {
+                document.body.classList.add("dark-mode");
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="card">
+    <h2>Backup Options</h2>
+
+    <!-- Local Backup -->
+    {% if local_exists %}
+      <p>📂 Local backup file is available.</p>
+      <a href="{{ url_for('download_db') }}">Download Local Backup</a>
+    {% else %}
+      <p>❌ No local database file found.</p>
+    {% endif %}
+
+    <hr>
+
+    <!-- Cloud Backup -->
+    <h3>Cloud Backup</h3>
+    {% if backup_status == 'success' %}
+      <div class="alert-success">✅ Backup uploaded successfully to cloud storage!</div>
+    {% else %}
+      <div class="alert-fail">❌ Backup failed. Please try again.</div>
+    {% endif %}
+    <p><strong>Last backup:</strong> {{ last_backup }}</p>
+
+    <br>
+    <a href="{{ url_for('dashboard_admin') }}">&#8592; Back to Admin Dashboard</a>
+  </div>
+</body>
+</html>

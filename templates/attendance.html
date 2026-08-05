@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Attendance Report</title>
+    <style>
+        body { font-family: Calibri, sans-serif; background: #f4f7f6; margin: 0; }
+        .container { padding: 20px; max-width: 1000px; margin: auto; background: white; border-radius: 10px; }
+        .back, .download { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #2c3e50; color: white; text-decoration: none; border-radius: 6px; }
+        .download { background: #27ae60; margin-right: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #2c3e50; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        form { margin-top: 20px; }
+        select { padding: 5px; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Attendance Report: {{ emp.first_name }} {{ emp.last_name }}</h2>
+
+        <!-- Summary -->
+        <div class="summary">
+            <h3>Attendance Summary ({{ date_range }})</h3>
+            <p>Present: {{ total_present }}</p>
+            <p>Late: {{ total_late }}</p>
+            <p>Absent: {{ total_absent }}</p>
+            <p>Average Hours Worked: {{ "%.2f"|format(avg_hours) }} hrs/day</p>
+            <p>Performance Score: {{ performance_score }} / 100</p>
+            <p><b>AI Suggestion:</b> {{ motivation }}</p>
+        </div>
+
+        <!-- History Table -->
+        <h3>Attendance History</h3>
+        <table>
+            <tr>
+                <th>Date</th><th>Clock In</th><th>Clock Out</th>
+                <th>Status</th><th>Hours</th><th>Branch</th>
+            </tr>
+            {% for log in dtr_records %}
+            <tr>
+                <td>{{ log.date }}</td>
+                <td>{{ log.clock_in }}</td>
+                <td>{{ log.clock_out }}</td>
+                <td>{{ log.status }}</td>
+                <td>{{ "%.2f"|format(log.hours) }}</td>
+                <td>{{ log.branch }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+
+        <!-- Download Options -->
+        <h3>Download Attendance Report</h3>
+        <form method="GET" action="{{ url_for('attendance', employee_id=emp.id) }}">
+            <label for="month">Month:</label>
+            <select name="month" id="month">
+                <option value="">All</option>
+                {% for m in months %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="year">Year:</label>
+            <select name="year" id="year">
+                {% for y in years %}
+                <option value="{{ y }}">{{ y }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="format">Format:</label>
+            <select name="format" id="format">
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+            </select>
+
+            <button type="submit" class="download">⬇ Download Report</button>
+        </form>
+
+        <!-- Back button -->
+        <a href="{{ url_for('dashboard_staff') }}" class="back">⬅ Back to Dashboard</a>
+    </div>
+</body>
+</html>

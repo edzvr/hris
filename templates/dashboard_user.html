@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="card">
+        <h2>User Dashboard</h2>
+        <p>Welcome, {{ current_user.full_name() }} ({{ current_user.role }})!</p>
+        <hr>
+
+        <!-- Clock In/Out buttons -->
+        <form method="POST" action="{{ url_for('attendance_action', employee_id=current_user.id) }}">
+            <button type="submit" name="clockin" class="btn btn-primary">🟢 Clock In</button>
+            <button type="submit" name="clockout" class="btn btn-secondary">🔴 Clock Out</button>
+        </form>
+
+        <!-- HR Section -->
+        <div class="dashboard-section">
+            <h3>👥 HR & Attendance</h3>
+            <div class="dashboard-links">
+                <a href="{{ url_for('attendance', employee_id=current_user.id) }}">🕒 My Attendance Report</a>
+                <a href="{{ url_for('leave') }}">🏖️ My Leave History</a>
+                <a href="{{ url_for('performance', employee_id=current_user.id) }}">📈 Performance Insights</a>
+            </div>
+        </div>
+
+        <!-- Finance Section -->
+        <div class="dashboard-section">
+            <h3>💰 Finance</h3>
+            <div class="dashboard-links">
+                <a href="{{ url_for('payroll', employee_id=current_user.id) }}">💰 My Payroll</a>
+                <a href="{{ url_for('loan', employee_id=current_user.id) }}">💸 My Loan</a>
+                <a href="{{ url_for('download_payslip', employee_id=current_user.id) }}">📄 Download Payslip (PDF)</a>
+            </div>
+        </div>
+
+        <!-- Personal Development -->
+        <div class="dashboard-section">
+            <h3>📚 Personal Development</h3>
+            <div class="dashboard-links">
+                <a href="{{ url_for('quiz', employee_id=current_user.id) }}">📝 Take a Quiz</a>
+                <a href="{{ url_for('assessment', action='quiz_results') }}">📊 My Quiz Results</a>
+                <a href="{{ url_for('bulletin') }}">📢 Company Bulletin</a>
+            </div>
+        </div>
+
+        <!-- Company Section -->
+        <div class="dashboard-section">
+            <h3>🏢 Company</h3>
+            <div class="dashboard-links">
+                <a href="{{ url_for('bulletin') }}">📢 Bulletin Board</a>
+                <a href="{{ url_for('logout') }}" class="logout-link">🚪 Logout</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

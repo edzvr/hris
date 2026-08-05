@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Monthly Quiz</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        #timer { font-size:18px; font-weight:bold; color:red; }
+    </style>
+    <script>
+        // Countdown timer (5 minutes)
+        let timeLeft = 300;
+        function startTimer() {
+            let timer = document.getElementById("timer");
+            let interval = setInterval(function() {
+                let minutes = Math.floor(timeLeft / 60);
+                let seconds = timeLeft % 60;
+                timer.textContent = minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+                timeLeft--;
+                if (timeLeft < 0) {
+                    clearInterval(interval);
+                    alert("Time is up! Submitting quiz...");
+                    document.getElementById("quizForm").submit();
+                }
+            }, 1000);
+        }
+        window.onload = startTimer;
+    </script>
+</head>
+<body>
+    <h2>Quiz for {{ emp.first_name }} {{ emp.last_name }}</h2>
+    <div id="timer">5:00</div>
+
+    <!-- Option selector with category -->
+    <form method="POST" enctype="multipart/form-data">
+        <label><input type="radio" name="mode" value="auto" checked> Use Auto-generated Quiz</label><br>
+        <label><input type="radio" name="mode" value="upload"> Upload My Own Questionnaire</label><br>
+        <select name="category">
+            <option value="Engine" {% if category=="Engine" %}selected{% endif %}>Engine</option>
+            <option value="PMS" {% if category=="PMS" %}selected{% endif %}>PMS</option>
+            <option value="Car Brands" {% if category=="Car Brands" %}selected{% endif %}>Car Brands</option>
+            <option value="General" {% if category=="General" %}selected{% endif %}>General</option>
+        </select>
+        <input type="file" name="file" accept=".csv">
+        <button type="submit">Confirm Option</button>
+    </form>
+
+    <!-- Quiz form -->
+    <form method="POST" id="quizForm">
+        <input type="hidden" name="mode" value="take">
+        <input type="hidden" name="category" value="{{ category }}">
+        {% for q in quizzes %}
+            <p><b>[{{ q.category }}] {{ q.question }}</b></p>
+            <label><input type="radio" name="quiz_{{ q.id }}" value="A"> {{ q.choice_a }}</label><br>
+            <label><input type="radio" name="quiz_{{ q.id }}" value="B"> {{ q.choice_b }}</label><br>
+            {% if q.choice_c %}<label><input type="radio" name="quiz_{{ q.id }}" value="C"> {{ q.choice_c }}</label><br>{% endif %}
+            {% if q.choice_d %}<label><input type="radio" name="quiz_{{ q.id }}" value="D"> {{ q.choice_d }}</label><br>{% endif %}
+        {% endfor %}
+        <button type="submit">Submit Quiz</button>
+    </form>
+
+    <!-- Past results -->
+    <h3>Past Results</h3>
+    <table>
+        <tr>
+            <th>Score</th>
+            <th>Total Points</th>
+            <th>Percentage</th>
+            <th>Date Taken</th>
+            <th>Status</th>
+            <th>Type</th>
+            <th>Merit/Demerit</th>
+        </tr>
+        {% for r in results %}
+        <tr>
+            <td>{{ r.score }}</td>
+            <td>{{ r.total_points }}</td>
+            <td>{{ "%.2f"|format((r.score/r.total_points*100) if r.total_points else 0) }}%</td>
+            <td>{{ r.date_taken.strftime("%Y-%m-%d") }}</td>
+            <td>
+                {% if (r.score/r.total_points*100) >= 75 %}
+                    Passed 🎉
+                {% else %}
+                    Failed ⚠️
+                {% endif %}
+            </td>
+            <td>
+                {% if r.is_official %}
+                    Official
+                {% else %}
+                    Retake (Uncounted)
+                {% endif %}
+            </td>
+            <td>
+                {% if r.is_official %}
+                    {% if (r.score/r.total_points*100) >= 75 %}
+                        +5 Merit
+                    {% else %}
+                        +3 Demerit
+                    {% endif %}
+                {% else %}
+                    Practice Only
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

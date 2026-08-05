@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Staff Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:0; }
+        .stats { display:flex; justify-content:space-around; text-align:center; margin:20px; }
+        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; }
+        .card { background:white; padding:20px; border-radius:10px; margin:20px; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+    </style>
+</head>
+<body>
+    <!-- Quick Stats -->
+    <div class="stats">
+        <div><h3>Attendance Records</h3><p><b>{{ attendance_records|length }}</b></p></div>
+        <div><h3>Leave Requests</h3><p><b>{{ leaves|length }}</b></p></div>
+        <div><h3>Payroll History</h3><p><b>{{ payrolls|length }}</b></p></div>
+        <div><h3>Loans</h3><p><b>{{ loans|length }}</b></p></div>
+    </div>
+
+    <!-- Attendance -->
+    <div class="card">
+        <h2>My Attendance</h2>
+        <table>
+            <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>OT Status</th></tr>
+            {% for att in attendance_records %}
+            <tr>
+                <td>{{ att.clock_in.date() }}</td>
+                <td>{{ att.clock_in.strftime("%H:%M") if att.clock_in else "" }}</td>
+                <td>{{ att.clock_out.strftime("%H:%M") if att.clock_out else "" }}</td>
+                <td>{{ att.ot_status }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Leaves -->
+    <div class="card">
+        <h2>My Leave Requests</h2>
+        <table>
+            <tr><th>Date Filed</th><th>Type</th><th>Status</th></tr>
+            {% for leave in leaves %}
+            <tr>
+                <td>{{ leave.date_filed.strftime("%b %d, %Y") }}</td>
+                <td>{{ leave.leave_type }}</td>
+                <td>{{ leave.status }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Payroll -->
+    <div class="card">
+        <h2>My Payroll History</h2>
+        <table>
+            <tr><th>Cutoff Start</th><th>Cutoff End</th><th>Net Pay</th></tr>
+            {% for pay in payrolls %}
+            <tr>
+                <td>{{ pay.cutoff_start.strftime("%b %d, %Y") }}</td>
+                <td>{{ pay.cutoff_end.strftime("%b %d, %Y") }}</td>
+                <td>₱{{ "%.2f"|format(pay.net_pay) }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Loans -->
+    <div class="card">
+        <h2>My Loans</h2>
+        <table>
+            <tr><th>Date</th><th>Amount</th><th>Status</th></tr>
+            {% for loan in loans %}
+            <tr>
+                <td>{{ loan.date_requested.strftime("%b %d, %Y") }}</td>
+                <td>₱{{ "%.2f"|format(loan.amount) }}</td>
+                <td>{{ loan.status }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Quizzes -->
+    <div class="card">
+        <h2>My Quiz Results</h2>
+        <table>
+            <tr><th>Quiz Title</th><th>Score</th><th>Date</th></tr>
+            {% for quiz in quizzes %}
+            <tr>
+                <td>{{ quiz.quiz_title }}</td>
+                <td>{{ quiz.score }}</td>
+                <td>{{ quiz.date_taken.strftime("%b %d, %Y") }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Bulletins -->
+    <div class="card">
+        <h2>Latest Bulletins</h2>
+        <ul>
+            {% for b in bulletins %}
+            <li><b>{{ b.title }}</b> - {{ b.created_at.strftime("%b %d, %Y") }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Holiday + Overtime Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; }
+        .card { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background: #1976d2; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .btn { display: inline-block; padding: 10px 20px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Holiday + Overtime Dashboard</h2>
+        <table>
+            <tr>
+                <th>Attendance ID</th>
+                <th>Employee ID</th>
+                <th>Date</th>
+                <th>Holiday Name</th>
+                <th>Status</th>
+                <th>OT Hours</th>
+                <th>OT Type</th>
+                <th>OT Status</th>
+            </tr>
+            {% for att in holiday_attendance %}
+            <tr>
+                <td>{{ att.id }}</td>
+                <td>{{ att.employee_id }}</td>
+                <td>{{ att.date }}</td>
+                <td>{{ PH_HOLIDAYS_2026.get(att.date, '') }}</td>
+                <td>{{ att.status }}</td>
+                <td>{{ att.overtime_hours or 0 }}</td>
+                <td>
+                    {% if att.is_weekday_ot %}Weekday{% elif att.is_restday_ot %}Rest Day{% elif att.is_holiday_ot %}Holiday{% else %}None{% endif %}
+                </td>
+                <td>{{ att.ot_status or 'Pending' }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <br>
+        <a href="{{ url_for('export_holiday_ot') }}" class="btn">⬇ Export CSV</a>
+    </div>
+</body>
+</html>

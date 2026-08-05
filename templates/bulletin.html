@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Bulletin Board</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        .card { background:#fff; padding:15px; margin-bottom:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+        h2 { color:#1976d2; }
+        .date { font-size:0.9em; color:#555; }
+    </style>
+</head>
+<body>
+    <h2>Company Bulletin</h2>
+    {% for post in posts %}
+    <div class="card">
+        <h3>{{ post.title }}</h3>
+        <p class="date">{{ post.date }}</p>
+        <p>{{ post.content }}</p>
+    </div>
+    {% endfor %}
+</body>
+</html>

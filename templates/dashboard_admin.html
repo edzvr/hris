@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin:0; padding:0; }
+        .stats { display:flex; justify-content:space-around; text-align:center; margin:20px; }
+        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; }
+        .tabs { display:flex; margin:20px; }
+        .tabs button { flex:1; padding:10px; cursor:pointer; background:#1976d2; color:white; border:none; }
+        .tabs button.active { background:#388e3c; }
+        .tab-content { display:none; margin:20px; }
+        .tab-content.active { display:block; }
+        .card { background:white; padding:20px; border-radius:10px; margin-bottom:20px; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+        .btn { padding:6px 12px; background:#388e3c; color:white; text-decoration:none; border-radius:6px; }
+    </style>
+</head>
+<body>
+    <!-- Quick Stats -->
+    <div class="stats">
+        <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
+        <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
+        <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
+        <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="active" onclick="showTab('employees')">Employees</button>
+        <button onclick="showTab('leaves')">Leaves</button>
+        <button onclick="showTab('bulletins')">Bulletins</button>
+        <button onclick="showTab('payroll')">Payroll & OT</button>
+        <button onclick="showTab('evaluation')">Evaluation</button>
+        <button onclick="showTab('analytics')">Analytics</button>
+        <button onclick="showTab('reports')">Reports</button>
+        <button onclick="showTab('settings')">Settings</button>
+    </div>
+
+    <!-- Employees Tab -->
+    <div id="employees" class="tab-content active">
+        <div class="card">
+            <h2>Employees - Trece-Uno</h2>
+            <table>
+                <tr><th>Name</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th></tr>
+                {% for emp in trece_employees %}
+                <tr>
+                    <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                    <td>{{ emp.daily_rate }}</td>
+                    <td>{{ emp.allowance }}</td>
+                    <td>{{ emp.incentives }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="card">
+            <h2>Employees - Auto Expert</h2>
+            <table>
+                <tr><th>Name</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th></tr>
+                {% for emp in auto_employees %}
+                <tr>
+                    <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                    <td>{{ emp.daily_rate }}</td>
+                    <td>{{ emp.allowance }}</td>
+                    <td>{{ emp.incentives }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+
+    <!-- Leaves Tab -->
+    <div id="leaves" class="tab-content">
+        <div class="card">
+            <h2>Leave Requests</h2>
+            <p>Trece-Uno Leaves: {{ trece_leaves|length }}</p>
+            <p>Auto Expert Leaves: {{ auto_leaves|length }}</p>
+        </div>
+    </div>
+
+    <!-- Bulletins Tab -->
+    <div id="bulletins" class="tab-content">
+        <div class="card">
+            <h2>Bulletins</h2>
+            <p>Unread Bulletins: {{ unread_count }}</p>
+        </div>
+    </div>
+
+    <!-- Payroll & OT Tab -->
+    <div id="payroll" class="tab-content">
+        <div class="card">
+            <h2>Payroll & Overtime</h2>
+            <a href="{{ url_for('payroll_dashboard') }}" class="btn">Payroll Dashboard</a>
+            <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">Holiday OT Dashboard</a>
+        </div>
+    </div>
+    <!-- Evaluation Tab -->
+    <div id="evaluation" class="tab-content">
+        <div class="card">
+            <h2>Employee Evaluation</h2>
+        
+    </div>
+
+    <!-- Analytics Tab -->
+    <div id="analytics" class="tab-content">
+        <div class="card">
+            <h2>Analytics</h2>
+            <canvas id="payrollTrendChart" width="400" height="200"></canvas>
+            <canvas id="leaveStatusChart" width="400" height="200"></canvas>
+            <canvas id="otStatusChart" width="400" height="200"></canvas>
+            <canvas id="employeeChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+
+    <!-- Reports Tab -->
+    <div id="reports" class="tab-content">
+        <div class="card">
+            <h2>Reports</h2>
+            <a href="{{ url_for('export_evaluations_pdf') }}" class="btn">Export Evaluations PDF</a>
+            <a href="{{ url_for('export_evaluations_excel') }}" class="btn">Export Evaluations Excel</a>
+        </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="settings" class="tab-content">
+        <div class="card">
+            <h2>Settings</h2>
+            <p>Configure system preferences, user roles, and access controls.</p>
+        </div>
+    </div>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Payroll Trend (Line Chart)
+        var ctxTrend = document.getElementById('payrollTrendChart').getContext('2d');
+        new Chart(ctxTrend, {
+            type: 'line',
+            data: {
+                labels: {{ trend_labels|tojson }},
+                datasets: [{
+                    label: 'Payroll Total (₱)',
+                    data: {{ trend_values|tojson }},
+                    borderColor: '#1976d2',
+                    fill: false
+                }]
+            }
+        });
+
+        // Leave Status (Pie Chart)
+        var ctxLeave = document.getElementById('leaveStatusChart').getContext('2d');
+        new Chart(ctxLeave, {
+            type: 'pie',
+            data: {
+                labels: ['Approved','Pending','Rejected'],
+                datasets: [{
+                    data: [{{ trece_leaves|length + auto_leaves|length }},
+                           {{ pending_leaves }}, 5],
+                    backgroundColor: ['#4caf50','#ff9800','#f44336']
+                }]
+            }
+        });
+
+        // OT Status (Bar Chart)
+        var ctxOT = document.getElementById('otStatusChart').getContext('2d');
+        new Chart(ctxOT, {
+            type: 'bar',
+            data: {
+                labels: ['Approved','Pending','Rejected'],
+                datasets: [{
+                    label: 'OT Requests',
+                    data: [10, {{ pending_ot }}, 3],
+                    backgroundColor: ['#388e3c','#ffeb3b','#e53935']
+                }]
+            }
+        });
+
+        // Employee distribution (Pie Chart)
+        var ctxEmp = document.getElementById('employeeChart').getContext('2d');
+        new Chart(ctxEmp, {
+            type: 'pie',
+            data: {
+                labels: ['Trece-Uno', 'Auto Expert'],
+                datasets: [{
+                    data: [{{ trece_employees|length }}, {{ auto_employees|length }}],
+                    backgroundColor: ['#ff9800','#4caf50']
+                }]
+            }
+        });
+
+        // Tab switching
+        function showTab(tabId) {
+            var tabs = document.querySelectorAll('.tab-content');
+            var buttons = document.querySelectorAll('.tabs button');
+            tabs.forEach(t => t.classList.remove('active'));
+            buttons.forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Redemption Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
+        h2 { color:#1976d2; text-align:center; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:10px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+    </style>
+</head>
+<body>
+    <h2>Merit Points Redemption History</h2>
+    <table>
+        <tr>
+            <th>Date Redeemed</th>
+            <th>Employee</th>
+            <th>Role</th>
+            <th>Points Redeemed</th>
+            <th>Cash Value</th>
+        </tr>
+        {% for r in redemptions %}
+        <tr>
+            <td>{{ r.date_redeemed.strftime("%Y-%m-%d") }}</td>
+            <td>{{ r.employee.first_name }} {{ r.employee.last_name }}</td>
+            <td>{{ r.employee.role }}</td>
+            <td>{{ r.points_redeemed }}</td>
+            <td>PHP {{ r.cash_value }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

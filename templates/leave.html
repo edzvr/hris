@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Leave Module</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
+        h2 { color:#1976d2; }
+        form { background:#fff; padding:20px; border-radius:8px; margin-bottom:20px; }
+        form input, form select { margin:8px 0; padding:8px; width:100%; }
+        form button { background:#388e3c; color:white; padding:10px; border:none; border-radius:6px; cursor:pointer; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+        .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; }
+        .stats { display:flex; justify-content:space-around; margin:20px; }
+        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; text-align:center; }
+    </style>
+</head>
+<body>
+
+{% if not print_mode %}
+    <!-- Apply Leave Form -->
+    <h2>Apply Leave</h2>
+    <form method="POST">
+        <label>Type:</label>
+        <select name="leave_type" required>
+            <option value="SIL">Service Incentive Leave</option>
+            <option value="Vacation">Vacation Leave</option>
+            <option value="Sick">Sick Leave</option>
+            <option value="Emergency">Emergency Leave</option>
+            <option value="LWOP">Leave Without Pay (LWOP)</option>
+        </select>
+        <label>Start Date:</label>
+        <input type="date" name="start_date" required>
+        <label>End Date:</label>
+        <input type="date" name="end_date" required>
+        <label>Days:</label>
+        <input type="number" name="days" required>
+        <label>Reason:</label>
+        <input type="text" name="reason" required>
+        <button type="submit">Submit Request</button>
+    </form>
+
+    <!-- Summary Stats -->
+    <div class="stats">
+        <div><h3>Approved</h3><p style="color:green;"><b>{{ approved }}</b></p></div>
+        <div><h3>Pending</h3><p style="color:orange;"><b>{{ pending }}</b></p></div>
+        <div><h3>Rejected</h3><p style="color:red;"><b>{{ rejected }}</b></p></div>
+        <div><h3>LWOP</h3><p style="color:gray;"><b>{{ lwop }}</b></p></div>
+    </div>
+{% endif %}
+
+    <!-- Leave History Table -->
+    <h2>Leave History</h2>
+    <table>
+        <tr>
+            <th>Type</th><th>Days</th><th>Start</th><th>End</th><th>Reason</th><th>Status</th><th>Paid?</th>
+            {% if current_user.role.lower() == 'admin' and not print_mode %}
+                <th>Remaining SIL Credits</th><th>Action</th>
+            {% endif %}
+        </tr>
+        {% for leave in leaves %}
+        <tr>
+            <td>{{ leave.leave_type }}</td>
+            <td>{{ leave.days }}</td>
+            <td>{{ leave.start_date }}</td>
+            <td>{{ leave.end_date }}</td>
+            <td>{{ leave.reason }}</td>
+            <td>
+                {% if leave.status == "Approved" %}
+                    <span style="color:green; font-weight:bold;">Approved</span>
+                {% elif leave.status == "Rejected" %}
+                    <span style="color:red; font-weight:bold;">Rejected</span>
+                {% else %}
+                    <span style="color:orange; font-weight:bold;">Pending</span>
+                {% endif %}
+            </td>
+            <td>{{ 'Yes' if leave.is_paid else 'No (LWOP)' }}</td>
+            {% if current_user.role.lower() == 'admin' and not print_mode %}
+            <td>{{ leave.employee.sil_credits }}</td>
+            <td>
+                <a href="{{ url_for('leave', leave_id=leave.id, action='approve') }}" class="btn">Approve</a>
+                <a href="{{ url_for('leave', leave_id=leave.id, action='reject') }}" class="btn">Reject</a>
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </table>
+
+{% if not print_mode %}
+    <!-- Export Options -->
+    <div style="margin-top:20px;">
+        <a href="{{ url_for('leave', export='csv') }}" class="btn">Export to CSV</a>
+        <a href="{{ url_for('leave', export='excel') }}" class="btn">Export to Excel</a>
+        <a href="{{ url_for('leave', export='print') }}" class="btn">Print View</a>
+    </div>
+
+    <!-- Analytics Charts -->
+    <h2>Leave Analytics</h2>
+    <canvas id="leaveStatusChart" width="400" height="200"></canvas>
+    <canvas id="leaveTrendChart" width="400" height="200"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        var ctxLeave = document.getElementById('leaveStatusChart').getContext('2d');
+        new Chart(ctxLeave, {
+            type: 'pie',
+            data: {
+                labels: ['Approved','Pending','Rejected','LWOP'],
+                datasets: [{
+                    data: [{{ approved }}, {{ pending }}, {{ rejected }}, {{ lwop }}],
+                    backgroundColor: ['#4caf50','#ff9800','#f44336','#9e9e9e']
+                }]
+            }
+        });
+
+        var ctxLeaveTrend = document.getElementById('leaveTrendChart').getContext('2d');
+        new Chart(ctxLeaveTrend, {
+            type: 'line',
+            data: {
+                labels: {{ leave_labels|tojson }},
+                datasets: [{
+                    label: 'Approved Leaves',
+                    data: {{ leave_values|tojson }},
+                    borderColor: '#4caf50',
+                    fill: false
+                }]
+            }
+        });
+    </script>
+
+    <br>
+    <a href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+{% endif %}
+
+</body>
+</html>
