@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>201 File - {{ employee.first_name }} {{ employee.last_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        .card { max-width: 1050px; margin: 0 auto 20px; padding: 24px; background: #f8faf9; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h1, h2 { color: #1976d2; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+        input, select { box-sizing: border-box; width: 100%; padding: 10px; }
+        .btn { display: inline-block; padding: 10px 14px; margin-top: 12px; border: 0; border-radius: 6px; background: #789fc7; color: #fff; text-decoration: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        th, td { border: 1px solid #d8e0dc; padding: 10px; text-align: left; }
+        th { background: #789fc7; color: #fff; }
+        .guidance { background: #eef3f1; padding: 14px; margin-top: 18px; }
+        @media (max-width: 800px) { .form-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 520px) { .form-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Employee 201 File</h1>
+        <p><strong>{{ employee.first_name }} {{ employee.last_name }}</strong> | {{ employee.company }} | ID {{ employee.id }}</p>
+        <form method="POST" enctype="multipart/form-data">
+            <div class="form-grid">
+                <select name="phase" required><option value="">Phase</option><option value="pre-employment">Pre-Employment</option><option value="employment">Employment</option><option value="separation">Separation</option></select>
+                <input name="document_type" placeholder="Document type" required>
+                <input type="number" name="retention_years" min="0" placeholder="Retention years">
+                <input type="file" name="document" required>
+            </div>
+            <button type="submit" class="btn">Upload 201 Document</button>
+        </form>
+        <p><a class="btn" href="{{ url_for('employee_201_pdf', employee_id=employee.id) }}">Download 201 Index PDF</a> <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a></p>
+    </main>
+
+    <section class="card">
+        <h2>Uploaded 201 Documents</h2>
+        <table><thead><tr><th>Phase</th><th>Document Type</th><th>Filename</th><th>Retention</th><th>Uploaded</th><th>Download</th></tr></thead><tbody>
+        {% for document in documents %}<tr><td>{{ document.phase }}</td><td>{{ document.document_type }}</td><td>{{ document.original_filename }}</td><td>{{ document.retention_years or 'N/A' }} years</td><td>{{ document.uploaded_at.strftime('%Y-%m-%d') if document.uploaded_at else 'N/A' }}</td><td><a class="btn" href="{{ url_for('download_employee_document', document_id=document.id) }}">Download</a></td></tr>
+        {% else %}<tr><td colspan="6">No 201 documents uploaded yet.</td></tr>{% endfor %}
+        </tbody></table>
+        <div class="guidance"><strong>Retention guidance</strong>{% for label, years in retention_guidance.items() %}<div>{{ label.title() }}: {{ years }}</div>{% endfor %}</div>
+    </section>
+</body>
+</html>

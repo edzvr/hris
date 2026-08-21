@@ -1,18 +1,24 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Monthly Quiz</title>
     <style>
         body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        h2 { color:#1976d2; }
         table { width:100%; border-collapse:collapse; margin-top:20px; }
         th, td { border:1px solid #ddd; padding:8px; text-align:center; }
         th { background:#2196f3; color:white; }
         #timer { font-size:18px; font-weight:bold; color:red; }
+        td.passed { background:#c8e6c9; color:#2e7d32; }
+        td.failed { background:#ffcdd2; color:#c62828; }
+        .section { background:#fff; padding:20px; border-radius:8px; margin-bottom:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+        select, input, button { padding:8px; margin:5px; border-radius:6px; }
+        .btn { background:#1976d2; color:white; border:none; cursor:pointer; }
     </style>
     <script>
-        // Countdown timer (5 minutes)
-        let timeLeft = 300;
+        // Countdown timer (1 minute)
+        let timeLeft = 60;
         function startTimer() {
             let timer = document.getElementById("timer");
             let interval = setInterval(function() {
@@ -29,84 +35,100 @@
         }
         window.onload = startTimer;
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
     <h2>Quiz for {{ emp.first_name }} {{ emp.last_name }}</h2>
-    <div id="timer">5:00</div>
+    <div id="timer">1:00</div>
 
-    <!-- Option selector with category -->
-    <form method="POST" enctype="multipart/form-data">
-        <label><input type="radio" name="mode" value="auto" checked> Use Auto-generated Quiz</label><br>
-        <label><input type="radio" name="mode" value="upload"> Upload My Own Questionnaire</label><br>
-        <select name="category">
-            <option value="Engine" {% if category=="Engine" %}selected{% endif %}>Engine</option>
-            <option value="PMS" {% if category=="PMS" %}selected{% endif %}>PMS</option>
-            <option value="Car Brands" {% if category=="Car Brands" %}selected{% endif %}>Car Brands</option>
-            <option value="General" {% if category=="General" %}selected{% endif %}>General</option>
-        </select>
-        <input type="file" name="file" accept=".csv">
-        <button type="submit">Confirm Option</button>
-    </form>
+    <!-- Staff selects only the quiz category; uploads are handled by admins. -->
+    <div class="section">
+        <h3>Quiz Options</h3>
+        <form method="POST" enctype="multipart/form-data">
+            <label><input type="radio" name="mode" value="auto" checked> Use Auto-generated Quiz</label><br>
+            <select name="category">
+                <option value="Engine" {% if category=="Engine" %}selected{% endif %}>Engine</option>
+                <option value="PMS" {% if category=="PMS" %}selected{% endif %}>PMS</option>
+                <option value="Car Brands" {% if category=="Car Brands" %}selected{% endif %}>Car Brands</option>
+                <option value="General" {% if category=="General" %}selected{% endif %}>General</option>
+            </select>
+            <button type="submit" class="btn">Confirm Option</button>
+        </form>
+    </div>
 
     <!-- Quiz form -->
-    <form method="POST" id="quizForm">
-        <input type="hidden" name="mode" value="take">
-        <input type="hidden" name="category" value="{{ category }}">
-        {% for q in quizzes %}
-            <p><b>[{{ q.category }}] {{ q.question }}</b></p>
-            <label><input type="radio" name="quiz_{{ q.id }}" value="A"> {{ q.choice_a }}</label><br>
-            <label><input type="radio" name="quiz_{{ q.id }}" value="B"> {{ q.choice_b }}</label><br>
-            {% if q.choice_c %}<label><input type="radio" name="quiz_{{ q.id }}" value="C"> {{ q.choice_c }}</label><br>{% endif %}
-            {% if q.choice_d %}<label><input type="radio" name="quiz_{{ q.id }}" value="D"> {{ q.choice_d }}</label><br>{% endif %}
-        {% endfor %}
-        <button type="submit">Submit Quiz</button>
-    </form>
+    <div class="section">
+        <h3>Take Quiz - {{ category }}</h3>
+        <form method="POST" id="quizForm">
+            <input type="hidden" name="mode" value="take">
+            <input type="hidden" name="category" value="{{ category }}">
+            <input type="hidden" name="quiz_ids" value="{{ quiz_ids }}">
+            {% for q in quizzes %}
+                <p><b>[{{ q.category }}] {{ q.question }}</b></p>
+                <label><input type="radio" name="quiz_{{ q.id }}" value="A"> A. {{ q.choice_a }}</label><br>
+                <label><input type="radio" name="quiz_{{ q.id }}" value="B"> B. {{ q.choice_b }}</label><br>
+                {% if q.choice_c %}<label><input type="radio" name="quiz_{{ q.id }}" value="C"> C. {{ q.choice_c }}</label><br>{% endif %}
+                {% if q.choice_d %}<label><input type="radio" name="quiz_{{ q.id }}" value="D"> D. {{ q.choice_d }}</label><br>{% endif %}
+            {% else %}
+                <p>No quizzes available for this category/month.</p>
+            {% endfor %}
+            {% if quizzes %}
+            <button type="submit" class="btn">Submit Quiz</button>
+            {% endif %}
+        </form>
+    </div>
 
     <!-- Past results -->
-    <h3>Past Results</h3>
-    <table>
-        <tr>
-            <th>Score</th>
-            <th>Total Points</th>
-            <th>Percentage</th>
-            <th>Date Taken</th>
-            <th>Status</th>
-            <th>Type</th>
-            <th>Merit/Demerit</th>
-        </tr>
-        {% for r in results %}
-        <tr>
-            <td>{{ r.score }}</td>
-            <td>{{ r.total_points }}</td>
-            <td>{{ "%.2f"|format((r.score/r.total_points*100) if r.total_points else 0) }}%</td>
-            <td>{{ r.date_taken.strftime("%Y-%m-%d") }}</td>
-            <td>
-                {% if (r.score/r.total_points*100) >= 75 %}
-                    Passed 🎉
-                {% else %}
-                    Failed ⚠️
-                {% endif %}
-            </td>
-            <td>
-                {% if r.is_official %}
-                    Official
-                {% else %}
-                    Retake (Uncounted)
-                {% endif %}
-            </td>
-            <td>
-                {% if r.is_official %}
+    <div class="section">
+        <h3>Past Results</h3>
+        <table>
+            <tr>
+                <th>Score</th>
+                <th>Total Points</th>
+                <th>Percentage</th>
+                <th>Date Taken</th>
+                <th>Status</th>
+                <th>Type</th>
+                <th>Merit/Demerit</th>
+            </tr>
+            {% for r in results %}
+            <tr>
+                <td>{{ r.score }}</td>
+                <td>{{ r.total_points }}</td>
+                <td>{{ "%.2f"|format((r.score/r.total_points*100) if r.total_points else 0) }}%</td>
+                <td>{{ r.date_taken.strftime("%Y-%m-%d") }}</td>
+                <td class="{% if (r.score/r.total_points*100) >= 75 %}passed{% else %}failed{% endif %}">
                     {% if (r.score/r.total_points*100) >= 75 %}
-                        +5 Merit
+                        Passed 🎉
                     {% else %}
-                        +3 Demerit
+                        Failed ⚠️
                     {% endif %}
-                {% else %}
-                    Practice Only
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+                </td>
+                <td>
+                    {% if r.is_official %}
+                        Official
+                    {% else %}
+                        Retake (Uncounted)
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.is_official %}
+                        {% if (r.score/r.total_points*100) >= 75 %}
+                            +5 Merit
+                        {% else %}
+                            +3 Demerit
+                        {% endif %}
+                    {% else %}
+                        Practice Only
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No quiz results yet.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">⬅ Back to Dashboard</a>
 </body>
 </html>

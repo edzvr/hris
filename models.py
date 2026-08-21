@@ -19,6 +19,7 @@ class Employee(db.Model, UserMixin):
     contact_no = db.Column(db.String(20))
     password = db.Column(db.String(200))
     profile_pic = db.Column(db.String(200))
+    registered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=True)
     address = db.Column(db.String(200))
     date_started = db.Column(db.Date)
     sss = db.Column(db.String(50))
@@ -28,7 +29,7 @@ class Employee(db.Model, UserMixin):
     emergency_contact = db.Column(db.String(100))
     emergency_address = db.Column(db.String(200))
     sil_credits = db.Column(db.Integer, default=5)
-    leave_requests = db.relationship("LeaveRequest", backref="employee", lazy=True)
+    sil_eligible = db.Column(db.Boolean, nullable=False, default=True)
     merit_points = db.Column(db.Integer, default=0)
     demerit_points = db.Column(db.Integer, default=0)
 
@@ -40,11 +41,10 @@ class Employee(db.Model, UserMixin):
     sl_credits = db.Column(db.Integer, default=5)
 
     # Relationships
-    attendances = db.relationship("Attendance", backref="employee", lazy=True)
+    attendances = db.relationship("Attendance", back_populates="employee", lazy=True)
     leave_requests = db.relationship("LeaveRequest", backref="employee", lazy=True)
     loans = db.relationship("Loan", backref="employee", lazy=True)
     payrolls = db.relationship("Payroll", backref="employee", lazy=True)
-    evaluations = db.relationship("Evaluation", backref="employee", lazy=True)
     redemptions = db.relationship("RedemptionHistory", backref="employee", lazy=True)
     
     # Password helpers
@@ -75,6 +75,11 @@ class Attendance(db.Model):
     is_restday_ot = db.Column(db.Boolean, default=False)
     is_holiday_ot = db.Column(db.Boolean, default=False)
     ot_status = db.Column(db.String(20), default="Pending")
+
+    employee = db.relationship("Employee", back_populates="attendances")
+
+    def __repr__(self):
+        return f"<Attendance {self.date} - {self.status}>"
 
 # ------------------ HOLIDAY ------------------
 class Holiday(db.Model):
@@ -144,9 +149,41 @@ class Evaluation(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
-    rating = db.Column(db.Integer)   # 1–5
+    evaluator_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    rating = db.Column(db.Integer, nullable=True)
     remarks = db.Column(db.String(255))
     date = db.Column(db.DateTime, default=datetime.utcnow)
+    category = db.Column(db.String(50), default="core")  # halimbawa: core, attitude, etc.
+    employee = db.relationship(
+        "Employee",
+        foreign_keys=[employee_id],
+        backref=db.backref("evaluations", lazy=True),
+    )
+    evaluator = db.relationship(
+        "Employee",
+        foreign_keys=[evaluator_id],
+        backref=db.backref("evaluations_given", lazy=True),
+    )
+
+    @property
+    def score(self):
+        return self.rating
+
+    @score.setter
+    def score(self, value):
+        self.rating = value
+
+
+class EvaluationQuestion(db.Model):
+    __tablename__ = "evaluation_questions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(255), nullable=False)
+    category = db.Column(db.String(50), nullable=False, default="core")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+        
 
 # ------------------ QUIZ ------------------
 class Quiz(db.Model):
@@ -160,16 +197,19 @@ class Quiz(db.Model):
     correct_answer = db.Column(db.String(1), nullable=False)
     points = db.Column(db.Integer, default=1)
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
+    category = db.Column(db.String(100))
 
 class QuizResult(db.Model):
     __tablename__ = "quiz_results"
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    quiz_id = db.Column(db.Integer, db.ForeignKey("quizzes.id"), nullable=True)
     score = db.Column(db.Integer, nullable=False)
     total_points = db.Column(db.Integer, nullable=False)
     date_taken = db.Column(db.DateTime, default=datetime.utcnow)
     employee = db.relationship("Employee", backref="quiz_results")
-    is_official = db.Column(db.Boolean, default=True)  # NEW
+    quiz = db.relationship("Quiz", backref="results")
+    is_official = db.Column(db.Boolean, default=True)
 
 # ------------------ BULLETIN ------------------
 class Bulletin(db.Model):
@@ -220,3 +260,44 @@ class RedemptionHistory(db.Model):
     points_redeemed = db.Column(db.Integer, nullable=False)
     cash_value = db.Column(db.Float, nullable=False)
     date_redeemed = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class IncidentReport(db.Model):
+    __tablename__ = "incident_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    reported_employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    category = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    signature = db.Column(db.Text, nullable=False)
+    staff_signature = db.Column(db.Text, nullable=True)
+    admin_signature = db.Column(db.Text, nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    employee = db.relationship(
+        "Employee",
+        foreign_keys=[employee_id],
+        backref="incident_reports"
+    )
+    reported_employee = db.relationship(
+        "Employee",
+        foreign_keys=[reported_employee_id],
+        backref="incidents_reported_against"
+    )
+    reviewer = db.relationship("Employee", foreign_keys=[reviewed_by])
+
+
+class EmployeeDocument(db.Model):
+    __tablename__ = "employee_documents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    phase = db.Column(db.String(30), nullable=False)
+    document_type = db.Column(db.String(120), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False)
+    retention_years = db.Column(db.Integer, nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    employee = db.relationship("Employee", backref="employee_documents")

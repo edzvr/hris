@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+instance/*.db-journal
+instance/backups/
+logs/*.log
+backup_hris_*.db
+*.pyc
+logs/
+static/uploads/
+*.sqlite
+*.db

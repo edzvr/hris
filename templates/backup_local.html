@@ -2,6 +2,7 @@
 <html>
 <head>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
   <div class="card">
@@ -9,25 +10,27 @@
 
     <!-- Local Backup -->
     {% if local_exists %}
-      <p>📂 Local backup file is available.</p>
-      <a href="{{ url_for('download_db') }}">Download Local Backup</a>
+      <p>📂 Complete HRIS backup created: database and uploaded files.</p>
+      {% if backup_filename %}
+        <a class="btn btn-primary" href="{{ url_for('download_db', filename=backup_filename) }}">Download Complete Backup</a>
+      {% endif %}
     {% else %}
-      <p>❌ No local database file found.</p>
+      <p>❌ No database file found at instance/hris.db.</p>
     {% endif %}
 
     <hr>
 
-    <!-- Cloud Backup -->
-    <h3>Cloud Backup</h3>
+    <!-- Backup status -->
+    <h3>Backup Status</h3>
     {% if backup_status == 'success' %}
-      <div class="alert-success">✅ Backup uploaded successfully to cloud storage!</div>
+      <div class="alert-success">✅ Complete HRIS backup is ready for download.</div>
     {% else %}
-      <div class="alert-fail">❌ Backup failed. Please try again.</div>
+      <div class="alert-fail">❌ Backup could not be created.</div>
     {% endif %}
     <p><strong>Last backup:</strong> {{ last_backup }}</p>
 
     <br>
-    <a href="{{ url_for('dashboard_admin') }}">&#8592; Back to Admin Dashboard</a>
+    <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">&#8592; Back to Admin Dashboard</a>
   </div>
 </body>
 </html>

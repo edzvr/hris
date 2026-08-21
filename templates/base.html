@@ -72,8 +72,15 @@
 </head>
 <body>
     <nav class="navbar">
-        <a href="{{ url_for('dashboard_admin') }}">🏠 Dashboard</a>
-        <a href="{{ url_for('payroll_list') }}">💰 Payroll</a>
+        {% if current_user.is_authenticated %}
+            {% if current_user.role and 'staff' in current_user.role.lower() %}
+                <a href="{{ url_for('dashboard_staff') }}">🏠 Dashboard</a>
+            {% else %}
+                <a href="{{ url_for('dashboard_admin') }}">🏠 Dashboard</a>
+            {% endif %}
+        {% else %}
+            <a href="{{ url_for('login') }}">🏠 Login</a>
+        {% endif %}
         <a href="{{ url_for('leave') }}">📄 Leave</a>
         <a href="{{ url_for('loan') }}">💳 Loan</a>
     </nav>

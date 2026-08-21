@@ -1,33 +1,459 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+# ------------------ HRIS MAIN APP ------------------
+import os, random, logging
+from datetime import datetime, date, timedelta, time
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
-from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
-from datetime import datetime, timedelta
+from werkzeug.utils import secure_filename 
 
+# ------------------ LOGGING CONFIG ------------------
+log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(log_dir, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # console output
+        logging.FileHandler(os.path.join(log_dir, "hris_scheduler.log"))  # file output
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# ------------------ APP CONFIG ------------------
 app = Flask(__name__)
-app.secret_key = "secret"
-
+app.secret_key = os.environ.get("HRIS_SECRET_KEY", "secret")
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(basedir, 'instance', 'hris.db')}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['FILES_FOLDER'] = os.path.join(basedir, 'static', 'files')
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', '')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
+os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
+from flask_mail import Mail, Message
+mail = Mail(app)  # make sure app.config has MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD
 
-from models import db, Employee, Attendance, Holiday, LeaveRequest, LeaveHistory, Loan, LoanHistory, Evaluation, Quiz, QuizResult, Bulletin, Payroll
 
+def send_leave_email(employee, leave, decision):
+    if not employee.email or not app.config.get('MAIL_SERVER'):
+        return
+    try:
+        mail.send(Message(
+            subject=f"Leave request {decision}",
+            recipients=[employee.email],
+            body=(
+                f"Your {leave.leave_type} leave request for "
+                f"{leave.start_date} to {leave.end_date} was {decision}."
+            )
+        ))
+    except Exception:
+        logger.exception("Leave email could not be sent")
+
+
+def send_resume_work_email(employee):
+    if not employee.email or not app.config.get('MAIL_SERVER'):
+        return
+    try:
+        mail.send(Message(
+            subject="Work timer resumed",
+            recipients=[employee.email],
+            body="Your work timer has resumed after the lunch break."
+        ))
+    except Exception:
+        logger.exception("Resume email could not be sent")
+
+# ------------------ MODELS ------------------
+from models import (
+    db,
+    Employee,
+    Attendance,
+    Holiday,
+    LeaveRequest,
+    LeaveHistory,
+    Loan,
+    LoanHistory,
+    Evaluation,
+    EvaluationQuestion,
+    Quiz,
+    QuizResult,
+    Bulletin,
+    Payroll,
+    RedemptionHistory,
+    IncidentReport,
+    MeritDemerit,
+    EmployeeDocument
+)
+
+from utils.helpers import compute_weekly_deductions, compute_merit_demerit, ai_suggestion
+
+
+@app.route('/assessment', endpoint='assessment', methods=['GET', 'POST'])
+@login_required
+def assessment():
+    action = request.args.get("action")
+    quiz_id = request.args.get("quiz_id")
+
+    if request.method == 'POST' and action == "upload_quiz":
+        file = request.files.get('quiz_file')
+        if file and file.filename:
+            filename = secure_filename(file.filename)
+            upload_folder = app.config.get('UPLOAD_FOLDER', 'static/uploads')
+            filepath = os.path.join(upload_folder, filename)
+            os.makedirs(upload_folder, exist_ok=True)
+            file.save(filepath)
+
+            if filename.lower().endswith('.csv'):
+                with open(filepath, newline='', encoding='utf-8') as file_handle:
+                    reader = csv.DictReader(file_handle)
+                    for row in reader:
+                        db.session.add(Quiz(
+                            question=row['Question'],
+                            choice_a=row['OptionA'],
+                            choice_b=row['OptionB'],
+                            choice_c=row.get('OptionC'),
+                            choice_d=row.get('OptionD'),
+                            correct_answer=row['CorrectAnswer'],
+                            points=1
+                        ))
+                db.session.commit()
+                flash("✅ CSV Quiz uploaded!", "success")
+            elif filename.lower().endswith('.xlsx'):
+                import pandas as pd
+                data_frame = pd.read_excel(filepath)
+                for _, row in data_frame.iterrows():
+                    db.session.add(Quiz(
+                        question=row['Question'],
+                        choice_a=row['OptionA'],
+                        choice_b=row['OptionB'],
+                        choice_c=row.get('OptionC'),
+                        choice_d=row.get('OptionD'),
+                        correct_answer=row['CorrectAnswer'],
+                        points=1
+                    ))
+                db.session.commit()
+                flash("✅ Excel Quiz uploaded!", "success")
+            else:
+                flash("❌ Invalid file format.", "danger")
+        return redirect(url_for('assessment'))
+
+    if action == "quiz_results":
+        results = db.session.query(
+            QuizResult, Employee.first_name, Employee.last_name,
+            Quiz.question.label("quiz_title")
+        ).join(Employee, QuizResult.employee_id == Employee.id) \
+         .join(Quiz, QuizResult.quiz_id == Quiz.id).all()
+        return render_template("assessment.html", results=results, view="quiz_results")
+
+    if action == "quiz_leaderboard" and quiz_id:
+        results = db.session.query(
+            QuizResult, Employee.first_name, Employee.last_name
+        ).join(Employee, QuizResult.employee_id == Employee.id) \
+         .filter(QuizResult.quiz_id == quiz_id) \
+         .order_by((QuizResult.score * 1.0 / QuizResult.total_points).desc()).all()
+        return render_template("assessment.html", results=results, view="quiz_leaderboard")
+
+    if action == "evaluation":
+        evaluations = Evaluation.query.filter_by(employee_id=current_user.id).order_by(Evaluation.date.desc()).all()
+        month_start = datetime(datetime.today().year, datetime.today().month, 1)
+        pending_evals = Employee.query.filter(
+            ~Employee.evaluations.any(Evaluation.date >= month_start)
+        ).all()
+        if pending_evals and current_user.role.lower() == "admin":
+            flash(f"⚠️ {len(pending_evals)} employees still need evaluation this month!", "warning")
+        average_rating = round(
+            sum(e.rating or 0 for e in evaluations) / len(evaluations), 2
+        ) if evaluations else 0
+        return render_template(
+            "assessment.html",
+            evaluations=evaluations,
+            average_rating=average_rating,
+            view="evaluation"
+        )
+
+    if request.method == 'POST' and action == "peer_eval":
+        score = int(request.form.get('score'))
+        remarks = request.form.get('remarks')
+        if score >= 9 or score <= 2:
+            if not remarks:
+                flash("❌ Remarks required for extreme scores.", "danger")
+                return redirect(url_for('assessment', action="evaluation"))
+
+        db.session.add(Evaluation(
+            employee_id=request.form.get('employee_id'),
+            evaluator_id=current_user.id,
+            rating=score,
+            remarks=remarks,
+            category="peer_legacy",
+            date=datetime.now()
+        ))
+        db.session.commit()
+        flash("✅ Peer evaluation submitted!", "success")
+        return redirect(url_for('assessment', action="evaluation"))
+
+    if action == "history":
+        evals = Evaluation.query.filter_by(employee_id=current_user.id).order_by(Evaluation.date.desc()).all()
+        quiz_results = QuizResult.query.filter_by(employee_id=current_user.id).order_by(QuizResult.date_taken.desc()).all()
+        return render_template("assessment.html", evals=evals, quiz_results=quiz_results, view="history")
+
+    if action in ["pdf", "csv", "excel"]:
+        evals = Evaluation.query.filter_by(employee_id=current_user.id).all()
+        quiz_results = QuizResult.query.filter_by(employee_id=current_user.id).all()
+        return render_template("assessment.html", evals=evals, quiz_results=quiz_results, view=action)
+
+    if action == "ai_insights":
+        _, _, total, _ = compute_merit_demerit(current_user.id, datetime.today().strftime("%Y-%m"))
+        suggestion = ai_suggestion(total)
+        if total < 5:
+            return render_template("assessment.html", suggestion=suggestion, view="ai_private")
+
+        db.session.add(Bulletin(
+            title="AI Performance Insight",
+            content=suggestion,
+            author="System"
+        ))
+        db.session.commit()
+        return render_template("assessment.html", suggestion=suggestion, view="ai_public")
+
+    return render_template("assessment.html", view="menu")
+
+DEFAULT_PEER_QUESTIONS = [
+    "Communicates clearly and respectfully with the team.",
+    "Completes assigned work accurately and on time.",
+    "Shows teamwork and supports coworkers.",
+    "Demonstrates professionalism and accountability.",
+    "Responds constructively to feedback and workplace concerns."
+]
+
+
+def ensure_peer_questions():
+    if not EvaluationQuestion.query.first():
+        for text in DEFAULT_PEER_QUESTIONS:
+            db.session.add(EvaluationQuestion(text=text, category="peer", is_active=True))
+        db.session.commit()
+
+# ------------------ FUNCTION: generate_auto_quiz ------------------
+def generate_auto_quiz(category, num_questions=5):
+    pool = {
+        "Engine": [
+            Quiz(category="Engine", question="Ano ang gamit ng spark plug?",
+                 choice_a="Nagbibigay ng kuryente sa ilaw", choice_b="Nagpapasimula ng combustion sa engine",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="B", points=1),
+            Quiz(category="Engine", question="Ano ang gamit ng timing belt?",
+                 choice_a="Nagpapakain ng gasolina", choice_b="Nagkokonekta ng crankshaft at camshaft",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagbibigay ng kuryente",
+                 correct_answer="B", points=1),
+            Quiz(category="Engine", question="Ano ang gamit ng piston rings?",
+                 choice_a="Nagpapanatili ng compression", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagpapadulas ng gulong", choice_d="Nagbibigay ng kuryente",
+                 correct_answer="A", points=1),
+        ],
+        "Transmission": [
+            Quiz(category="Transmission", question="Ano ang gamit ng clutch?",
+                 choice_a="Nagpapalit ng gulong", choice_b="Nagkokonekta ng engine sa transmission",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapalakas ng ilaw",
+                 correct_answer="B", points=1),
+            Quiz(category="Transmission", question="Anong fluid ang kailangan ng automatic transmission?",
+                 choice_a="Brake Fluid", choice_b="Transmission Fluid", choice_c="Coolant", choice_d="Engine Oil",
+                 correct_answer="B", points=1),
+            Quiz(category="Transmission", question="Ano ang gamit ng gear oil?",
+                 choice_a="Nagpapadulas ng gears", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapalakas ng ilaw",
+                 correct_answer="A", points=1),
+        ],
+        "Electrical": [
+            Quiz(category="Electrical", question="Ano ang nag-iimbak ng kuryente?",
+                 choice_a="Alternator", choice_b="Battery", choice_c="Starter", choice_d="Distributor",
+                 correct_answer="B", points=1),
+            Quiz(category="Electrical", question="Ano ang gamit ng fuse?",
+                 choice_a="Proteksyon laban sa short circuit", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+            Quiz(category="Electrical", question="Ano ang gamit ng ignition coil?",
+                 choice_a="Nagpapalakas ng boltahe para sa spark plug", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente sa ilaw", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ],
+        "Suspension": [
+            Quiz(category="Suspension", question="Ano ang sumasalo ng lubak?",
+                 choice_a="Shock Absorber", choice_b="Spring", choice_c="Strut", choice_d="Control Arm",
+                 correct_answer="A", points=1),
+            Quiz(category="Suspension", question="Ano ang gamit ng stabilizer bar?",
+                 choice_a="Nagbabawas ng body roll", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ],
+        "Cooling": [
+            Quiz(category="Cooling", question="Ano ang nagpapadaloy ng coolant?",
+                 choice_a="Radiator", choice_b="Water Pump", choice_c="Fan Belt", choice_d="Thermostat",
+                 correct_answer="B", points=1),
+            Quiz(category="Cooling", question="Ano ang gamit ng radiator?",
+                 choice_a="Nagpapalamig ng coolant", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapadulas ng piston", choice_d="Nagpapakain ng gasolina",
+                 correct_answer="A", points=1),
+        ],
+        "Car Brands": [
+            Quiz(category="Car Brands", question="Sino ang gumagawa ng Civic?",
+                 choice_a="Toyota", choice_b="Honda", choice_c="Ford", choice_d="Nissan",
+                 correct_answer="B", points=1),
+            Quiz(category="Car Brands", question="Sino ang gumagawa ng Hilux?",
+                 choice_a="Toyota", choice_b="Honda", choice_c="Ford", choice_d="Isuzu",
+                 correct_answer="A", points=1),
+        ],
+        "Brakes": [
+            Quiz(category="Brakes", question="Ano ang gamit ng brake pads?",
+                 choice_a="Nagbibigay ng kuryente", choice_b="Nagpapadulas ng piston",
+                 choice_c="Nagbibigay ng friction para huminto", choice_d="Nagpapalamig ng makina",
+                 correct_answer="C", points=1),
+            Quiz(category="Brakes", question="Ano ang gamit ng brake fluid?",
+                 choice_a="Nagpapadala ng hydraulic pressure", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ],
+        "Steering": [
+            Quiz(category="Steering", question="Ano ang gamit ng power steering pump?",
+                 choice_a="Nagbibigay ng kuryente", choice_b="Nagpapadulas ng piston",
+                 choice_c="Nagbibigay ng hydraulic pressure para sa steering", choice_d="Nagpapalamig ng makina",
+                 correct_answer="C", points=1),
+            Quiz(category="Steering", question="Ano ang gamit ng tie rod?",
+                 choice_a="Nagkokonekta ng steering rack sa gulong", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ],
+        "Exhaust": [
+            Quiz(category="Exhaust", question="Ano ang gamit ng muffler?",
+                 choice_a="Nagpapababa ng ingay ng tambutso", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+            Quiz(category="Exhaust", question="Ano ang gamit ng catalytic converter?",
+                 choice_a="Nagbabawas ng harmful emissions", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+    }
+
+    questions_pool = pool.get(category, [])
+    if not questions_pool:
+        logger.warning(f"Walang questions para sa category: {category}")
+        return
+
+    selected = random.sample(questions_pool, min(num_questions, len(questions_pool)))
+    for q in selected:
+        db.session.add(q)
+    db.session.commit()
+
+    logger.info(f"Auto quiz generated for category: {category}")
+
+
+def generate_monthly_peer_eval_reminder():
+    """Create a bulletin and optionally email admins for employees
+    who still need peer evaluation for the current month."""
+    try:
+        from datetime import datetime
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        pending = Employee.query.filter(~Employee.evaluations.any(Evaluation.date >= month_start)).all()
+        if not pending:
+            logger.info("No pending peer evaluations this month.")
+            return
+
+        title = f"Peer evaluations due: {len(pending)} employees"
+        content_lines = [f"{e.id}: {e.full_name()}" for e in pending]
+        content = "\n".join(content_lines)
+
+        post = Bulletin(title=title, content=content, author="System")
+        db.session.add(post)
+        db.session.commit()
+
+        # Try to email admins if mail configured
+        try:
+            admins = Employee.query.filter(Employee.role.ilike('%admin%')).all()
+            if admins and app.config.get('MAIL_SERVER'):
+                with app.app_context():
+                    for a in admins:
+                        if not a.email:
+                            continue
+                        msg = Message(subject="Peer evaluations due",
+                                      sender=app.config.get('MAIL_USERNAME'),
+                                      recipients=[a.email])
+                        msg.body = title + "\n\n" + content
+                        mail.send(msg)
+        except Exception:
+            logger.exception("Failed to send peer evaluation reminder emails")
+    except Exception:
+        logger.exception("Error running monthly peer-eval reminder job")
+
+
+def send_lunch_reminder(phase):
+    """Email staff when lunch starts or the workday resumes."""
+    if not app.config.get('MAIL_SERVER') or not app.config.get('MAIL_USERNAME'):
+        logger.info("Lunch email skipped: Flask-Mail is not configured.")
+        return
+
+    subject = "Lunch break reminder" if phase == "start" else "Resume work reminder"
+    body = (
+        "Lunch break starts at 12:00 PM. Please take your one-hour lunch break."
+        if phase == "start" else
+        "Lunch break ends at 1:00 PM. Please resume work."
+    )
+    try:
+        with app.app_context():
+            staff = Employee.query.filter(
+                Employee.role.ilike('%staff%'),
+                Employee.email.isnot(None)
+            ).all()
+            for user in staff:
+                if not user.email:
+                    continue
+                msg = Message(subject=subject,
+                              sender=app.config['MAIL_DEFAULT_SENDER'],
+                              recipients=[user.email])
+                msg.body = f"Hi {user.first_name},\n\n{body}\n\nHRIS System"
+                mail.send(msg)
+    except Exception:
+        logger.exception("Lunch reminder email failed for phase: %s", phase)
+
+# ------------------ EXTENSIONS ------------------
 db.init_app(app)
 migrate = Migrate(app, db)
-
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ------------------ LOGIN MANAGER ------------------
-@login_manager.user_loader
-def load_user(user_id):
-    return db.session.get(Employee, int(user_id))
+# ------------------ APScheduler setup (optional) ------------------
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+    categories = ["Engine", "Transmission", "Electrical", "Suspension",
+                  "Cooling", "Car Brands", "Brakes", "Steering", "Exhaust"]
+
+    for cat in categories:
+        if scheduler:
+            scheduler.add_job(generate_auto_quiz, 'cron', day=1, hour=0, args=[cat])
+
+    # Monthly peer evaluation reminder: post bulletin and email admins
+    if scheduler:
+        try:
+            scheduler.add_job(generate_monthly_peer_eval_reminder, 'cron', day=1, hour=8)
+            scheduler.add_job(send_lunch_reminder, 'cron', hour=12, minute=0,
+                              args=['start'], id='lunch_start_reminder', replace_existing=True)
+            scheduler.add_job(send_lunch_reminder, 'cron', hour=13, minute=0,
+                              args=['resume'], id='lunch_resume_reminder', replace_existing=True)
+        except Exception:
+            logger.exception('Failed to register monthly peer-eval reminder job')
+
+    if scheduler:
+        scheduler.start()
+        logger.info("Scheduler started. Auto quiz jobs registered for all categories.")
+except Exception:
+    scheduler = None
+    logger.warning("APScheduler not available — scheduler disabled for this run.")
 
 # ------------------ ROUTES ------------------
 @app.route('/')
@@ -36,10 +462,20 @@ def home():
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
+
+
+# ------------------ LOGIN MANAGER ------------------
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(Employee, int(user_id))
+
 # ----------------- LOGIN + FORGOT PASSWORD ------------------
+from werkzeug.security import check_password_hash, generate_password_hash
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    action = request.form.get('action')  # alin ang pinindot: login o forgot
+    action = request.form.get('action')
 
     if request.method == 'POST':
         email = request.form.get('email')
@@ -53,7 +489,7 @@ def login():
             if user and check_password_hash(user.password, password):
                 login_user(user, remember=remember)
 
-                # ✅ Role-based redirect
+                # role check
                 if "admin" in user.role.lower():
                     return redirect(url_for("dashboard_admin"))
                 elif "staff" in user.role.lower():
@@ -87,6 +523,8 @@ def check_authentication():
 
 
 # ------------------ REGISTER EMP ADMIN ------------------
+from werkzeug.security import generate_password_hash
+
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
@@ -116,6 +554,7 @@ def register():
             email=request.form['email'],
             password=generate_password_hash(request.form['password']),
             contact_no=request.form.get('contact_no'),
+            registered_at=datetime.utcnow(),
             date_started=date_started_val,
             sss=request.form.get('sss'),
             philhealth=request.form.get('philhealth'),
@@ -177,219 +616,191 @@ def profile(user_id):
         else:
             flash("❌ You cannot edit another user's profile unless you're admin.", "danger")
 
-    return render_template("profile.html", emp=emp, viewer=current_user)
-
-# ------------------ ADMIN DASHBOARD ------------------
-@app.route('/dashboard_admin', methods=['GET','POST'])
-@login_required
-def dashboard_admin():
-    if current_user.role.lower() != "admin":
-        flash("❌ Access denied. Admins only.", "danger")
-        return redirect(url_for('login'))
-
-    # Profile update
-    if request.method == 'POST' and 'first_name' in request.form:
-        current_user.first_name = request.form['first_name']
-        current_user.last_name = request.form['last_name']
-        current_user.email = request.form['email']
-        current_user.address = request.form.get('address')
-        current_user.sss = request.form.get('sss')
-        current_user.philhealth = request.form.get('philhealth')
-        current_user.tin = request.form.get('tin')
-        current_user.pagibig = request.form.get('pagibig')
-        current_user.emergency_contact = request.form.get('emergency_contact')
-
-        if request.form.get('same_address'):
-            current_user.emergency_address = current_user.address
-        else:
-            current_user.emergency_address = request.form.get('emergency_address')
-
-        file = request.files.get('profile_pic')
-        if file and file.filename != '':
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            current_user.profile_pic = filename
-
-        db.session.commit()
-        flash("✅ Admin profile updated successfully!", "success")
-        return redirect(url_for('dashboard_admin'))
-
-    # Data for dashboard
-    trece_employees = Employee.query.filter_by(company="Trece-Uno").all()
-    auto_employees = Employee.query.filter_by(company="Auto Expert").all()
-    trece_leaves = LeaveRequest.query.join(Employee).filter(Employee.company=="Trece-Uno").all()
-    auto_leaves = LeaveRequest.query.join(Employee).filter(Employee.company=="Auto Expert").all()
-    unread_count = Bulletin.query.count()
-    total_employees = Employee.query.count()
-
-    today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
-    end_cutoff = start_cutoff + timedelta(days=6)
-
-    payroll_total = 0
-    company_payroll = {"Trece-Uno": 0, "Auto Expert": 0}
-    for emp in Employee.query.all():
-        worked_days_count = Attendance.query.filter(
-            Attendance.employee_id == emp.id,
-            Attendance.clock_out != None,
-            Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in <= end_cutoff
-        ).count()
-        basic_pay = (emp.daily_rate or 0) * worked_days_count
-        gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
-        deductions = 193.75 + 96.88 + 50.00 + (500.0 if emp.loan_balance >= 500 else emp.loan_balance)
-        net_pay = gross_income - deductions
-        payroll_total += net_pay
-        if emp.company in company_payroll:
-            company_payroll[emp.company] += net_pay
-
-    pending_ot = Attendance.query.filter_by(ot_status="Pending").count()
-    pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
-
-    from sqlalchemy import func
-    trend_records = (
-        db.session.query(
-            Payroll.cutoff_start,
-            Payroll.cutoff_end,
-            func.sum(Payroll.net_pay).label("total_payroll")
-        )
-        .group_by(Payroll.cutoff_start, Payroll.cutoff_end)
-        .order_by(Payroll.cutoff_start.desc())
-        .limit(6)
-        .all()
-    )
-
-    trend_labels = [
-        f"{r.cutoff_start.strftime('%b %d')} - {r.cutoff_end.strftime('%b %d')}"
-        for r in trend_records
-    ][::-1]
-    trend_values = [r.total_payroll for r in trend_records][::-1]
-
     return render_template(
-        "dashboard_admin.html",
-        trece_employees=trece_employees,
-        auto_employees=auto_employees,
-        trece_leaves=trece_leaves,
-        auto_leaves=auto_leaves,
-        unread_count=unread_count,
-        total_employees=total_employees,
-        payroll_total=payroll_total,
-        pending_ot=pending_ot,
-        pending_leaves=pending_leaves,
-        company_payroll=company_payroll,
-        trend_labels=trend_labels,
-        trend_values=trend_values,
-        start_cutoff=start_cutoff.date(),
-        end_cutoff=end_cutoff.date()
-    )
-# ------------------ STAFF DASHBOARD ------------------
-@app.route('/dashboard_staff', methods=["GET", "POST"])
-@login_required
-def dashboard_staff():
-    if "staff" not in current_user.role.lower():
-        flash("❌ Access denied. Staff only.", "danger")
-        return redirect(url_for('login'))
-
-    # Handle Clock-In/Clock-Out
-    if request.method == "POST":
-        if "clockin" in request.form:
-            return redirect(url_for('attendance_clockin', employee_id=current_user.id))
-        elif "clockout" in request.form:
-            return redirect(url_for('attendance_clockout', employee_id=current_user.id))
-
-    # Query data for staff user
-    attendance_records = Attendance.query.filter_by(employee_id=current_user.id).all()
-    leaves = LeaveRequest.query.filter_by(employee_id=current_user.id).all()
-    payrolls = Payroll.query.filter_by(employee_id=current_user.id).all()
-    loans = Loan.query.filter_by(employee_id=current_user.id).all()
-    quizzes = QuizResult.query.filter_by(employee_id=current_user.id).all()
-    bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).limit(5).all()
-
-    return render_template(
-        "dashboard_staff.html",
-        attendance_records=attendance_records,
-        leaves=leaves,
-        payrolls=payrolls,
-        loans=loans,
-        quizzes=quizzes,
-        bulletins=bulletins
+        "profile.html",
+        emp=emp,
+        viewer=current_user,
+        bulletins=Bulletin.query.order_by(Bulletin.created_at.desc()).limit(10).all()
     )
 
-# ------------------ PLACEHOLDER ROUTES ------------------
 
-
-
-@app.route('/export_evaluations_pdf')
-@login_required
-def export_evaluations_pdf():
-    return "Export Evaluations PDF (placeholder)"
-
-@app.route('/export_evaluations_excel')
-@login_required
-def export_evaluations_excel():
-    return "Export Evaluations Excel (placeholder)"
-
-# ------------------ HOLIDAY + OVERTIME DASHBOARD ------------------
-@app.route('/holiday_ot_dashboard')
-@login_required
-def holiday_ot_dashboard():
-    if current_user.role.lower() != "admin":
-        flash("❌ Access denied. Admins only.", "danger")
-        return redirect(url_for('login'))
-
-    # Query lahat ng attendance na may overtime o holiday
-    holiday_attendance = Attendance.query.filter(
-        (Attendance.is_holiday_ot == True) |
-        (Attendance.is_weekday_ot == True) |
-        (Attendance.is_restday_ot == True)
+def admin_staff_choices():
+    return Employee.query.order_by(
+        Employee.company, Employee.first_name, Employee.last_name
     ).all()
 
-    # Dictionary ng Philippine holidays (sample lang, pwede mong palitan/expand)
-    PH_HOLIDAYS_2026 = {
-        datetime(2026, 1, 1).date(): "New Year's Day",
-        datetime(2026, 6, 12).date(): "Independence Day",
-        datetime(2026, 12, 25).date(): "Christmas Day",
-        datetime(2026, 12, 30).date(): "Rizal Day",
-    }
 
-    return render_template(
-        "holiday_ot_dashboard.html",
-        holiday_attendance=holiday_attendance,
-        PH_HOLIDAYS_2026=PH_HOLIDAYS_2026
-    )
-
-
-# ------------------ CLOCK IN / OUT (Unified) ------------------
-@app.route('/attendance_action/<int:employee_id>', methods=['POST'])
+@app.route('/admin/employee_201')
 @login_required
-def attendance_action(employee_id):
-    emp = Employee.query.get_or_404(employee_id)
+def employee_201_selector():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    return render_template('employee_201_selector.html', employees=admin_staff_choices())
 
-    if "clockin" in request.form:
-        # --- Clock In Logic ---
-        log = Attendance(date=datetime.today().date(),
-                         clock_in=datetime.now(),
-                         status="Present",
-                         employee_id=employee_id)
-        db.session.add(log)
+
+@app.route('/admin/employee_201/<int:employee_id>')
+@login_required
+def employee_201_pdf(employee_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+
+    employee = Employee.query.get_or_404(employee_id)
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    page_width, page_height = letter
+    y = page_height - 54
+
+    def write_line(text, bold=False, size=10, indent=72, gap=16):
+        nonlocal y
+        if y < 54:
+            pdf.showPage()
+            y = page_height - 54
+        pdf.setFont('Helvetica-Bold' if bold else 'Helvetica', size)
+        pdf.drawString(indent, y, str(text)[:115])
+        y -= gap
+
+    write_line('EMPLOYEE 201 FILE', bold=True, size=16, gap=24)
+    write_line(f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', size=9)
+    write_line('PERSONAL INFORMATION', bold=True, size=12, gap=20)
+    write_line(f'Name: {employee.first_name} {employee.last_name}')
+    write_line(f'Employee ID: {employee.id}')
+    write_line(f'Role: {employee.role or "N/A"}')
+    write_line(f'Company: {employee.company or "N/A"}')
+    write_line(f'Email: {employee.email or "N/A"}')
+    write_line(f'Contact: {employee.contact_no or "N/A"}')
+    write_line(f'Address: {employee.address or "N/A"}')
+    write_line(f'Date Started: {employee.date_started or "N/A"}')
+    write_line(f'SSS: {employee.sss or "N/A"}')
+    write_line(f'PhilHealth: {employee.philhealth or "N/A"}')
+    write_line(f'TIN: {employee.tin or "N/A"}')
+    write_line(f'Pag-IBIG: {employee.pagibig or "N/A"}')
+    write_line(f'Emergency Contact: {employee.emergency_contact or "N/A"}')
+    write_line(f'Emergency Address: {employee.emergency_address or "N/A"}')
+
+    write_line('201 DOCUMENT INDEX', bold=True, size=12, gap=20)
+    for document in EmployeeDocument.query.filter_by(employee_id=employee.id).order_by(EmployeeDocument.phase, EmployeeDocument.uploaded_at.desc()).all():
+        write_line(f'{document.phase.title()} | {document.document_type} | {document.original_filename} | Retention: {document.retention_years or "N/A"} years')
+
+    write_line('ATTENDANCE RECORDS', bold=True, size=12, gap=20)
+    for record in Attendance.query.filter_by(employee_id=employee.id).order_by(Attendance.date.desc()).limit(100).all():
+        write_line(f'{record.date} | In: {record.clock_in or "N/A"} | Out: {record.clock_out or "N/A"} | Status: {record.status}')
+
+    write_line('LEAVE REQUESTS', bold=True, size=12, gap=20)
+    for leave_request in LeaveRequest.query.filter_by(employee_id=employee.id).order_by(LeaveRequest.date_filed.desc()).all():
+        write_line(f'{leave_request.leave_type} | {leave_request.start_date} to {leave_request.end_date} | {leave_request.status}')
+
+    write_line('LOAN REQUESTS', bold=True, size=12, gap=20)
+    for loan_request in Loan.query.filter_by(employee_id=employee.id).order_by(Loan.date_filed.desc()).all():
+        write_line(f'PHP {loan_request.amount:.2f} | {loan_request.date_needed} | {loan_request.status} | {loan_request.reason}')
+
+    write_line('PAYROLL HISTORY', bold=True, size=12, gap=20)
+    for payroll_record in Payroll.query.filter_by(employee_id=employee.id).order_by(Payroll.cutoff_start.desc()).all():
+        write_line(f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end} | Gross: PHP {payroll_record.gross_income or 0:.2f} | Net: PHP {payroll_record.net_pay or 0:.2f}')
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f'employee_201_{employee.id}.pdf', mimetype='application/pdf')
+
+
+@app.route('/admin/employee_201/<int:employee_id>/documents', methods=['GET', 'POST'])
+@login_required
+def employee_201_documents(employee_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(employee_id)
+    if request.method == 'POST':
+        upload = request.files.get('document')
+        phase = request.form.get('phase', '').strip().lower()
+        document_type = request.form.get('document_type', '').strip()
+        retention = request.form.get('retention_years', type=int)
+        if phase not in {'pre-employment', 'employment', 'separation'} or not document_type or not upload or not upload.filename:
+            flash('❌ Phase, document type, and file are required.', 'danger')
+            return redirect(url_for('employee_201_documents', employee_id=employee_id))
+        safe_name = secure_filename(upload.filename)
+        if not safe_name:
+            flash('❌ Invalid filename.', 'danger')
+            return redirect(url_for('employee_201_documents', employee_id=employee_id))
+        folder = os.path.join(app.config['UPLOAD_FOLDER'], 'employee_201', str(employee_id))
+        os.makedirs(folder, exist_ok=True)
+        stored_name = f'{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{safe_name}'
+        upload.save(os.path.join(folder, stored_name))
+        db.session.add(EmployeeDocument(
+            employee_id=employee_id,
+            phase=phase,
+            document_type=document_type,
+            original_filename=safe_name,
+            stored_filename=stored_name,
+            retention_years=retention
+        ))
         db.session.commit()
-        flash("🟢 Clocked in successfully!", "success")
+        flash('✅ 201 document uploaded.', 'success')
+        return redirect(url_for('employee_201_documents', employee_id=employee_id))
 
-    elif "clockout" in request.form:
-        # --- Clock Out Logic ---
-        log = Attendance.query.filter_by(employee_id=employee_id,
-                                         date=datetime.today().date()).first()
-        if log and not log.clock_out:
-            log.clock_out = datetime.now()
-            db.session.commit()
-            flash("🔴 Clocked out successfully!", "success")
-        else:
-            flash("⚠️ No active clock-in found.", "warning")
+    documents = EmployeeDocument.query.filter_by(employee_id=employee_id).order_by(EmployeeDocument.uploaded_at.desc()).all()
+    retention_guidance = {
+        '201 file': '3 years',
+        'payroll and wage records': '10 years',
+        'sss contribution records': '30 years / indefinite',
+        'philhealth and pag-ibig contributions': '10+ years',
+        'hazardous medical records': '20 years'
+    }
+    return render_template('employee_201_documents.html', employee=employee, documents=documents, retention_guidance=retention_guidance)
 
-    return redirect(url_for('attendance', employee_id=employee_id))
 
+@app.route('/admin/employee_document/<int:document_id>/download')
+@login_required
+def download_employee_document(document_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    document = EmployeeDocument.query.get_or_404(document_id)
+    path = os.path.join(app.config['UPLOAD_FOLDER'], 'employee_201', str(document.employee_id), document.stored_filename)
+    if not os.path.isfile(path):
+        return 'Document not found', 404
+    return send_file(path, as_attachment=True, download_name=document.original_filename)
+
+
+@app.route('/admin/delete_employee/<int:employee_id>', methods=['POST'])
+@login_required
+def delete_employee(employee_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    if current_user.id == employee_id:
+        flash('❌ You cannot delete your own admin account.', 'danger')
+        return redirect(url_for('dashboard_admin'))
+
+    employee = Employee.query.get_or_404(employee_id)
+    dependent_queries = [
+        Attendance.query.filter_by(employee_id=employee_id),
+        LeaveRequest.query.filter_by(employee_id=employee_id),
+        LeaveHistory.query.filter_by(employee_id=employee_id),
+        Loan.query.filter_by(employee_id=employee_id),
+        LoanHistory.query.filter_by(employee_id=employee_id),
+        Payroll.query.filter_by(employee_id=employee_id),
+        QuizResult.query.filter_by(employee_id=employee_id),
+        MeritDemerit.query.filter_by(employee_id=employee_id),
+        RedemptionHistory.query.filter_by(employee_id=employee_id),
+        IncidentReport.query.filter_by(employee_id=employee_id),
+        IncidentReport.query.filter_by(reviewed_by=employee_id),
+        EmployeeDocument.query.filter_by(employee_id=employee_id),
+        Evaluation.query.filter(
+            db.or_(Evaluation.employee_id == employee_id, Evaluation.evaluator_id == employee_id)
+        )
+    ]
+    for query in dependent_queries:
+        query.delete(synchronize_session=False)
+    db.session.delete(employee)
+    db.session.commit()
+    flash(f'✅ Employee {employee.first_name} {employee.last_name} and related records were deleted.', 'success')
+    return redirect(url_for('dashboard_admin'))
 
 # ------------------ ATTENDANCE REPORT ------------------
+import io, csv
+from flask import Response, make_response, request, render_template
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 @app.route('/attendance/<int:employee_id>')
 @login_required
 def attendance(employee_id):
@@ -431,7 +842,7 @@ def attendance(employee_id):
             "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
             "status": log.status,
             "hours": hours_worked,
-            "branch": getattr(log, "branch", "N/A")
+            "branch": getattr(log, "company", "N/A")  # ginamit ko 'company' field para consistent
         })
 
     # --- Date range ---
@@ -449,8 +860,6 @@ def attendance(employee_id):
 
     # PDF download
     if format == "pdf":
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
         output = io.BytesIO()
         pdf = canvas.Canvas(output, pagesize=letter)
 
@@ -478,7 +887,7 @@ def attendance(employee_id):
         pdf.setFont("Helvetica", 10)
         for log in history:
             hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
-            line = f"{log.date.strftime('%Y-%m-%d')} | {log.clock_in.strftime('%H:%M:%S') if log.clock_in else 'N/A'} | {log.clock_out.strftime('%H:%M:%S') if log.clock_out else 'N/A'} | {log.status} | {hours_worked:.2f} | {getattr(log, 'branch', 'N/A')}"
+            line = f"{log.date.strftime('%Y-%m-%d')} | {log.clock_in.strftime('%H:%M:%S') if log.clock_in else 'N/A'} | {log.clock_out.strftime('%H:%M:%S') if log.clock_out else 'N/A'} | {log.status} | {hours_worked:.2f} | {getattr(log, 'company', 'N/A')}"
             pdf.drawString(50, y, line)
             y -= 20
             if y < 100:
@@ -506,13 +915,12 @@ def attendance(employee_id):
         if year:
             filtered = [log for log in filtered if log.date.year == int(year)]
 
-        import io, csv
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Date","Clock In","Clock Out","Status","Hours","Branch"])
         for log in filtered:
             hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
-            writer.writerow([log.date, log.clock_in, log.clock_out, log.status, f"{hours_worked:.2f}", getattr(log, "branch", "N/A")])
+            writer.writerow([log.date, log.clock_in, log.clock_out, log.status, f"{hours_worked:.2f}", getattr(log, "company", "N/A")])
 
         response = make_response(output.getvalue())
         response.headers["Content-Disposition"] = f"attachment; filename=attendance_{year or 'all'}_{month or 'all'}.csv"
@@ -533,121 +941,718 @@ def attendance(employee_id):
                            months=list(range(1,13)),
                            years=[datetime.today().year, datetime.today().year-1, datetime.today().year-2])
 
-# ------------------ OVERTIME MANAGEMENT ------------------
-@app.route('/overtime/<int:attendance_id>', methods=['GET', 'POST'])
+
+# ------------------ ADMIN DASHBOARD ------------------
+@app.route('/dashboard_admin', methods=['GET','POST'])
 @login_required
-def overtime(attendance_id):
-    att = Attendance.query.get_or_404(attendance_id)
+def dashboard_admin():
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
 
-    # Only admins can adjust OT
-    if not current_user.is_admin:
-        flash("⚠️ Only admins can adjust overtime records.", "danger")
-        return redirect(url_for('dashboard_staff'))
+    # Profile update
+    if request.method == 'POST' and 'first_name' in request.form:
+        current_user.first_name = request.form['first_name']
+        current_user.last_name = request.form['last_name']
+        current_user.email = request.form['email']
+        current_user.address = request.form.get('address')
+        current_user.sss = request.form.get('sss')
+        current_user.philhealth = request.form.get('philhealth')
+        current_user.tin = request.form.get('tin')
+        current_user.pagibig = request.form.get('pagibig')
+        current_user.emergency_contact = request.form.get('emergency_contact')
+        current_user.emergency_address = request.form.get('emergency_address')
 
-    if request.method == 'POST':
-        # Safe conversion for overtime hours
-        ot_val = request.form.get('overtime_hours', '').strip()
-        try:
-            att.overtime_hours = float(ot_val) if ot_val else 0.0
-        except ValueError:
-            att.overtime_hours = 0.0
+        # Profile picture upload
+        file = request.files.get('profile_pic')
+        if file and file.filename != '':
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            current_user.profile_pic = filename
 
-        # Update OT type flags
-        ot_type = request.form.get('ot_type', 'weekday')
-        att.is_weekday_ot = (ot_type == 'weekday')
-        att.is_restday_ot = (ot_type == 'restday')
-        att.is_holiday_ot = (ot_type == 'holiday')
-
-        # Update approval status
-        att.ot_status = request.form.get('action', 'pending')  # approved/rejected/pending
+        # Password change validation
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        if new_password:
+            if new_password == confirm_password:
+                current_user.password = generate_password_hash(new_password)
+                flash("🔑 Password updated successfully!", "success")
+            else:
+                flash("❌ Passwords do not match!", "danger")
+                return redirect(url_for('dashboard_admin'))
 
         db.session.commit()
-        flash("✅ Overtime record updated successfully!", "success")
-        return redirect(url_for('overtime', attendance_id=attendance_id))
+        flash("✅ Admin profile updated successfully!", "success")
+        return redirect(url_for('dashboard_admin'))
 
-    return render_template("overtime.html", att=att)
+    # Dashboard data
+    trece_employees = Employee.query.filter(Employee.company.in_(["Trece-Uno", "Trece"])).all()
+    auto_employees = Employee.query.filter_by(company="Auto Expert").all()
+    trece_leaves = LeaveRequest.query.join(Employee).filter(Employee.company.in_(["Trece-Uno", "Trece"])).all()
+    auto_leaves = LeaveRequest.query.join(Employee).filter(Employee.company=="Auto Expert").all()
+    unread_count = Bulletin.query.count()
+    total_employees = Employee.query.count()
+
+    today = datetime.today()
+    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
+    end_cutoff = start_cutoff + timedelta(days=6)
+
+    payroll_total = 0
+    company_payroll = {"Trece-Uno": 0, "Auto Expert": 0}
+    for emp in Employee.query.all():
+        worked_days_count = Attendance.query.filter(
+            Attendance.employee_id == emp.id,
+            Attendance.clock_out != None,
+            Attendance.clock_in >= start_cutoff,
+            Attendance.clock_in <= end_cutoff
+        ).count()
+        loan_balance = float(emp.loan_balance or 0)
+        deduction = 500.0 if loan_balance >= 500 else loan_balance
+        basic_pay = (emp.daily_rate or 0) * worked_days_count
+        gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
+        deductions = 193.75 + 96.88 + 50.00 + deduction
+        net_pay = gross_income - deductions
+
+        payroll_total += net_pay
+        payroll_company = "Trece-Uno" if emp.company in {"Trece", "Trece-Uno"} else emp.company
+        if payroll_company in company_payroll:
+            company_payroll[payroll_company] += net_pay
+
+    pending_ot = Attendance.query.filter_by(ot_status="Pending").count()
+    pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
+    pending_loans = Loan.query.filter_by(status="Pending").count()
+    pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
+    pending_loans_list = Loan.query.filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
+
+    from sqlalchemy import func
+    trend_records = (
+        db.session.query(
+            Payroll.cutoff_start,
+            Payroll.cutoff_end,
+            func.sum(Payroll.net_pay).label("total_payroll")
+        )
+        .group_by(Payroll.cutoff_start, Payroll.cutoff_end)
+        .order_by(Payroll.cutoff_start.desc())
+        .limit(6)
+        .all()
+    )
+
+    trend_labels = [
+        f"{r.cutoff_start.strftime('%b %d')} - {r.cutoff_end.strftime('%b %d')}"
+        for r in trend_records
+    ][::-1]
+    trend_values = [r.total_payroll for r in trend_records][::-1]
+
+    return render_template(
+        "dashboard_admin.html",
+        trece_employees=trece_employees,
+        auto_employees=auto_employees,
+        trece_leaves=trece_leaves,
+        auto_leaves=auto_leaves,
+        unread_count=unread_count,
+        total_employees=total_employees,
+        payroll_total=payroll_total,
+        pending_ot=pending_ot,
+        pending_leaves=pending_leaves,
+        pending_loans=pending_loans,
+        pending_leaves_list=pending_leaves_list,
+        pending_loans_list=pending_loans_list,
+        company_payroll=company_payroll,
+        trend_labels=trend_labels,
+        trend_values=trend_values,
+        start_cutoff=start_cutoff.date(),
+        end_cutoff=end_cutoff.date(),
+        admin=current_user
+    )
 
 
-# ------------------ HOLIDAY + OVERTIME DASHBOARD ------------------
-@app.route('/export_holiday_ot')
-@login_required
-def export_holiday_ot():
-    PH_HOLIDAYS_2026 = {
-        datetime(2026, 1, 1).date(): "New Year's Day",
-        datetime(2026, 4, 9).date(): "Araw ng Kagitingan",
-        datetime(2026, 5, 1).date(): "Labor Day",
-        datetime(2026, 6, 12).date(): "Independence Day",
-        datetime(2026, 8, 21).date(): "Ninoy Aquino Day",
-        datetime(2026, 8, 31).date(): "National Heroes Day",
-        datetime(2026, 11, 1).date(): "All Saints' Day",
-        datetime(2026, 11, 30).date(): "Bonifacio Day",
-        datetime(2026, 12, 25).date(): "Christmas Day",
-        datetime(2026, 12, 30).date(): "Rizal Day",
+# ------------------ STAFF DASHBOARD ------------------
+def generate_ai_insights(emp):
+    """Build explainable employee insights from attendance and payroll records."""
+    attendance_logs = Attendance.query.filter_by(employee_id=emp.id).all()
+    completed_logs = [log for log in attendance_logs if log.clock_in and log.clock_out]
+    present_count = sum(1 for log in attendance_logs if log.status == "Present")
+    late_count = sum(1 for log in attendance_logs if log.status == "Late")
+    absent_count = sum(1 for log in attendance_logs if log.status == "Absent")
+    total_hours = sum(float(log.hours or 0) for log in completed_logs)
+    payroll_record = Payroll.query.filter_by(employee_id=emp.id).order_by(Payroll.cutoff_start.desc()).first()
+
+    insights = {
+        "attendance": (
+            f"Perfect attendance across {present_count} present day(s)."
+            if attendance_logs and absent_count == 0 and late_count == 0
+            else f"Notice: {late_count} late day(s) and {absent_count} absent day(s) recorded."
+        ),
+        "work_hours": (
+            f"Complete: {total_hours:.2f} worked hour(s) recorded."
+            if completed_logs else
+            "Notice: No completed work hours are recorded yet."
+        ),
+        "payroll": (
+            f"Strong payroll record: latest net pay is ₱{float(payroll_record.net_pay or 0):,.2f}."
+            if payroll_record and payroll_record.net_pay is not None else
+            "Warning: No payroll record is available yet."
+        )
     }
+    return insights
 
-    holiday_attendance = Attendance.query.filter(
-        Attendance.date.in_(PH_HOLIDAYS_2026.keys())
-    ).all()
 
-    def generate():
-        data = [['Attendance ID','Employee ID','Date','Holiday Name','Status','OT Hours','OT Type','OT Status']]
-        for att in holiday_attendance:
-            ot_type = "Weekday" if att.is_weekday_ot else "Rest Day" if att.is_restday_ot else "Holiday" if att.is_holiday_ot else "None"
-            row = [
-                att.id,
-                att.employee_id,
-                att.date,
-                PH_HOLIDAYS_2026.get(att.date, ""),
-                att.status,
-                att.overtime_hours or 0,
-                ot_type,
-                getattr(att, "ot_status", "Pending")
-            ]
-            data.append(row)
-        return '\n'.join([','.join(map(str, row)) for row in data])
+@app.route('/dashboard_staff', methods=["GET", "POST"])
+@login_required
+def dashboard_staff():
+    # ✅ Access control: staff only
+    if "staff" not in current_user.role.lower():
+        flash("❌ Access denied. Staff only.", "danger")
+        return redirect(url_for('dashboard_admin'))  # or ibang page, wag balik sa login
 
-    return Response(generate(), mimetype="text/csv",
-                    headers={"Content-Disposition":"attachment;filename=holiday_ot_summary.csv"})
+    # ✅ Handle clock in/out
+    if request.method == "POST":
+        if "clockin" in request.form:
+            return attendance_action(current_user.id)
+        elif "clockout" in request.form:
+            return attendance_action(current_user.id)
+
+    today_log = Attendance.query.filter_by(
+        employee_id=current_user.id,
+        date=datetime.today().date()
+    ).order_by(Attendance.clock_in.desc()).first()
+    clocked_in = bool(today_log and today_log.clock_in and not today_log.clock_out)
+    clock_in_iso = today_log.clock_in.isoformat() if clocked_in else ""
+    worked_hours = 0.0
+    if today_log:
+        if today_log.clock_out:
+            worked_hours = float(today_log.hours or 0)
+        elif today_log.clock_in:
+            worked_hours = max(
+                (datetime.now() - today_log.clock_in).total_seconds() / 3600,
+                0.0
+            )
+    insights = generate_ai_insights(current_user)
+    month_start = datetime.today().date().replace(day=1)
+    peer_evaluation_pending = not Evaluation.query.filter(
+        Evaluation.evaluator_id == current_user.id,
+        Evaluation.date >= datetime.combine(month_start, datetime.min.time()),
+        Evaluation.category.like("peer_%")
+    ).first()
+
+    # ✅ Render staff dashboard template
+    return render_template("dashboard_staff.html",
+        attendance_records=Attendance.query.filter_by(employee_id=current_user.id).all(),
+        leaves=LeaveRequest.query.filter_by(employee_id=current_user.id).all(),
+        payrolls=Payroll.query.filter_by(employee_id=current_user.id).all(),
+        loans=Loan.query.filter_by(employee_id=current_user.id).all(),
+        quizzes=QuizResult.query.filter_by(employee_id=current_user.id).all(),
+        bulletins=Bulletin.query.order_by(Bulletin.created_at.desc()).limit(5).all(),
+        clocked_in=clocked_in,
+        clock_in_iso=clock_in_iso,
+        worked_hours=worked_hours,
+        insights=insights,
+        peer_evaluation_pending=peer_evaluation_pending
+    )
+
+
+@app.route('/incident_report', methods=['GET', 'POST'])
+@login_required
+def submit_incident():
+    if "staff" not in current_user.role.lower():
+        flash("❌ Incident reports are for staff submissions.", "danger")
+        return redirect(url_for('dashboard_admin'))
+
+    coworkers = Employee.query.filter(
+        Employee.company == current_user.company,
+        Employee.id != current_user.id,
+        Employee.role.ilike('%staff%')
+    ).order_by(Employee.first_name, Employee.last_name).all()
+
+    if request.method == 'POST':
+        category = request.form.get('category', '').strip()
+        description = request.form.get('description', '').strip()
+        signature = request.form.get('signature', '').strip()
+        reported_employee_id = request.form.get('reported_employee_id', type=int)
+        reported_employee = next(
+            (employee for employee in coworkers if employee.id == reported_employee_id),
+            None
+        )
+        if not category or not description or not signature or not reported_employee:
+            flash("❌ Category, coworker, description, and signature are required.", "danger")
+            return render_template(
+                'incident_report.html',
+                coworkers=coworkers,
+                selected_coworker_id=reported_employee_id
+            )
+        db.session.add(IncidentReport(
+            employee_id=current_user.id,
+            reported_employee_id=reported_employee.id,
+            category=category,
+            description=description,
+            signature=signature,
+            staff_signature=signature,
+            status='pending'
+        ))
+        db.session.commit()
+        flash("✅ Incident report submitted for admin review.", "success")
+        return redirect(url_for('dashboard_staff'))
+    return render_template('incident_report.html', coworkers=coworkers)
+
+
+@app.route('/incident_review/<int:report_id>', methods=['POST'])
+@login_required
+def review_incident(report_id):
+    if "admin" not in current_user.role.lower():
+        return "Access denied", 403
+    report = IncidentReport.query.get_or_404(report_id)
+    action = request.form.get('action')
+    admin_signature = request.form.get('admin_signature', '').strip()
+    if action not in {'approve', 'reject'} or not admin_signature:
+        flash("❌ Review action and admin signature are required.", "danger")
+        return redirect(url_for('dashboard_admin'))
+
+    report.status = action + 'd'
+    report.reviewed_by = current_user.id
+    report.admin_signature = admin_signature
+    if action == 'approve':
+        employee = Employee.query.get(report.employee_id)
+        points = 5
+        if report.category.lower() == 'compliment':
+            employee.merit_points = (employee.merit_points or 0) + points
+            merit = MeritDemerit(employee_id=employee.id, merit_points=points)
+            message = "🌟 Compliment approved: +5 merit."
+        elif report.category.lower() in {'lapses', 'lapse'}:
+            employee.demerit_points = (employee.demerit_points or 0) + points
+            merit = MeritDemerit(employee_id=employee.id, demerit_points=points)
+            message = "⚠️ Lapses approved: +5 demerit."
+        else:
+            merit = None
+            message = "✅ Incident approved."
+        if merit:
+            db.session.add(merit)
+        flash(message, "success")
+    else:
+        flash("Incident report rejected. No merit/demerit applied.", "info")
+    db.session.commit()
+    return redirect(url_for('dashboard_admin'))
+
+
+@app.route('/incident_report_pdf/<int:emp_id>')
+@login_required
+def incident_report_pdf(emp_id):
+    emp = Employee.query.get_or_404(emp_id)
+    if current_user.id != emp_id and "admin" not in current_user.role.lower():
+        return "Access denied", 403
+    selected_month = request.args.get('month', type=int)
+    selected_year = request.args.get('year', type=int)
+    report_query = IncidentReport.query.filter_by(employee_id=emp_id)
+    period_label = "All dates"
+    filename_period = "all"
+    if selected_month and selected_year and 1 <= selected_month <= 12:
+        period_start = datetime(selected_year, selected_month, 1)
+        period_end = datetime(
+            selected_year + (selected_month == 12),
+            1 if selected_month == 12 else selected_month + 1,
+            1
+        )
+        report_query = report_query.filter(
+            IncidentReport.created_at >= period_start,
+            IncidentReport.created_at < period_end
+        )
+        period_label = f"{period_start.strftime('%b')} 1-{(period_end - timedelta(days=1)).day} {selected_year}"
+        filename_period = f"{selected_year}_{selected_month:02d}"
+    reports = report_query.order_by(IncidentReport.created_at.desc()).all()
+    from reportlab.lib.utils import ImageReader
+    import base64
+
+    def draw_signature(pdf, value, x, y, label):
+        if not value:
+            return y
+        try:
+            encoded = value.split(',', 1)[1] if ',' in value else value
+            image = ImageReader(io.BytesIO(base64.b64decode(encoded)))
+            pdf.drawImage(image, x, y - 50, width=150, height=50, preserveAspectRatio=True, mask='auto')
+            pdf.drawString(x, y - 65, label)
+            return y - 80
+        except (ValueError, TypeError, base64.binascii.Error):
+            return y
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(72, 750, f'Incident Reports for {period_label}')
+    pdf.setFont('Helvetica', 11)
+    pdf.drawString(72, 730, f'Employee: {emp.first_name} {emp.last_name}')
+    y = 700
+    for report in reports:
+        text = f'[{report.status.upper()}] {report.category.title()} - {report.description}'
+        for line in [text[i:i + 100] for i in range(0, len(text), 100)]:
+            pdf.drawString(72, y, line)
+            y -= 16
+        y = draw_signature(pdf, report.staff_signature or report.signature, 72, y, 'Staff Signature')
+        y = draw_signature(pdf, report.admin_signature, 300, y + 80, 'Admin Signature')
+        y -= 12
+        if y < 110:
+            pdf.showPage()
+            pdf.setFont('Helvetica', 11)
+            y = 750
+    if not reports:
+        pdf.drawString(72, y, 'No incident reports found.')
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f'incident_reports_{emp.id}_{filename_period}.pdf', mimetype='application/pdf')
+
+
+@app.route('/admin/incidents')
+@login_required
+def admin_incidents():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    selected_month = request.args.get('month', type=int)
+    selected_year = request.args.get('year', type=int)
+    report_query = IncidentReport.query
+    if selected_month and selected_year and 1 <= selected_month <= 12:
+        period_start = datetime(selected_year, selected_month, 1)
+        period_end = datetime(selected_year + (selected_month == 12), 1 if selected_month == 12 else selected_month + 1, 1)
+        report_query = report_query.filter(IncidentReport.created_at >= period_start, IncidentReport.created_at < period_end)
+    current_year = datetime.today().year
+    return render_template(
+        'admin_incidents.html',
+        reports=report_query.order_by(IncidentReport.created_at.desc()).all(),
+        selected_month=selected_month,
+        selected_year=selected_year,
+        months=range(1, 13),
+        years=range(current_year - 2, current_year + 1)
+    )
+
+
+@app.route('/export_insights_pdf/<int:emp_id>', methods=['POST'])
+@login_required
+def export_insights_pdf(emp_id):
+    emp = Employee.query.get_or_404(emp_id)
+    if current_user.id != emp_id and "admin" not in current_user.role.lower():
+        flash("❌ Access denied.", "danger")
+        return redirect(url_for('dashboard_staff'))
+
+    insights = generate_ai_insights(emp)
+    today = datetime.today()
+    cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    cutoff_end = cutoff_start + timedelta(days=6)
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(72, 750, "AI Insights Report")
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(72, 730, f"Employee: {emp.first_name} {emp.last_name}")
+    pdf.drawString(72, 712, f"Cut-off: {cutoff_start.strftime('%m-%d-%Y')} ~ {cutoff_end.strftime('%m-%d-%Y')}")
+
+    y = 675
+    for key, value in insights.items():
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(72, y, key.replace('_', ' ').title())
+        y -= 18
+        pdf.setFont("Helvetica", 10)
+        words = value.split()
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if pdf.stringWidth(candidate, "Helvetica", 10) > 460:
+                pdf.drawString(90, y, line)
+                y -= 15
+                line = word
+            else:
+                line = candidate
+        if line:
+            pdf.drawString(90, y, line)
+            y -= 25
+        if y < 80:
+            pdf.showPage()
+            y = 750
+
+    pdf.setFont("Helvetica-Oblique", 9)
+    pdf.drawString(72, 50, f"Generated on {datetime.now().strftime('%m-%d-%Y %H:%M')}")
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"insights_{emp.id}.pdf",
+        mimetype="application/pdf"
+    )
+
+
+@app.route('/peer_evaluation', methods=['GET', 'POST'])
+@login_required
+def peer_evaluation():
+    if "staff" not in current_user.role.lower():
+        flash("❌ Peer evaluation is available to staff only.", "danger")
+        return redirect(url_for('dashboard_admin'))
+
+    ensure_peer_questions()
+    questions = EvaluationQuestion.query.filter_by(is_active=True).order_by(EvaluationQuestion.id).all()
+    employees = Employee.query.filter(Employee.id != current_user.id).all()
+    month_start = datetime.today().date().replace(day=1)
+    month_start_dt = datetime.combine(month_start, datetime.min.time())
+
+    if request.method == 'POST':
+        target_id = request.form.get('employee_id', type=int)
+        target = Employee.query.filter(Employee.id == target_id, Employee.id != current_user.id).first()
+        if not target:
+            flash("❌ Please choose a valid coworker.", "danger")
+            return redirect(url_for('peer_evaluation'))
+
+        already_submitted = Evaluation.query.filter(
+            Evaluation.employee_id == target.id,
+            Evaluation.evaluator_id == current_user.id,
+            Evaluation.date >= month_start_dt,
+            Evaluation.category.like("peer_%")
+        ).first()
+        if already_submitted:
+            flash("⚠️ You already evaluated this coworker this month.", "warning")
+            return redirect(url_for('peer_evaluation'))
+
+        ratings = []
+        for question in questions:
+            rating = request.form.get(f'question_{question.id}', type=int)
+            if rating not in range(1, 6):
+                flash("❌ Please answer every questionnaire item from 1 to 5.", "danger")
+                return redirect(url_for('peer_evaluation'))
+            ratings.append((question, rating))
+
+        remarks = request.form.get('remarks', '').strip()
+        for question, rating in ratings:
+            db.session.add(Evaluation(
+                employee_id=target.id,
+                evaluator_id=current_user.id,
+                rating=rating,
+                remarks=f"{question.text}: {remarks}" if remarks else question.text,
+                category=f"peer_{question.id}",
+                date=datetime.now()
+            ))
+        db.session.commit()
+        flash("✅ Monthly peer evaluation submitted!", "success")
+        return redirect(url_for('dashboard_staff'))
+
+    submitted_targets = db.session.query(Evaluation.employee_id).filter(
+        Evaluation.evaluator_id == current_user.id,
+        Evaluation.date >= month_start_dt,
+        Evaluation.category.like("peer_%")
+    ).distinct().all()
+    submitted_ids = {row[0] for row in submitted_targets}
+    return render_template(
+        "peer_evaluation.html",
+        questions=questions,
+        employees=employees,
+        submitted_ids=submitted_ids,
+        month_start=month_start
+    )
+
+
+# ------------------ CLOCK IN / OUT (Unified) ------------------
+@app.route('/attendance_action/<int:employee_id>', methods=['POST'])
+@login_required
+def attendance_action(employee_id):
+    emp = Employee.query.get_or_404(employee_id)
+
+    if current_user.id != employee_id and "admin" not in current_user.role.lower():
+        flash("❌ Access denied.", "danger")
+        return redirect(url_for('dashboard_staff'))
+
+    if "clockin" in request.form:
+        open_log = Attendance.query.filter_by(
+            employee_id=employee_id,
+            date=datetime.today().date()
+        ).filter(Attendance.clock_out == None).first()
+        if open_log:
+            flash("⚠️ You are already clocked in.", "warning")
+            return redirect(url_for('dashboard_staff'))
+
+        # --- Clock In Logic ---
+        log = Attendance(date=datetime.today().date(),
+                         clock_in=datetime.now(),
+                         status="Present",
+                         employee_id=employee_id)
+        db.session.add(log)
+        db.session.commit()
+        flash("🟢 Clocked in successfully!", "success")
+
+    elif "clockout" in request.form:
+        # --- Clock Out Logic ---
+        log = Attendance.query.filter_by(
+            employee_id=employee_id,
+            date=datetime.today().date()
+        ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
+        if log:
+            log.clock_out = datetime.now()
+            log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+            db.session.commit()
+            flash("🔴 Clocked out successfully!", "success")
+        else:
+            flash("⚠️ No active clock-in found.", "warning")
+
+    return redirect(url_for('attendance', employee_id=employee_id))
+
+
+# JSON API for AJAX clock in/out from dashboard
+@app.route('/attendance_api/<int:employee_id>', methods=['POST'])
+@login_required
+def attendance_api(employee_id):
+    emp = Employee.query.get_or_404(employee_id)
+
+    try:
+        if current_user.id != employee_id and "admin" not in current_user.role.lower():
+            return jsonify(status="error", message="❌ Access denied."), 403
+
+        if "clockin" in request.form:
+            open_log = Attendance.query.filter_by(
+                employee_id=employee_id,
+                date=datetime.today().date()
+            ).filter(Attendance.clock_out == None).first()
+            if open_log:
+                return jsonify(status="warning", message="⚠️ You are already clocked in.")
+
+            log = Attendance(date=datetime.today().date(),
+                             clock_in=datetime.now(),
+                             status="Present",
+                             employee_id=employee_id)
+            db.session.add(log)
+            db.session.commit()
+            worked_hours = max(
+                (datetime.now() - log.clock_in).total_seconds() / 3600,
+                0.0
+            )
+            return jsonify(status="success", message="🟢 Clocked in successfully!",
+                           clocked_in=True, clock_in=log.clock_in.isoformat(),
+                           worked_hours=worked_hours)
+
+        elif "clockout" in request.form:
+            log = Attendance.query.filter_by(
+                employee_id=employee_id,
+                date=datetime.today().date()
+            ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
+            if log:
+                log.clock_out = datetime.now()
+                log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+                db.session.commit()
+                return jsonify(status="success", message="🔴 Clocked out successfully!",
+                               clocked_in=False, clock_in="", worked_hours=log.hours)
+            else:
+                return jsonify(status="warning", message="⚠️ No active clock-in found.")
+
+        return jsonify(status="error", message="Invalid request")
+    except Exception:
+        logger.exception("Error in attendance_api")
+        return jsonify(status="error", message="Internal server error"), 500
+
 
 # ------------------ PAYROLL + PAYSLIP ------------------
+from flask import send_file
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib import colors
+from sqlalchemy import extract
+import os, io
+
+
+def build_payslip_breakdown(emp, payroll_record, worked_days_count=0):
+    """Return a payslip payload matching the sample payroll format."""
+    gross_income = float(payroll_record.gross_income or 0)
+    late_ut = 0.0
+    sss = float(payroll_record.sss or 0)
+    philhealth = float(payroll_record.philhealth or 0)
+    pagibig = float(payroll_record.pagibig or 0)
+    sss_loan = float(payroll_record.loan or 0)
+    hdmf_loan = 0.0
+    cash_advance = float(payroll_record.cash_advance or 0)
+    withholding_tax = 0.0
+    adjustment = 0.0
+    night_differential = 0.0
+    regular_overtime = 0.0
+    rest_day = 0.0
+    special_holiday = 0.0
+    special_holiday_ot = 0.0
+    regular_holiday = 0.0
+    regular_holiday_ot = 0.0
+
+    total_deductions = late_ut + sss + philhealth + pagibig + sss_loan + hdmf_loan + cash_advance + withholding_tax
+    net_pay = gross_income - total_deductions
+
+    return {
+        "employee": emp,
+        "actual_worked_days": worked_days_count,
+        "adjustment": adjustment,
+        "night_differential": night_differential,
+        "regular_overtime": regular_overtime,
+        "rest_day": rest_day,
+        "special_holiday": special_holiday,
+        "special_holiday_ot": special_holiday_ot,
+        "regular_holiday": regular_holiday,
+        "regular_holiday_ot": regular_holiday_ot,
+        "late_ut": late_ut,
+        "sss": sss,
+        "philhealth": philhealth,
+        "pagibig": pagibig,
+        "sss_loan": sss_loan,
+        "hdmf_loan": hdmf_loan,
+        "cash_advance": cash_advance,
+        "withholding_tax": withholding_tax,
+        "gross_income": gross_income,
+        "total_deductions": total_deductions,
+        "net_pay": net_pay,
+    }
+
+
 @app.route('/payroll/<int:employee_id>', methods=['GET', 'POST'])
 @login_required
 def payroll(employee_id):
     emp = Employee.query.get_or_404(employee_id)
 
-    # STAFF VIEW: payslip + history only
+    # STAFF VIEW
     if current_user.role.lower() == 'staff':
         if current_user.id != employee_id:
             flash("❌ Access denied.", "danger")
             return redirect(url_for('dashboard_staff'))
 
-        # Query salary history ng staff
         history = Payroll.query.filter_by(employee_id=current_user.id)\
                                .order_by(Payroll.cutoff_start.desc()).all()
 
-        return render_template("payslip_staff.html",
-                               emp=current_user,
-                               history=history)
+        cutoff_options = [f"{p.cutoff_start.strftime('%b %d, %Y')} - {p.cutoff_end.strftime('%b %d, %Y')}" for p in history]
+        years = sorted({p.cutoff_start.year for p in history}, reverse=True)
 
-    # ADMIN VIEW: full payroll computation
+        selected_year = request.args.get("year")
+        if selected_year:
+            history = Payroll.query.filter_by(employee_id=current_user.id)\
+                                   .filter(extract('year', Payroll.cutoff_start) == int(selected_year))\
+                                   .order_by(Payroll.cutoff_start.desc()).all()
+
+        return render_template("payroll.html",
+                               emp=current_user,
+                               history=history,
+                               cutoff_options=cutoff_options,
+                               years=years,
+                               selected_year=selected_year)
+
+    # ADMIN VIEW
     today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)  # last Saturday
-    end_cutoff = start_cutoff + timedelta(days=6)  # following Friday
+    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
+    end_cutoff = start_cutoff + timedelta(days=6)
 
     if request.method == 'POST':
-        # Update daily rate
-        rate_val = request.form.get('daily_rate', '').strip()
-        emp.daily_rate = float(rate_val) if rate_val else emp.daily_rate
+        # Update payroll fields
+        emp.daily_rate = float(request.form.get('daily_rate', emp.daily_rate))
+        emp.allowance = float(request.form.get('allowance', emp.allowance))
+        emp.incentives = float(request.form.get('incentives', emp.incentives))
 
-        # Update allowance
-        allowance_val = request.form.get('allowance', '').strip()
-        emp.allowance = float(allowance_val) if allowance_val else emp.allowance
+        # Allow admin to set/update existing loan balance
+        loan_input = request.form.get('loan_balance')
+        if loan_input is not None and loan_input.strip() != "":
+            emp.loan_balance = float(loan_input)
 
-        # Update incentives
-        incentives_val = request.form.get('incentives', '').strip()
-        emp.incentives = float(incentives_val) if incentives_val else emp.incentives
+        sil_eligible_input = request.form.get('sil_eligible')
+        if sil_eligible_input is not None:
+            emp.sil_eligible = sil_eligible_input == '1'
 
-        # Automatic loan deduction per cutoff
+        # Deduct 500 or remaining balance
         if emp.loan_balance > 0:
             deduction = 500.0 if emp.loan_balance >= 500 else emp.loan_balance
             emp.loan_balance -= deduction
@@ -656,7 +1661,7 @@ def payroll(employee_id):
         flash("✅ Payroll updated successfully!", "success")
         return redirect(url_for('payroll', employee_id=employee_id))
 
-    # Count worked days within cutoff
+    # Compute payroll
     worked_days_count = Attendance.query.filter(
         Attendance.employee_id == employee_id,
         Attendance.clock_out != None,
@@ -664,67 +1669,163 @@ def payroll(employee_id):
         Attendance.clock_in <= end_cutoff
     ).count()
 
+    worked_days_in_month = Attendance.query.filter(
+        Attendance.employee_id == employee_id,
+        Attendance.clock_out != None,
+        extract('year', Attendance.clock_in) == today.year,
+        extract('month', Attendance.clock_in) == today.month
+    ).count()
+
     daily_rate = emp.daily_rate or 0
     basic_pay = daily_rate * worked_days_count
 
-    # Standard deductions
-    sss = 193.75
-    philhealth = 96.88
-    pagibig = 50.00
-    loan = float(emp.loan_balance) if emp.loan_balance < 500 else 500.00
+    monthly_salary = daily_rate * worked_days_in_month
+    deductions = compute_weekly_deductions(monthly_salary, weeks=4)
+    sss = deductions["sss"]
+    philhealth = deductions["philhealth"]
+    pagibig = deductions["pagibig"]
+    loan_balance = float(emp.loan_balance or 0)
+    loan = loan_balance if loan_balance < 500 else 500.00
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
     total_deductions = sss + philhealth + pagibig + loan
     net_pay = gross_income - total_deductions
 
-  # 👉 DITO MO ILALAGAY ANG WORKFLOW (SAVE TO PAYROLL TABLE)
     payroll_record = Payroll(
         employee_id=emp.id,
         cutoff_start=start_cutoff.date(),
         cutoff_end=end_cutoff.date(),
         gross_income=gross_income,
         total_deductions=total_deductions,
-        net_pay=net_pay
+        net_pay=net_pay,
+        sss=sss,
+        philhealth=philhealth,
+        pagibig=pagibig,
+        loan=loan,
+        cash_advance=0.0
     )
     db.session.add(payroll_record)
     db.session.commit()
 
-    return render_template("payroll_admin.html",
-         emp=emp, worked_days_count=worked_days_count, basic_pay=basic_pay, 
-         gross_income=gross_income, sss=sss, philhealth=philhealth, 
-         pagibig=pagibig, loan=loan, net_pay=net_pay,
-         start_cutoff=start_cutoff.date(), end_cutoff=end_cutoff.date())
+    payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count)
 
-# ------------------ PAYROLL DASHBOARD ------------------
+    # 👉 Generate payslip PDF in memory
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+
+    company_display = "TRECE-UNO AUTO SUPPLY" if emp.company == "Trece-Uno" else "AUTO-EXPERT AUTO SUPPLY"
+    company_brand = "TRECE-UNO" if emp.company == "Trece-Uno" else "AUTO-EXPERT"
+
+    # Header
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, 780, company_display)
+    c.setFont("Helvetica", 12)
+    c.drawString(50, 760, "Official Payslip")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(50, 730, f"Employee ID: {emp.id}")
+    c.drawString(50, 715, f"Employee Name: {emp.first_name} {emp.last_name}")
+    c.drawString(50, 700, f"Position: {emp.role}")
+    c.drawString(300, 730, f"Date Hired: {emp.date_started}")
+    c.drawString(300, 715, f"Department: {emp.company}")
+    c.drawString(300, 700, f"Daily Rate: {float(emp.daily_rate or 0):.2f}")
+    c.drawString(300, 685, f"Cut-off: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
+
+    data = [
+        ["Earnings", "", "", "Deductions", "", ""],
+        ["Description", "Days/Hrs", "Amount", "Description", "Mins", "Amount"],
+        ["Actual Worked Days", str(payslip['actual_worked_days']), f"{payslip['gross_income']:.2f}", "Late/UT", "", f"{payslip['late_ut']:.2f}"],
+        ["Adjustment", "", f"{payslip['adjustment']:.2f}", "SSS", "", f"{payslip['sss']:.2f}"],
+        ["Night Differential", "", f"{payslip['night_differential']:.2f}", "PhilHealth", "", f"{payslip['philhealth']:.2f}"],
+        ["Regular Overtime", "", f"{payslip['regular_overtime']:.2f}", "HDMF", "", f"{payslip['pagibig']:.2f}"],
+        ["Rest Day", "", f"{payslip['rest_day']:.2f}", "SSS Loan", "", f"{payslip['sss_loan']:.2f}"],
+        ["Special Holiday", "", f"{payslip['special_holiday']:.2f}", "HDMF Loan", "", f"{payslip['hdmf_loan']:.2f}"],
+        ["Special Holiday OT", "", f"{payslip['special_holiday_ot']:.2f}", "Cash Advance", "", f"{payslip['cash_advance']:.2f}"],
+        ["Regular Holiday", "", f"{payslip['regular_holiday']:.2f}", "Withholding Tax", "", f"{payslip['withholding_tax']:.2f}"],
+        ["Regular Holiday OT", "", f"{payslip['regular_holiday_ot']:.2f}", "Gross Deductions", "", f"{payslip['total_deductions']:.2f}"],
+        ["Gross Income", "", f"{payslip['gross_income']:.2f}", "NET PAY", "", f"{payslip['net_pay']:.2f}"],
+    ]
+
+    table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,1), colors.whitesmoke),
+        ('FONTNAME', (0,0), (-1,1), 'Helvetica-Bold'),
+        ('GRID', (0,0), (-1,-1), 0.75, colors.black),
+        ('ALIGN', (1,1), (-1,-1), 'CENTER'),
+        ('ALIGN', (2,2), (2,-1), 'RIGHT'),
+        ('ALIGN', (5,2), (5,-1), 'RIGHT'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+    ]))
+    table.wrapOn(c, 50, 600)
+    table.drawOn(c, 50, 420)
+
+    c.line(50, 400, 550, 400)
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawString(50, 385, "Authorized by Admin")
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    # If download requested
+    if request.args.get("download") == "true":
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"Payslip_{emp.first_name}_{emp.last_name}.pdf",
+            mimetype="application/pdf"
+        )
+
+    return render_template("payroll.html",
+         emp=emp,
+         history=history,
+         payslip=payslip,
+         selected_year=None,
+         years=[])
+
+
+@app.route('/payslip/<int:emp_id>/<int:payroll_id>')
+@login_required
+def payslip(emp_id, payroll_id):
+    employee = Employee.query.get_or_404(emp_id)
+    payroll_record = Payroll.query.filter_by(
+        id=payroll_id,
+        employee_id=emp_id
+    ).first_or_404()
+
+    if current_user.id != emp_id and 'admin' not in current_user.role.lower():
+        flash("Access denied.", "danger")
+        return redirect(url_for('dashboard_staff'))
+
+    allowance = float(employee.allowance or 0)
+    incentives = float(employee.incentives or 0)
+    gross_income = float(payroll_record.gross_income or 0)
+    basic_pay = max(gross_income - allowance - incentives, 0)
+    ot_pay = 0.0
+    tax = 0.0
+
+    return render_template(
+        "payslip.html",
+        employee=employee,
+        payroll=payroll_record,
+        basic_pay=basic_pay,
+        ot_pay=ot_pay,
+        tax=tax
+    )
+
+
+# ------------------ PAYROLL DASHBOARD------------------
 @app.route('/payroll_dashboard', methods=['GET', 'POST'])
 @login_required
 def payroll_dashboard():
-    employees = Employee.query.all()
-
-    if request.method == 'POST':
-        for emp in employees:
-            # Update daily rate
-            rate_val = request.form.get(f'daily_rate_{emp.id}', '').strip()
-            emp.daily_rate = float(rate_val) if rate_val else emp.daily_rate
-
-            # Update allowance
-            allowance_val = request.form.get(f'allowance_{emp.id}', '').strip()
-            emp.allowance = float(allowance_val) if allowance_val else emp.allowance
-
-            # Update incentives
-            incentives_val = request.form.get(f'incentives_{emp.id}', '').strip()
-            emp.incentives = float(incentives_val) if incentives_val else emp.incentives
-
-        db.session.commit()
-        flash("✅ Payroll updated successfully for all employees!", "success")
-        return redirect(url_for('payroll_dashboard'))
-
-    # Compute cutoff
     today = datetime.today()
     start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
     end_cutoff = start_cutoff + timedelta(days=6)
 
     payroll_data = []
+    employees = Employee.query.all()
+
     for emp in employees:
         worked_days_count = Attendance.query.filter(
             Attendance.employee_id == emp.id,
@@ -733,22 +1834,65 @@ def payroll_dashboard():
             Attendance.clock_in <= end_cutoff
         ).count()
 
-        basic_pay = (emp.daily_rate or 0) * worked_days_count
+        daily_rate = float(emp.daily_rate or 0)
+        basic_pay = daily_rate * worked_days_count
+        ot_records = [
+            attendance for attendance in Attendance.query.filter(
+                Attendance.employee_id == emp.id,
+                Attendance.clock_out != None,
+                Attendance.clock_in >= start_cutoff,
+                Attendance.clock_in <= end_cutoff
+            ).all()
+            if (
+                attendance.is_weekday_ot or attendance.is_restday_ot or attendance.is_holiday_ot
+                or (
+                    attendance.clock_out
+                    and (
+                        attendance.clock_out.hour > 17
+                        or (attendance.clock_out.hour == 17 and attendance.clock_out.minute > 0)
+                    )
+                )
+            )
+        ]
+        ot_hours = sum(
+            float(attendance.overtime_hours or 0)
+            if attendance.overtime_hours
+            else max((attendance.clock_out.hour - 17) + attendance.clock_out.minute / 60, 0)
+            for attendance in ot_records
+        )
+        approved_ot_hours = sum(
+            hours for attendance, hours in [
+                (
+                    attendance,
+                    float(attendance.overtime_hours or 0)
+                    if attendance.overtime_hours
+                    else max((attendance.clock_out.hour - 17) + attendance.clock_out.minute / 60, 0)
+                )
+                for attendance in ot_records
+            ]
+            if attendance.ot_status == 'Approved'
+        )
+        approved_ot_pay = (daily_rate / 8) * 1.25 * approved_ot_hours
+        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + approved_ot_pay
+
         sss = 193.75
         philhealth = 96.88
         pagibig = 50.00
-        loan = float(emp.loan_balance) if emp.loan_balance < 500 else 500.00
+        loan_balance = float(emp.loan_balance or 0)
+        loan = loan_balance if loan_balance < 500 else 500.00
 
-        gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
-        total_deductions = sss + philhealth + pagibig + loan
-        net_pay = gross_income - total_deductions
+        deductions = sss + philhealth + pagibig + loan
+        net_pay = gross_income - deductions
 
         payroll_data.append({
             "emp": emp,
             "worked_days": worked_days_count,
-            "basic_pay": basic_pay,
+            "ot_hours": ot_hours,
+            "approved_ot_hours": approved_ot_hours,
+            "approved_ot_pay": approved_ot_pay,
+            "ot_statuses": sorted({attendance.ot_status or 'Pending' for attendance in ot_records}),
             "gross_income": gross_income,
-            "deductions": total_deductions,
+            "deductions": deductions,
             "net_pay": net_pay
         })
 
@@ -757,115 +1901,119 @@ def payroll_dashboard():
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=end_cutoff.date())
 
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-
-
-# ------------------ PAYSLIP ------------------
-@app.route('/payslip/<int:employee_id>/download')
+# ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 5PM) ------------------
+@app.route('/holiday_overtime', methods=['GET','POST'])
 @login_required
-def download_payslip(employee_id):
-    emp = Employee.query.get_or_404(employee_id)
+def holiday_ot_dashboard():
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
 
-    # Compute cutoff (same logic as payroll)
-    today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
-    end_cutoff = start_cutoff + timedelta(days=6)
+    # --- Handle Approve/Reject actions ---
+    if request.method == 'POST':
+        att_id = request.form.get("att_id")
+        action = request.form.get("action")
+        if att_id and action:
+            att = Attendance.query.get_or_404(att_id)
+            if action == "approve":
+                att.ot_status = "Approved"
+                flash(f"✅ Overtime #{att.id} approved.", "success")
+            elif action == "reject":
+                att.ot_status = "Rejected"
+                flash(f"❌ Overtime #{att.id} rejected.", "danger")
+            db.session.commit()
+            return redirect(url_for('holiday_ot_dashboard'))
 
-    worked_days_count = Attendance.query.filter(
-        Attendance.employee_id == employee_id,
-        Attendance.clock_out != None,
-        Attendance.clock_in >= start_cutoff,
-        Attendance.clock_in <= end_cutoff
-    ).count()
+    # --- Query lahat ng attendance na may OT OR lumabas beyond 5 PM ---
+    query = Attendance.query.filter(Attendance.clock_out != None)
+    records = [
+        attendance for attendance in query.order_by(Attendance.date.desc()).all()
+        if (
+            attendance.is_holiday_ot or attendance.is_weekday_ot or attendance.is_restday_ot
+            or (
+                attendance.clock_out.hour > 17
+                or (attendance.clock_out.hour == 17 and attendance.clock_out.minute > 0)
+            )
+        )
+    ]
 
-    daily_rate = emp.daily_rate or 0
-    basic_pay = daily_rate * worked_days_count
+    # --- Optional filter by status ---
+    filter_status = request.args.get("status")
+    if filter_status:
+        records = [attendance for attendance in records if (attendance.ot_status or 'Pending') == filter_status]
 
-    sss = 193.75
-    philhealth = 96.88
-    pagibig = 50.00
-    loan = float(emp.loan_balance) if emp.loan_balance < 500 else 500.00
+    # --- Holidays dictionary ---
+    holidays = {h.date: h.description for h in Holiday.query.all()}
 
-    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
-    total_deductions = sss + philhealth + pagibig + loan
-    net_pay = gross_income - total_deductions
+    # --- Export CSV ---
+    export_type = request.args.get("export")
+    if export_type == "csv":
+        def generate():
+            data = [['Attendance ID','Employee','Date','Holiday Name','Status','Clock Out','OT Hours','OT Type','OT Status']]
+            for att in records:
+                ot_type = "Weekday" if att.is_weekday_ot else "Rest Day" if att.is_restday_ot else "Holiday" if att.is_holiday_ot else "Beyond 5PM"
+                # auto compute OT hours if beyond 5PM
+                if att.clock_out and (
+                    att.clock_out.hour > 17
+                    or (att.clock_out.hour == 17 and att.clock_out.minute > 0)
+                ):
+                    ot_hours = (att.clock_out.hour - 17) + (att.clock_out.minute/60)
+                else:
+                    ot_hours = att.overtime_hours or 0
+                row = [
+                    att.id,
+                    f"{att.employee.first_name} {att.employee.last_name}",
+                    att.date,
+                    holidays.get(att.date, ""),
+                    att.status,
+                    att.clock_out,
+                    ot_hours,
+                    ot_type,
+                    getattr(att, "ot_status", "Pending")
+                ]
+                data.append(row)
+            return '\n'.join([','.join(map(str, row)) for row in data])
 
-    # 👉 Generate PDF in memory
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(200, 750, "Payslip")
+        return Response(generate(), mimetype="text/csv",
+                        headers={"Content-Disposition":"attachment;filename=holiday_overtime.csv"})
 
-    c.setFont("Helvetica", 12)
-    c.drawString(50, 720, f"Employee: {emp.first_name} {emp.last_name}")
-    c.drawString(50, 700, f"Cutoff: {start_cutoff.date()} to {end_cutoff.date()}")
+    return render_template("holiday_ot_dashboard.html",
+                           records=records,
+                           holidays=holidays,
+                           filter_status=filter_status,
+                           time=time)
 
-    c.drawString(50, 670, f"Worked Days: {worked_days_count}")
-    c.drawString(50, 650, f"Daily Rate: ₱{daily_rate:.2f}")
-    c.drawString(50, 630, f"Basic Pay: ₱{basic_pay:.2f}")
-    c.drawString(50, 610, f"Allowance: ₱{(emp.allowance or 0):.2f}")
-    c.drawString(50, 590, f"Incentives: ₱{(emp.incentives or 0):.2f}")
-    c.drawString(50, 570, f"Gross Income: ₱{gross_income:.2f}")
 
-    c.drawString(50, 540, "Deductions:")
-    c.drawString(70, 520, f"SSS: ₱{sss:.2f}")
-    c.drawString(70, 500, f"PhilHealth: ₱{philhealth:.2f}")
-    c.drawString(70, 480, f"Pag-IBIG: ₱{pagibig:.2f}")
-    c.drawString(70, 460, f"Loan: ₱{loan:.2f}")
-    c.drawString(50, 440, f"Total Deductions: ₱{total_deductions:.2f}")
-
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, 410, f"Net Pay: ₱{net_pay:.2f}")
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-
-    return send_file(buffer, as_attachment=True,
-                     download_name=f"Payslip_{emp.first_name}_{emp.last_name}.pdf",
-                     mimetype='application/pdf')
-
-# ------------------ LEAVE MODULE ------------------
-from datetime import datetime, date
-from flask_mail import Mail, Message
-
-mail = Mail(app)  # configure sa app init
-
-def send_leave_email(emp, leave, action):
-    subject = f"Leave Request {action.capitalize()}"
-    body = f"""
-    Hi {emp.first_name},
-
-    Your leave request ({leave.leave_type}, {leave.days} day/s from {leave.start_date} to {leave.end_date})
-    has been {action}.
-
-    Status: {leave.status}
-    Reason: {leave.reason}
-
-    Regards,
-    HR Department
-    """
-    msg = Message(subject, recipients=[emp.email])
-    msg.body = body
-    mail.send(msg)
-
+# ------------------ LEAVE ------------------
 @app.route('/leave', methods=['GET','POST'])
 @login_required
 def leave():
+    export_type = request.args.get("export")
+
     # --- Apply leave (POST) ---
     if request.method == 'POST':
         leave_type = request.form.get('leave_type')
-        days = int(request.form.get('days'))
+        try:
+            days = int(request.form.get('days', ''))
+        except (TypeError, ValueError):
+            flash("❌ Please enter a valid number of leave days.", "danger")
+            return redirect(url_for('leave'))
+
+        if days < 1:
+            flash("❌ Leave days must be at least 1.", "danger")
+            return redirect(url_for('leave'))
+
         start_date = datetime.strptime(request.form.get('start_date'), "%Y-%m-%d").date()
         end_date = datetime.strptime(request.form.get('end_date'), "%Y-%m-%d").date()
 
-        # ✅ Validation: check SIL credits
-        if leave_type == "SIL":
-            emp = Employee.query.get(current_user.id)
-            if emp.sil_credits < days:
-                flash(f"❌ Not enough SIL credits. You only have {emp.sil_credits} left.", "danger")
-                return redirect(url_for('leave'))
+        emp = Employee.query.get(current_user.id)
+        if leave_type == "SIL" and not emp.sil_eligible:
+            flash("❌ You are not yet eligible for Service Incentive Leave.", "danger")
+            return redirect(url_for('leave'))
+
+        if leave_type == "SIL" and emp.sil_credits < days:
+            flash(f"❌ Not enough SIL credits. You only have {emp.sil_credits} left.", "danger")
+            return redirect(url_for('leave'))
 
         new_leave = LeaveRequest(
             employee_id=current_user.id,
@@ -875,7 +2023,7 @@ def leave():
             end_date=end_date,
             reason=request.form.get('reason'),
             status='Pending',
-            is_paid=(leave_type != "LWOP")
+            is_paid=(leave_type == "SIL")
         )
         db.session.add(new_leave)
         db.session.commit()
@@ -890,24 +2038,24 @@ def leave():
         emp = Employee.query.get_or_404(leave.employee_id)
 
         if action == "approve":
+            if leave.leave_type == "SIL" and not emp.sil_eligible:
+                flash("❌ Employee is not yet eligible for Service Incentive Leave.", "danger")
+                return redirect(url_for('leave'))
+
             if leave.leave_type == "SIL" and leave.status != "Approved":
                 if emp.sil_credits >= leave.days:
                     emp.sil_credits -= leave.days
                     leave.status = "Approved"
                     leave.is_paid = True
-                    leave.decision_date = datetime.utcnow()
-                    db.session.commit()
-                    send_leave_email(emp, leave, "approved")
-                    flash("✅ SIL leave approved and credits updated.", "success")
                 else:
                     flash("❌ Not enough SIL credits.", "danger")
             else:
                 leave.status = "Approved"
-                leave.is_paid = (leave.leave_type != "LWOP")
-                leave.decision_date = datetime.utcnow()
-                db.session.commit()
-                send_leave_email(emp, leave, "approved")
-                flash("✅ Leave approved.", "success")
+                leave.is_paid = (leave.leave_type == "SIL")
+            leave.decision_date = datetime.utcnow()
+            db.session.commit()
+            send_leave_email(emp, leave, "approved")
+            flash("✅ Leave approved.", "success")
 
         elif action == "reject":
             leave.status = "Rejected"
@@ -921,18 +2069,20 @@ def leave():
     # --- Automatic SIL reset every January 1 ---
     today = date.today()
     if today.month == 1 and today.day == 1:
-        employees = Employee.query.all()
-        for emp in employees:
+        for emp in Employee.query.all():
             emp.sil_credits = 5
         db.session.commit()
         flash("🔄 SIL credits reset to 5 days for all employees.", "info")
 
-    # --- Query leaves ---
+    # --- Query leaves + histories ---
     if current_user.role.lower() == 'admin':
         leaves = LeaveRequest.query.order_by(LeaveRequest.date_filed.desc()).all()
+        histories = LeaveHistory.query.order_by(LeaveHistory.cutoff_start.desc()).all()
     else:
         leaves = LeaveRequest.query.filter_by(employee_id=current_user.id)\
                                    .order_by(LeaveRequest.date_filed.desc()).all()
+        histories = LeaveHistory.query.filter_by(employee_id=current_user.id)\
+                                      .order_by(LeaveHistory.cutoff_start.desc()).all()
 
     # --- Summary counts ---
     approved = LeaveRequest.query.filter_by(status="Approved").count()
@@ -945,53 +2095,115 @@ def leave():
     leave_labels = [f"{r.cutoff_start.strftime('%b %d')} - {r.cutoff_end.strftime('%b %d')}" for r in leave_trend][::-1]
     leave_values = [r.approved_count for r in leave_trend][::-1]
 
-    # --- Export/Print options ---
-    export_type = request.args.get("export")
-    if export_type == "csv":
-        import csv
-        from io import StringIO
-        si = StringIO()
-        writer = csv.writer(si)
-        writer.writerow(["Type","Days","Start","End","Reason","Status","Paid?"])
-        for l in leaves:
-            paid_flag = "No" if l.leave_type == "LWOP" else "Yes"
-            writer.writerow([l.leave_type, l.days, l.start_date, l.end_date,
-                             l.reason, l.status, paid_flag])
-        output = si.getvalue()
-        return Response(output, mimetype="text/csv",
-                        headers={"Content-Disposition":"attachment;filename=leave_history.csv"})
-    elif export_type == "excel":
-        import pandas as pd
-        from io import BytesIO
-        df = pd.DataFrame([{
-            "Type": l.leave_type,
-            "Days": l.days,
-            "Start": l.start_date,
-            "End": l.end_date,
-            "Reason": l.reason,
-            "Status": l.status,
-            "Paid?": "No" if l.leave_type == "LWOP" else "Yes"
-        } for l in leaves])
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False)
-        output.seek(0)
-        return Response(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Content-Disposition":"attachment;filename=leave_history.xlsx"})
-    elif export_type == "print":
-        return render_template("leave_print.html", leaves=leaves)
+    # --- PDF-only print view ---
+    if export_type == "print":
+        approved_leaves = [l for l in leaves if l.status == "Approved"] or leaves
+        return render_template(
+            "leave.html",
+            leaves=approved_leaves,
+            histories=histories,
+            print_mode=True,
+            current_user=current_user,
+            generated_at=datetime.now()
+        )
 
     # --- Default: normal leave page ---
     return render_template("leave.html",
                            leaves=leaves,
+                           histories=histories,
                            approved=approved,
                            pending=pending,
                            rejected=rejected,
                            lwop=lwop,
                            leave_labels=leave_labels,
-                           leave_values=leave_values)
+                           leave_values=leave_values,
+                           print_mode=False)
+
+
+# ------------------ LEAVE APPROVAL ACTIONS (Admin helper routes) ------------------
+@app.route('/approve_leave/<int:id>', methods=['GET','POST'])
+@login_required
+def approve_leave(id):
+    if current_user.role.lower() != 'admin':
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('leave'))
+    leave = LeaveRequest.query.get_or_404(id)
+    emp = Employee.query.get_or_404(leave.employee_id)
+
+    if leave.leave_type == "SIL" and not emp.sil_eligible:
+        flash("❌ Employee is not yet eligible for Service Incentive Leave.", "danger")
+        return redirect(url_for('leave'))
+
+    if leave.leave_type == "SIL" and emp.sil_credits < leave.days:
+        flash("❌ Not enough SIL credits.", "danger")
+        return redirect(url_for('leave'))
+
+    if leave.leave_type == "SIL":
+        emp.sil_credits -= leave.days
+    leave.status = "Approved"
+    leave.is_paid = (leave.leave_type == "SIL")
+    leave.decision_date = datetime.utcnow()
+    db.session.commit()
+    try:
+        send_leave_email(emp, leave, "approved")
+    except Exception:
+        logger.exception("Failed to send leave approval email")
+    flash("✅ Leave approved.", "success")
+    return redirect(url_for('dashboard_admin'))
+
+
+@app.route('/reject_leave/<int:id>', methods=['POST'])
+@login_required
+def reject_leave(id):
+    if current_user.role.lower() != 'admin':
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('leave'))
+    reason = request.form.get('reason')
+    leave = LeaveRequest.query.get_or_404(id)
+    emp = Employee.query.get_or_404(leave.employee_id)
+    leave.status = "Rejected"
+    leave.remarks = reason
+    leave.decision_date = datetime.utcnow()
+    db.session.commit()
+    try:
+        send_leave_email(emp, leave, "rejected")
+    except Exception:
+        logger.exception("Failed to send leave rejection email")
+    flash("❌ Leave request rejected.", "danger")
+    return redirect(url_for('dashboard_admin'))
 
 # ------------------ LOAN ------------------
+@app.route('/approve_loan/<int:id>', methods=['GET','POST'])
+@login_required
+def approve_loan(id):
+    if current_user.role.lower() != 'admin':
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('loan'))
+    loan = Loan.query.get_or_404(id)
+    loan.status = "Approved"
+    loan.decision_date = datetime.utcnow()
+    loan.approver = f"{current_user.first_name} {current_user.last_name}"
+    db.session.commit()
+    flash("✅ Loan approved.", "success")
+    return redirect(url_for('dashboard_admin'))
+
+
+@app.route('/reject_loan/<int:id>', methods=['POST'])
+@login_required
+def reject_loan(id):
+    if current_user.role.lower() != 'admin':
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('loan'))
+    reason = request.form.get('reason')
+    loan = Loan.query.get_or_404(id)
+    loan.status = "Rejected"
+    loan.remarks = reason
+    loan.decision_date = datetime.utcnow()
+    loan.approver = f"{current_user.first_name} {current_user.last_name}"
+    db.session.commit()
+    flash("❌ Loan request rejected.", "danger")
+    return redirect(url_for('dashboard_admin'))
+
 
 @app.route('/loan', methods=['GET','POST'])
 @login_required
@@ -1012,39 +2224,20 @@ def loan():
         flash(f"Loan {action}d successfully!", "success")
         return redirect(url_for('loan'))
 
-    # --- Export CSV ---
-    if action == "csv":
-        loans = Loan.query.filter_by(employee_id=current_user.id).all()
-        si = io.StringIO()
-        cw = csv.writer(si)
-        cw.writerow(["Amount","Reason","Date Needed","Status","Remarks"])
-        for l in loans:
-            cw.writerow([l.amount, l.reason, l.date_needed, l.status, l.remarks or ""])
-        output = make_response(si.getvalue())
-        output.headers["Content-Disposition"] = "attachment; filename=loan_history.csv"
-        output.headers["Content-type"] = "text/csv"
-        return output
-
-    # --- Export Excel ---
-    if action == "excel":
-        loans = Loan.query.filter_by(employee_id=current_user.id).all()
-        df = pd.DataFrame([{
-            "Amount": l.amount,
-            "Reason": l.reason,
-            "Date Needed": l.date_needed,
-            "Status": l.status,
-            "Remarks": l.remarks or ""
-        } for l in loans])
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False, sheet_name="Loans")
-        output.seek(0)
-        return send_file(output, download_name="loan_history.xlsx", as_attachment=True)
-
-    # --- Print View (PDF) ---
+    # --- PDF-only print view ---
     if action == "print":
         loans = Loan.query.filter_by(employee_id=current_user.id).all()
-        return render_template("loan.html", loans=loans, print_mode=True)
+        approved_loans = [l for l in loans if l.status == "Approved"] or loans
+        return render_template(
+            "loan.html",
+            loans=approved_loans,
+            approved=Loan.query.filter_by(employee_id=current_user.id, status="Approved").count(),
+            pending=Loan.query.filter_by(employee_id=current_user.id, status="Pending").count(),
+            rejected=Loan.query.filter_by(employee_id=current_user.id, status="Rejected").count(),
+            print_mode=True,
+            current_user=current_user,
+            now=datetime.now()
+        )
 
     # --- Loan Application ---
     today = datetime.today()
@@ -1069,11 +2262,22 @@ def loan():
         if amount > remaining_limit:
             flash(f"❌ Loan exceeds your current limit ₱{remaining_limit:.2f}", "danger")
         else:
+            date_needed_str = request.form.get('date_needed')
+            try:
+                date_needed = datetime.strptime(date_needed_str, "%Y-%m-%d").date() if date_needed_str else None
+            except Exception:
+                flash("❌ Invalid date format for Date Needed.", "danger")
+                return redirect(url_for('loan'))
+
+            if date_needed is None:
+                flash("❌ Date Needed is required.", "danger")
+                return redirect(url_for('loan'))
+
             new_loan = Loan(
                 employee_id=current_user.id,
                 amount=amount,
                 reason=request.form.get('reason'),
-                date_needed=request.form.get('date_needed'),
+                date_needed=date_needed,
                 status='Pending'
             )
             db.session.add(new_loan)
@@ -1100,118 +2304,11 @@ def loan():
                            remaining_limit=remaining_limit,
                            loan_labels=loan_labels,
                            loan_values=loan_values,
+                           now=datetime.now(),
                            print_mode=False)
 
-# ------------------ ASSESSMENT MODULE ------------------
-@app.route('/assessment', methods=['GET','POST'])
-@login_required
-def assessment():
-    action = request.args.get('action', 'menu')
-    view = action
 
-    results = []
-    evals = []
-    quiz_results = []
-    suggestion = "Sample AI suggestion"
-
-    if action == "upload_quiz" and request.method == "POST":
-        file = request.files.get("quiz_file")
-        if file:
-            flash("✅ Quiz uploaded successfully!", "success")
-        else:
-            flash("⚠ No file selected.", "warning")
-
-    elif action == "quiz_results":
-        results = [
-            (type("R", (), {"score": 8, "total_points": 10, "date_taken": datetime(2026,7,25,14,30)}),
-             "Kristina Emma", "Ronquillo", "Geography Basics"),
-            (type("R", (), {"score": 6, "total_points": 10, "date_taken": datetime(2026,7,26,10,15)}),
-             "Mae", "Santos", "Math Fundamentals"),
-        ]
-
-    elif action == "quiz_leaderboard":
-        quiz_id = request.args.get("quiz_id")
-        results = [
-            (type("R", (), {"score": 9, "total_points": 10}), "Kristina Emma", "Ronquillo"),
-            (type("R", (), {"score": 8, "total_points": 10}), "Mae", "Santos"),
-            (type("R", (), {"score": 7, "total_points": 10}), "Danica", "Lopez"),
-        ]
-
-    elif action == "evaluation":
-        if request.method == "POST" and request.args.get("action") == "peer_eval":
-            emp_id = request.form.get("employee_id")
-            score = request.form.get("score")
-            remarks = request.form.get("remarks")
-            flash("✅ Peer evaluation submitted!", "success")
-
-    elif action == "history":
-        quiz_results = [
-            {"date_taken": datetime(2026,7,25), "score": 8, "total_points": 10},
-            {"date_taken": datetime(2026,7,26), "score": 6, "total_points": 10},
-            {"date_taken": datetime(2026,6,15), "score": 9, "total_points": 10},
-        ]
-        monthly_results = {}
-        for q in quiz_results:
-            month_key = q["date_taken"].strftime("%Y-%m")
-            if month_key not in monthly_results:
-                monthly_results[month_key] = []
-            monthly_results[month_key].append(q)
-
-        evals = [
-            {"date": "2026-07-20", "score": 9, "remarks": "Excellent teamwork"},
-            {"date": "2026-07-22", "score": 7, "remarks": "Needs improvement in punctuality"},
-        ]
-
-    elif action in ["ai_insights","ai_private","ai_public"]:
-        suggestion = "Encourage more peer‑to‑peer evaluations to balance quiz performance with teamwork insights."
-
-    elif action == "csv":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Date", "Score", "Remarks"])
-        for e in evals:
-            writer.writerow([e["date"], e["score"], e["remarks"]])
-        response = make_response(output.getvalue())
-        response.headers["Content-Disposition"] = "attachment; filename=assessment.csv"
-        response.headers["Content-type"] = "text/csv"
-        return response
-
-    elif action == "excel":
-        import pandas as pd
-        df = pd.DataFrame(evals)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False, sheet_name="Assessment")
-        response = make_response(output.getvalue())
-        response.headers["Content-Disposition"] = "attachment; filename=assessment.xlsx"
-        response.headers["Content-type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        return response
-
-    elif action == "pdf":
-        buffer = io.BytesIO()
-        c = canvas.Canvas(buffer, pagesize=letter)
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(200, 750, "Assessment Report")
-        y = 700
-        for e in evals:
-            c.setFont("Helvetica", 12)
-            c.drawString(100, y, f"{e['date']} - Score: {e['score']} ({e['remarks']})")
-            y -= 20
-        c.save()
-        buffer.seek(0)
-        return send_file(buffer, as_attachment=True,
-                         download_name="assessment.pdf",
-                         mimetype="application/pdf")
-
-    return render_template("assessment.html",
-                           view=view,
-                           results=results,
-                           evals=evals,
-                           quiz_results=quiz_results,
-                           suggestion=suggestion)
-
-
-# ------------------ STAFF EVALUATION ------------------
+# ------------------ EVALUATION DASHBOARD------------------
 @app.route('/evaluation_dashboard', methods=['GET','POST'])
 @login_required
 def evaluation_dashboard():
@@ -1219,100 +2316,491 @@ def evaluation_dashboard():
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('login'))
 
+    ensure_peer_questions()
     employees = Employee.query.all()
+    questions = EvaluationQuestion.query.filter_by(is_active=True).all()
+    month_start = datetime.today().date().replace(day=1)
+    month_start_dt = datetime.combine(month_start, datetime.min.time())
+    peer_status = []
+    for emp in employees:
+        submitted = Evaluation.query.filter(
+            Evaluation.employee_id == emp.id,
+            Evaluation.date >= month_start_dt,
+            Evaluation.category.like("peer_%")
+        ).first() is not None
+        peer_status.append({"employee": emp, "submitted": submitted})
 
     if request.method == 'POST':
         for emp in employees:
-            rating = request.form.get(f'rating_{emp.id}')
             remarks = request.form.get(f'remarks_{emp.id}')
-            if rating or remarks:
-                eval = Evaluation(employee_id=emp.id, rating=rating, remarks=remarks, date=datetime.today())
-                db.session.add(eval)
+            for q in questions:
+                rating_value = request.form.get(f'q{q.id}_{emp.id}')
+                if rating_value:
+                    eval = Evaluation(
+                        employee_id=emp.id,
+                        evaluator_id=current_user.id,
+                        rating=int(rating_value),
+                        remarks=f"{q.text}: {remarks}" if remarks else q.text,
+                        date=datetime.today()
+                    )
+                    db.session.add(eval)
         db.session.commit()
         flash("✅ Evaluations saved successfully!", "success")
         return redirect(url_for('evaluation_dashboard'))
 
     evaluations = Evaluation.query.order_by(Evaluation.date.desc()).all()
-    return render_template("evaluation_dashboard.html", employees=employees, evaluations=evaluations)
+    return render_template("evaluation_dashboard.html",
+                           employees=employees,
+                           questions=questions,
+                           evaluations=evaluations,
+                           peer_status=peer_status,
+                           month_start=month_start)
+
+
+@app.route('/evaluation_results/<string:file_format>', methods=['GET'])
+@login_required
+def evaluation_results_export(file_format):
+    if file_format not in {'csv', 'pdf'}:
+        return "Unsupported evaluation export format", 400
+
+    requested_employee_id = request.args.get('employee_id', type=int)
+    if "admin" in current_user.role.lower():
+        query = Evaluation.query
+        employee_label = "All Employees"
+        if requested_employee_id:
+            employee = Employee.query.get_or_404(requested_employee_id)
+            query = query.filter_by(employee_id=employee.id)
+            employee_label = employee.full_name()
+    else:
+        query = Evaluation.query.filter_by(employee_id=current_user.id)
+        employee_label = current_user.full_name()
+
+    evaluations = query.order_by(Evaluation.date.desc()).all()
+
+    if file_format == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Date', 'Employee', 'Evaluator', 'Rating', 'Category', 'Remarks'])
+        for evaluation in evaluations:
+            writer.writerow([
+                evaluation.date.strftime('%Y-%m-%d %H:%M') if evaluation.date else '',
+                evaluation.employee.full_name() if evaluation.employee else '',
+                evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A',
+                evaluation.rating or '',
+                evaluation.category or '',
+                evaluation.remarks or ''
+            ])
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        response.headers['Content-Disposition'] = 'attachment; filename=evaluation_results.csv'
+        return response
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(72, 750, 'Evaluation Results')
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(72, 732, f'Employee: {employee_label}')
+    y = 700
+    for evaluation in evaluations:
+        date_text = evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A'
+        employee_text = evaluation.employee.full_name() if evaluation.employee else 'N/A'
+        evaluator_text = evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A'
+        line = f'{date_text} | {employee_text} | Evaluator: {evaluator_text} | Rating: {evaluation.rating or "N/A"}'
+        pdf.drawString(72, y, line[:115])
+        y -= 15
+        remarks = evaluation.remarks or 'No remarks'
+        pdf.drawString(90, y, f'Remarks: {remarks}'[:105])
+        y -= 22
+        if y < 70:
+            pdf.showPage()
+            pdf.setFont('Helvetica', 10)
+            y = 750
+    if not evaluations:
+        pdf.drawString(72, y, 'No evaluation results found.')
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name='evaluation_results.pdf',
+        mimetype='application/pdf'
+    )
+
+
+# ------------------ MANAGE QUESTIONS ------------------
+@app.route('/manage_questions', methods=['GET','POST'])
+@login_required
+def manage_questions():
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
+
+    ensure_peer_questions()
+    if request.method == 'POST':
+        new_text = request.form.get('question_text')
+        if new_text:
+            q = EvaluationQuestion(text=new_text, category="core")
+            db.session.add(q)
+            db.session.commit()
+            flash("✅ Question added!", "success")
+    questions = EvaluationQuestion.query.order_by(EvaluationQuestion.id).all()
+    return render_template("manage_questions.html", questions=questions)
+
+
+@app.route('/edit_question/<int:id>', methods=['GET','POST'])
+@login_required
+def edit_question(id):
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
+
+    q = EvaluationQuestion.query.get_or_404(id)
+    if request.method == 'POST':
+        q.text = request.form.get('question_text')
+        q.category = request.form.get('category') or q.category
+        db.session.commit()
+        flash("✅ Question updated!", "success")
+        return redirect(url_for('manage_questions'))
+    return render_template("edit_question.html", question=q)
+
+
+@app.route('/delete_question/<int:id>', methods=['POST', 'GET'])
+@login_required
+def delete_question(id):
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
+
+    q = EvaluationQuestion.query.get_or_404(id)
+    q.is_active = False
+    db.session.commit()
+    flash("✅ Question deactivated.", "success")
+    return redirect(url_for('manage_questions'))
+
+
+@app.route('/toggle_question/<int:id>', methods=['POST'])
+@login_required
+def toggle_question(id):
+    if current_user.role.lower() != "admin":
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('login'))
+
+    question = EvaluationQuestion.query.get_or_404(id)
+    question.is_active = not question.is_active
+    db.session.commit()
+    flash(
+        "✅ Question approved and active." if question.is_active else "✅ Question deactivated.",
+        "success"
+    )
+    return redirect(url_for('manage_questions'))
 
 # ------------------ QUIZ MODULE ------------------
 import random, io, csv
-from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except Exception:
+    BackgroundScheduler = None
 
-def generate_auto_quiz():
-    auto_questions = [
-        Quiz(question="Ano ang gamit ng spark plug?",
-             choice_a="Nagbibigay ng kuryente sa ilaw",
-             choice_b="Nagpapasimula ng combustion sa engine",
-             choice_c="Nagpapalamig ng makina",
-             choice_d="Nagpapadulas ng piston",
-             correct_answer="B", points=1),
-        Quiz(question="Kailan dapat magpalit ng engine oil?",
-             choice_a="Tuwing 1,000 km",
-             choice_b="Tuwing 5,000 km o ayon sa manual",
-             choice_c="Tuwing flat tire",
-             choice_d="Tuwing car wash",
-             correct_answer="B", points=1),
-        Quiz(question="Anong brand ng sasakyan ang madalas gamitin sa Pilipinas?",
-             choice_a="Toyota",
-             choice_b="Honda",
-             choice_c="Mitsubishi",
-             choice_d="Isuzu",
-             correct_answer="A", points=1),
-    ]
-    for q in auto_questions:
+def generate_auto_quiz(category, num_questions=5):
+    auto_questions = []
+
+    if category == "General":
+        auto_questions = [
+            Quiz(category="General", question="Ano ang gamit ng spark plug?",
+                 choice_a="Nagbibigay ng kuryente sa ilaw", choice_b="Nagpapasimula ng combustion sa engine",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="B", points=1),
+            Quiz(category="General", question="Ano ang gamit ng clutch?",
+                 choice_a="Nagpapalit ng gulong", choice_b="Nagkokonekta ng engine sa transmission",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapalakas ng ilaw",
+                 correct_answer="B", points=1),
+            Quiz(category="General", question="Ano ang nag-iimbak ng kuryente?",
+                 choice_a="Alternator", choice_b="Battery", choice_c="Starter", choice_d="Distributor",
+                 correct_answer="B", points=1),
+            Quiz(category="General", question="Ano ang nagpapadaloy ng coolant?",
+                 choice_a="Radiator", choice_b="Water Pump", choice_c="Fan Belt", choice_d="Thermostat",
+                 correct_answer="B", points=1),
+            Quiz(category="General", question="Sino ang gumagawa ng Civic?",
+                 choice_a="Toyota", choice_b="Honda", choice_c="Ford", choice_d="Nissan",
+                 correct_answer="B", points=1),
+        ]
+
+    elif category == "Engine":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang gamit ng spark plug?",
+                 choice_a="Nagbibigay ng kuryente sa ilaw", choice_b="Nagpapasimula ng combustion sa engine",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Ano ang gamit ng timing belt?",
+                 choice_a="Nagpapakain ng gasolina", choice_b="Nagkokonekta ng crankshaft at camshaft",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagbibigay ng kuryente",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Ano ang gamit ng piston rings?",
+                 choice_a="Nagpapanatili ng compression", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagpapadulas ng gulong", choice_d="Nagbibigay ng kuryente",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Transmission":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang gamit ng clutch?",
+                 choice_a="Nagpapalit ng gulong", choice_b="Nagkokonekta ng engine sa transmission",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapalakas ng ilaw",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Anong fluid ang kailangan ng automatic transmission?",
+                 choice_a="Brake Fluid", choice_b="Transmission Fluid", choice_c="Coolant", choice_d="Engine Oil",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Ano ang gamit ng gear oil?",
+                 choice_a="Nagpapadulas ng gears", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapalakas ng ilaw",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Electrical":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang nag-iimbak ng kuryente?",
+                 choice_a="Alternator", choice_b="Battery", choice_c="Starter", choice_d="Distributor",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Ano ang gamit ng fuse?",
+                 choice_a="Proteksyon laban sa short circuit", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+            Quiz(category=category, question="Ano ang gamit ng ignition coil?",
+                 choice_a="Nagpapalakas ng boltahe para sa spark plug", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente sa ilaw", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Suspension":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang sumasalo ng lubak?",
+                 choice_a="Shock Absorber", choice_b="Spring", choice_c="Strut", choice_d="Control Arm",
+                 correct_answer="A", points=1),
+            Quiz(category=category, question="Ano ang gamit ng stabilizer bar?",
+                 choice_a="Nagbabawas ng body roll", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Cooling":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang nagpapadaloy ng coolant?",
+                 choice_a="Radiator", choice_b="Water Pump", choice_c="Fan Belt", choice_d="Thermostat",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Ano ang gamit ng radiator?",
+                 choice_a="Nagpapalamig ng coolant", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapadulas ng piston", choice_d="Nagpapakain ng gasolina",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Car Brands":
+        auto_questions = [
+            Quiz(category=category, question="Sino ang gumagawa ng Civic?",
+                 choice_a="Toyota", choice_b="Honda", choice_c="Ford", choice_d="Nissan",
+                 correct_answer="B", points=1),
+            Quiz(category=category, question="Sino ang gumagawa ng Hilux?",
+                 choice_a="Toyota", choice_b="Honda", choice_c="Ford", choice_d="Isuzu",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Brakes":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang gamit ng brake pads?",
+                 choice_a="Nagbibigay ng kuryente", choice_b="Nagpapadulas ng piston",
+                 choice_c="Nagbibigay ng friction para huminto", choice_d="Nagpapalamig ng makina",
+                 correct_answer="C", points=1),
+            Quiz(category=category, question="Ano ang gamit ng brake fluid?",
+                 choice_a="Nagpapadala ng hydraulic pressure", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Steering":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang gamit ng power steering pump?",
+                 choice_a="Nagbibigay ng kuryente", choice_b="Nagpapadulas ng piston",
+                 choice_c="Nagbibigay ng hydraulic pressure para sa steering", choice_d="Nagpapalamig ng makina",
+                 correct_answer="C", points=1),
+            Quiz(category=category, question="Ano ang gamit ng tie rod?",
+                 choice_a="Nagkokonekta ng steering rack sa gulong", choice_b="Nagpapalamig ng makina",
+                 choice_c="Nagbibigay ng kuryente", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+
+    elif category == "Exhaust":
+        auto_questions = [
+            Quiz(category=category, question="Ano ang gamit ng muffler?",
+                 choice_a="Nagpapababa ng ingay ng tambutso", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+            Quiz(category=category, question="Ano ang gamit ng catalytic converter?",
+                 choice_a="Nagbabawas ng harmful emissions", choice_b="Nagbibigay ng kuryente",
+                 choice_c="Nagpapalamig ng makina", choice_d="Nagpapadulas ng piston",
+                 correct_answer="A", points=1),
+        ]
+
+    questions_pool = locals().get("auto_questions", [])
+
+    if not questions_pool:
+        raise ValueError(f"Walang available na questions para sa category: {category}")
+
+    # Randomly select up to num_questions
+    selected = random.sample(questions_pool, min(num_questions, len(questions_pool)))
+
+    # Insert sa DB
+    for q in selected:
         db.session.add(q)
     db.session.commit()
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(generate_auto_quiz, 'cron', day=1, hour=0)
-scheduler.start()
+categories = ["Engine", "Transmission", "Electrical", "Suspension", 
+              "Cooling", "Car Brands", "Brakes", "Steering", "Exhaust"]
 
-# ------------------ QUIZ RESULT------------------
+if scheduler:
+    for cat in categories:
+        scheduler.add_job(generate_auto_quiz, 'cron', day=1, hour=0, args=[cat])
+else:
+    logger.warning("Scheduler not available; skipping auto-quiz job registration for categories.")
+
+
+# ------------------ QUIZ RESULT ------------------
+
+@app.route('/admin/quiz-upload', methods=['GET', 'POST'])
+@login_required
+def admin_quiz_upload():
+    if "admin" not in current_user.role.lower():
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('dashboard_staff'))
+
+    if request.method == 'POST':
+        file = request.files.get('quiz_file')
+        if not file or not file.filename.lower().endswith('.csv'):
+            flash("❌ Please upload a CSV questionnaire file.", "danger")
+            return redirect(url_for('admin_quiz_upload'))
+
+        try:
+            stream = io.StringIO(file.stream.read().decode('utf-8-sig'), newline=None)
+            reader = csv.DictReader(stream)
+            required = {'question', 'choice_a', 'choice_b', 'correct_answer'}
+            headers = {str(header).strip().lower() for header in (reader.fieldnames or [])}
+            if not required.issubset(headers):
+                missing = ', '.join(sorted(required - headers))
+                flash(f"❌ Missing CSV columns: {missing}", "danger")
+                return redirect(url_for('admin_quiz_upload'))
+
+            imported = 0
+            for row in reader:
+                normalized = {str(key).strip().lower(): (value or '').strip() for key, value in row.items()}
+                if not normalized.get('question'):
+                    continue
+                db.session.add(Quiz(
+                    category=normalized.get('category') or 'General',
+                    question=normalized['question'],
+                    choice_a=normalized['choice_a'],
+                    choice_b=normalized['choice_b'],
+                    choice_c=normalized.get('choice_c') or None,
+                    choice_d=normalized.get('choice_d') or None,
+                    correct_answer=normalized['correct_answer'].upper(),
+                    points=int(normalized.get('points') or 1)
+                ))
+                imported += 1
+
+            if not imported:
+                flash("❌ The CSV did not contain any quiz questions.", "danger")
+            else:
+                db.session.commit()
+                flash(f"✅ Imported {imported} quiz question(s).", "success")
+        except (UnicodeDecodeError, ValueError, KeyError) as exc:
+            db.session.rollback()
+            logger.exception("Quiz CSV import failed")
+            flash(f"❌ Quiz upload failed: {exc}", "danger")
+        return redirect(url_for('admin_quiz_upload'))
+
+    quiz_counts = db.session.query(Quiz.category, db.func.count(Quiz.id)).group_by(Quiz.category).all()
+    return render_template('admin_quiz_upload.html', quiz_counts=quiz_counts)
+
 
 @app.route('/quiz/<int:employee_id>', methods=['GET','POST'])
 @login_required
 def quiz(employee_id):
     emp = Employee.query.get_or_404(employee_id)
+
+    if "staff" in current_user.role.lower() and current_user.id != employee_id:
+        flash("❌ You can only take your own quiz.", "danger")
+        return redirect(url_for('dashboard_staff'))
+
+    # Staff can take quizzes; questionnaire uploads belong to the admin route.
     mode = request.form.get("mode", "auto")
     category = request.form.get("category", "General")
 
-    # Manual upload option
     if request.method == 'POST' and mode == "upload" and 'file' in request.files:
-        file = request.files['file']
-        if file and file.filename.endswith('.csv'):
-            stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-            reader = csv.DictReader(stream)
-            for row in reader:
-                quiz = Quiz(
-                    category=row.get('category', category),
-                    question=row['question'],
-                    choice_a=row['choice_a'],
-                    choice_b=row['choice_b'],
-                    choice_c=row.get('choice_c'),
-                    choice_d=row.get('choice_d'),
-                    correct_answer=row['correct_answer'],
-                    points=int(row.get('points',1))
-                )
-                db.session.add(quiz)
-            db.session.commit()
-            flash("Quiz uploaded successfully!", "success")
-            return redirect(url_for('quiz', employee_id=employee_id))
+        flash("❌ Questionnaire uploads are available to administrators only.", "danger")
+        return redirect(url_for('quiz', employee_id=employee_id))
 
     # Get current month quizzes by category
     current_month = datetime.utcnow().month
-    quizzes = Quiz.query.filter(
+    category_quizzes = Quiz.query.filter(
         db.extract('month', Quiz.date_created) == current_month,
         Quiz.category == category
     ).all()
-    if not quizzes and mode == "auto":
-        generate_auto_quiz(category)
-        quizzes = Quiz.query.filter(
+
+    if len({question.question.strip().casefold() for question in category_quizzes}) < 10:
+        fallback_questions = [
+            ("Ano ang pangunahing layunin ng regular vehicle maintenance?", "Maiwasan ang sira", "Dagdagan ang ingay", "Bawasan ang safety", "Tanggalin ang preno", "A"),
+            ("Ano ang dapat gawin bago magtrabaho sa engine?", "Patayin at palamigin ito", "Buksan ang lahat ng ilaw", "Tanggalin ang gulong", "Lagyan ng tubig ang fuel", "A"),
+            ("Ano ang gamit ng warning light sa dashboard?", "Magbigay ng alerto", "Magpalit ng gulong", "Magdagdag ng gasolina", "Maglinis ng upuan", "A"),
+            ("Ano ang mahalaga kapag nag-iinspeksyon ng sasakyan?", "Sundin ang checklist", "Hulaan ang resulta", "Laktawan ang safety", "Itago ang sira", "A"),
+            ("Ano ang dapat gamitin sa pagprotekta ng mata?", "Safety goggles", "Open sandals", "Loose cloth", "Paper bag", "A"),
+            ("Ano ang unang hakbang kapag may nakitang oil leak?", "I-report at siyasatin", "Balewalain ito", "Dagdagan ang bilis", "Takpan ng papel", "A"),
+            ("Bakit kailangang panatilihing malinis ang work area?", "Para maiwasan ang aksidente", "Para bumigat ang tools", "Para madulas ang sahig", "Para mawala ang labels", "A"),
+            ("Ano ang tamang asal sa paggamit ng tools?", "Gamitin ayon sa purpose", "Ihagis pagkatapos gamitin", "Gamitin kahit sira", "Itago nang basa", "A"),
+            ("Ano ang dapat gawin sa sirang equipment?", "I-tag at i-report", "Gamitin pa rin", "Itago sa daan", "Ibigay sa customer", "A"),
+            ("Ano ang dapat suriin bago i-release ang sasakyan?", "Safety at work quality", "Kulay lang", "Busina lang", "Radio lang", "A")
+        ]
+        existing_questions = {question.question.strip().casefold() for question in category_quizzes}
+        for question, choice_a, choice_b, choice_c, choice_d, correct_answer in fallback_questions:
+            if len(existing_questions) >= 10:
+                break
+            if question.strip().casefold() in existing_questions:
+                continue
+            db.session.add(Quiz(
+                category=category,
+                question=question,
+                choice_a=choice_a,
+                choice_b=choice_b,
+                choice_c=choice_c,
+                choice_d=choice_d,
+                correct_answer=correct_answer,
+                points=1
+            ))
+            existing_questions.add(question.strip().casefold())
+        db.session.commit()
+        category_quizzes = Quiz.query.filter(
             db.extract('month', Quiz.date_created) == current_month,
             Quiz.category == category
         ).all()
 
-    random.shuffle(quizzes)
+    # Auto-generate kung wala pang quiz sa buwan na ito
+    if not category_quizzes and mode == "auto":
+        generate_auto_quiz(category)
+        category_quizzes = Quiz.query.filter(
+            db.extract('month', Quiz.date_created) == current_month,
+            Quiz.category == category
+        ).all()
+
+    selected_ids = [int(value) for value in request.form.get('quiz_ids', '').split(',') if value.isdigit()]
+    if request.method == 'POST' and mode == "take" and selected_ids:
+        quizzes = Quiz.query.filter(Quiz.id.in_(selected_ids)).all()
+        quizzes.sort(key=lambda question: selected_ids.index(question.id))
+    else:
+        available_quizzes = list({question.question.strip().casefold(): question for question in category_quizzes}.values())
+        if len(available_quizzes) < 10:
+            available_quizzes = Quiz.query.filter(
+                db.extract('month', Quiz.date_created) == current_month
+            ).all()
+            available_quizzes = list({question.question.strip().casefold(): question for question in available_quizzes}.values())
+        quizzes = random.sample(available_quizzes, min(10, len(available_quizzes)))
 
     # Handle quiz answers
     if request.method == 'POST' and mode == "take":
@@ -1325,36 +2813,38 @@ def quiz(employee_id):
 
         percentage = (score / total_points * 100) if total_points else 0
 
-        # Check kung may official result na sa buwan na ito
         existing = QuizResult.query.filter_by(
             employee_id=employee_id,
             is_official=True
         ).filter(db.extract('month', QuizResult.date_taken) == datetime.utcnow().month).first()
 
         if existing:
-            # Retake attempt (uncounted)
             result = QuizResult(employee_id=employee_id, score=score, total_points=total_points, is_official=False)
             flash("Retake completed. This attempt is for practice only.", "info")
         else:
-            # First attempt (official)
             result = QuizResult(employee_id=employee_id, score=score, total_points=total_points, is_official=True)
             if percentage >= 75:
                 flash("🎉 Congratulations! You passed the quiz!", "success")
-                emp.merit_points += 5  # example increment
+                emp.merit_points += 5
             else:
                 flash("⚠️ You need to retake the quiz.", "warning")
-                emp.demerit_points += 3  # example increment
-                # Optional: create notification entry
-                # notif = QuizNotification(employee_id=employee_id, message="Retake required")
-                # db.session.add(notif)
+                emp.demerit_points += 3
 
         db.session.add(result)
         db.session.commit()
         return redirect(url_for('quiz', employee_id=employee_id))
 
     results = QuizResult.query.filter_by(employee_id=employee_id).all()
-    return render_template("quiz.html", emp=emp, quizzes=quizzes, results=results, category=category)
-
+    return render_template(
+        "quiz.html",
+        emp=emp,
+        quizzes=quizzes,
+        results=results,
+        category=category,
+        mode=mode,
+        quiz_ids=','.join(str(question.id) for question in quizzes),
+        quiz_duration_seconds=60
+    )
 
 # ------------------ MERIT / DEMERIT ------------------
 @app.route('/merit_demerit/<int:employee_id>')
@@ -1502,6 +2992,79 @@ def export_data(data_type):
     </body>
     </html>
     ''', data_type=data_type)
+
+
+COMPANY_FILE_FOLDERS = {
+    'Auto Expert': 'auto-expert',
+    'Trece': 'trece-uno',
+}
+
+
+def company_file_directory(company):
+    normalized_company = 'Trece' if str(company or '').lower().startswith('trece') else company
+    folder = COMPANY_FILE_FOLDERS.get(normalized_company)
+    if not folder:
+        return None
+    directory = os.path.join(app.config['FILES_FOLDER'], folder)
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
+@app.route('/admin/files', methods=['GET', 'POST'])
+@login_required
+def admin_files():
+    if 'admin' not in current_user.role.lower():
+        flash('❌ Access denied. Admins only.', 'danger')
+        return redirect(url_for('dashboard_staff'))
+
+    if request.method == 'POST':
+        company = request.form.get('company')
+        file = request.files.get('file')
+        directory = company_file_directory(company)
+        filename = secure_filename(file.filename) if file and file.filename else ''
+        if not directory or not filename:
+            flash('❌ Select a company and a file to upload.', 'danger')
+            return redirect(url_for('admin_files'))
+
+        file.save(os.path.join(directory, filename))
+        flash(f'✅ {filename} uploaded for {company}.', 'success')
+        return redirect(url_for('admin_files'))
+
+    company_files = {
+        company: sorted(os.listdir(directory)) if directory and os.path.isdir(directory) else []
+        for company in COMPANY_FILE_FOLDERS
+        for directory in [company_file_directory(company)]
+    }
+    return render_template('admin_files.html', company_files=company_files,
+                           companies=list(COMPANY_FILE_FOLDERS))
+
+
+@app.route('/files')
+@login_required
+def company_files():
+    company = 'Trece' if str(current_user.company or '').lower().startswith('trece') else current_user.company
+    directory = company_file_directory(company)
+    files = sorted(os.listdir(directory)) if directory and os.path.isdir(directory) else []
+    return render_template('company_files.html', files=files, company=company)
+
+
+@app.route('/download/<string:company>/<string:filename>')
+@login_required
+def download_file(company, filename):
+    normalized_user_company = 'Trece' if str(current_user.company or '').lower().startswith('trece') else current_user.company
+    if company != normalized_user_company and 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    directory = company_file_directory(company)
+    safe_filename = secure_filename(filename)
+    if not directory or not safe_filename or safe_filename != filename:
+        return 'File not found', 404
+
+    filepath = os.path.join(directory, safe_filename)
+    if not os.path.isfile(filepath):
+        return 'File not found', 404
+    return send_file(filepath, as_attachment=True, download_name=filename)
+
+
 # ------------------ BULLETIN MODULE ------------------
 @app.route('/bulletin')
 @login_required
@@ -1517,19 +3080,62 @@ def bulletin():
 @app.route('/backup')
 @login_required
 def backup():
-    local_exists = os.path.exists('hris.db')
-    backup_status = "success"
-    last_backup = datetime.now().strftime("%B %d, %Y %I:%M %p")
+    if "admin" not in current_user.role.lower():
+        flash("❌ Access denied. Admins only.", "danger")
+        return redirect(url_for('dashboard_staff'))
 
-    # Optional: create backup file
+    database_path = os.path.join(basedir, "instance", "hris.db")
+    backup_dir = os.path.join(basedir, "instance", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    local_exists = os.path.isfile(database_path)
+    backup_status = "failed"
+    last_backup = datetime.now().strftime("%B %d, %Y %I:%M %p")
+    backup_filename = None
+
     if local_exists:
-        import shutil
-        shutil.copy('hris.db', f"backup_hris_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        import zipfile
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"hris_full_backup_{timestamp}.zip"
+        archive_path = os.path.join(backup_dir, backup_filename)
+        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.write(database_path, 'instance/hris.db')
+            for relative_root in ('static/uploads', 'static/files'):
+                source_root = os.path.join(basedir, relative_root)
+                if not os.path.isdir(source_root):
+                    continue
+                for root, _, filenames in os.walk(source_root):
+                    for filename in filenames:
+                        source_path = os.path.join(root, filename)
+                        archive_name = os.path.relpath(source_path, basedir).replace(os.sep, '/')
+                        archive.write(source_path, archive_name)
+            archive.writestr(
+                'BACKUP_CONTENTS.txt',
+                'This archive contains the HRIS database and uploaded profile/company files.\n'
+            )
+        backup_status = "success"
 
     return render_template("backup_local.html",
                            local_exists=local_exists,
                            backup_status=backup_status,
-                           last_backup=last_backup)
+                           last_backup=last_backup,
+                           backup_filename=backup_filename)
+
+
+@app.route('/download_db')
+@login_required
+def download_db():
+    if "admin" not in current_user.role.lower():
+        return "Access denied", 403
+
+    backup_dir = os.path.join(basedir, "instance", "backups")
+    backup_filename = request.args.get("filename", "")
+    if not backup_filename or os.path.basename(backup_filename) != backup_filename:
+        return "Backup not found", 404
+
+    backup_path = os.path.join(backup_dir, backup_filename)
+    if not os.path.isfile(backup_path):
+        return "Backup not found", 404
+    return send_file(backup_path, as_attachment=True, download_name=backup_filename)
 
 # ------------------ LOG OUT ------------------
 @app.route('/logout')
@@ -1538,9 +3144,32 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
+from flask_login import current_user
+from datetime import datetime
+
+@app.before_request
+def check_lunch_resume():
+    now = datetime.now()
+    if now.hour == 13 and now.minute == 0:
+        if current_user.is_authenticated:
+            active_attendance = Attendance.query.filter_by(
+                employee_id=current_user.id,
+                date=now.date()
+            ).filter(Attendance.clock_out == None).first()
+            if active_attendance:
+                send_resume_work_email(current_user)
 
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True, host="0.0.0.0", port=5002)
+    cert_file = os.environ.get("HRIS_SSL_CERT")
+    key_file = os.environ.get("HRIS_SSL_KEY")
+    ssl_context = (cert_file, key_file) if cert_file and key_file else None
+    if ssl_context:
+        app.config["SESSION_COOKIE_SECURE"] = True
+        logger.info("Starting HRIS with HTTPS on port 5002")
+    else:
+        logger.warning("Starting HRIS over HTTP. Set HRIS_SSL_CERT and HRIS_SSL_KEY for HTTPS.")
+    debug_mode = os.environ.get("HRIS_DEBUG", "false").lower() == "true"
+    app.run(debug=debug_mode, host="0.0.0.0", port=5002, ssl_context=ssl_context)

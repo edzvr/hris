@@ -1,0 +1,76 @@
+/* Shared low-glare background for authenticated dashboards and route pages. */
+body {
+  background-color: #e9efed !important;
+  color: #263238;
+}
+
+.admin-dashboard-page.admin-dark-mode {
+  background: #263238;
+  color: #ecf0f1;
+}
+
+.admin-dashboard-page.admin-dark-mode .card,
+.admin-dashboard-page.admin-dark-mode .profile,
+.admin-dashboard-page.admin-dark-mode .stats div {
+  background: #37474f;
+  color: #ecf0f1;
+}
+
+.admin-dashboard-page.admin-dark-mode tr:nth-child(even) {
+  background: #455a64;
+}
+
+.dashboard-links .btn[draggable="true"] { cursor: grab; }
+.dashboard-links .btn.dragging { opacity: 0.45; cursor: grabbing; }
+
+.dashboard-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border: 2px solid #176b4d;
+  border-radius: 7px;
+  background: #238b63;
+  color: #ffffff !important;
+  font-weight: 700;
+  text-decoration: none !important;
+  box-shadow: 0 2px 5px rgba(23, 107, 77, 0.24);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.dashboard-back-link:hover,
+.dashboard-back-link:focus-visible {
+  background: #176b4d;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+main.card > p > a[href*="dashboard_staff"] {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 18px;
+  border: 2px solid #176b4d;
+  border-radius: 7px;
+  background: #238b63;
+  color: #ffffff !important;
+  font-weight: 700;
+  text-decoration: none !important;
+}
+
+.card,
+.section,
+.profile,
+.profile-card,
+.tab-content,
+.payslip-card,
+form {
+  background-color: #f8faf9;
+}
+
+header {
+  background-color: #f1f5f3;
+}
+
+tr:nth-child(even) {
+  background-color: #f1f5f3;
+}

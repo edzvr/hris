@@ -4,109 +4,467 @@
     <meta charset="UTF-8">
     <title>Staff Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:0; }
+        body {
+          font-family: 'Inter', 'Segoe UI', sans-serif;
+          background-color: #F8F9FA;
+          color: #212529;
+          margin: 0;
+          padding: 0;
+          font-size: 22px;
+          line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: auto; padding: 20px; }
+
+        header {
+          background-color: #f9f9f9;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+          padding: 20px;
+          text-align: center;
+        }
+        header h1 { font-size: 32px; font-weight: 700; margin: 0; }
+        header p { font-size: 20px; margin: 5px 0 0; }
+
+        .brand-header {
+          text-align: center;
+          margin: 20px 0;
+        }
+        .brand-header img {
+          max-height: 80px;
+          margin: 0 15px;
+        }
+
+        .card {
+          background: #FFFFFF;
+          border-radius: 12px;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+          padding: 24px;
+          margin-bottom: 24px;
+        }
+
         .stats { display:flex; justify-content:space-around; text-align:center; margin:20px; }
-        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; }
-        .card { background:white; padding:20px; border-radius:10px; margin:20px; }
-        table { width:100%; border-collapse:collapse; margin-top:10px; }
-        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
-        th { background:#2196f3; color:white; }
-        tr:nth-child(even) { background:#f9f9f9; }
+        .stats .card { width:22%; }
+
+        .btn {
+          border: none;
+          border-radius: 8px;
+          padding: 18px 36px;
+          font-size: 20px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.3s ease, transform 0.2s ease;
+          display:inline-block;
+          margin:8px;
+          text-decoration:none;
+        }
+        .btn-primary { background-color: #1f7fdf; color: #fff; }
+        .btn-primary:hover { background-color: #1565c0; transform: scale(1.03); }
+        .btn-green { background-color: #27ae60; color: #fff; }
+        .btn-green:hover { background-color: #219150; }
+        .btn-red { background-color: #e74c3c; color: #fff; }
+        .btn-red:hover { background-color: #c0392b; }
+        .btn-disabled { background-color: #E0E0E0; color:#666; cursor:not-allowed; }
+
+        .status { font-weight:bold; margin-top:10px; }
+        .status.in { color:#27ae60; }
+        .status.out { color:#e74c3c; }
+        .clock { font-size:20px; font-weight:bold; margin-top:10px; color:#212529; }
+        .hours { font-size:18px; margin-top:5px; color:#212529; }
+
+        .dashboard-links {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px;
+          margin-top: 15px;
+        }
+        .dashboard-links a { text-align:center; }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            background-color: #E0E0E0;
+            border-radius: 10px;
+            margin-top: 10px;
+            height: 24px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background-color: #1f7fdf;
+            transition: width 0.5s ease;
+        }
+          .ai-insights { background: #f9f9f9; border: 1px solid #ddd; padding: 15px; margin-top: 20px; border-radius: 8px; }
+          .ai-insights h4 { margin: 0 0 10px; }
+          .ai-insights ul { margin: 0; padding-left: 20px; }
+          .ai-insights li { margin: 8px 0; }
+          .badge { padding: 4px 8px; border-radius: 4px; font-size: .85em; margin-right: 5px; }
+          .badge-success { background-color: #28a745; color: white; }
+          .badge-danger { background-color: #dc3545; color: white; }
+          .badge-warning { background-color: #ffc107; color: black; }
+          .btn-sm { padding: 8px 12px; font-size: 15px; }
     </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
-    <!-- Quick Stats -->
-    <div class="stats">
-        <div><h3>Attendance Records</h3><p><b>{{ attendance_records|length }}</b></p></div>
-        <div><h3>Leave Requests</h3><p><b>{{ leaves|length }}</b></p></div>
-        <div><h3>Payroll History</h3><p><b>{{ payrolls|length }}</b></p></div>
-        <div><h3>Loans</h3><p><b>{{ loans|length }}</b></p></div>
+    <div class="brand-header">
+        <img src="{{ url_for('static', filename='images/autoxpertlogo.jpg') }}" alt="Auto-Expert Logo">
+        <img src="{{ url_for('static', filename='images/trece-uno-logo.jpg') }}" alt="Trece-Uno Logo">
     </div>
 
-    <!-- Attendance -->
-    <div class="card">
-        <h2>My Attendance</h2>
-        <table>
-            <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>OT Status</th></tr>
-            {% for att in attendance_records %}
-            <tr>
-                <td>{{ att.clock_in.date() }}</td>
-                <td>{{ att.clock_in.strftime("%H:%M") if att.clock_in else "" }}</td>
-                <td>{{ att.clock_out.strftime("%H:%M") if att.clock_out else "" }}</td>
-                <td>{{ att.ot_status }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <header>
+        <h1>Welcome, {{ current_user.first_name }} {{ current_user.last_name }}!</h1>
+        <p>This is your Staff dashboard.</p>
+    </header>
+
+    <!-- Clock In/Out Buttons + Real-time clock -->
+    <div class="container card" style="text-align:center;">
+      <div id="clock" class="clock">--</div>
+      <div id="hoursWorked" class="hours">--</div>
+      <div class="progress-container" style="max-width:560px; margin:10px auto;">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+       <div id="attendanceState"
+         data-clocked-in="{{ 'true' if clocked_in else 'false' }}"
+         data-clock-in="{{ clock_in_iso }}"
+         data-worked-hours="{{ worked_hours }}"></div>
+       <div id="attendanceMessage" role="status" aria-live="polite"
+         style="display:none; margin:12px auto; max-width:560px; padding:10px; border-radius:6px; color:#fff;"></div>
+       <div id="lunchBreakPanel" role="status" aria-live="polite"
+         style="display:none; margin:12px auto; max-width:560px; padding:14px; border-radius:8px; background:#fff4d6; color:#6b4f00; font-weight:700;">
+         <div style="font-size:2rem;" aria-hidden="true">&#8987;</div>
+         <div id="lunchBreakTitle">Lunch break</div>
+         <div id="lunchBreakCountdown">00:00:00</div>
+       </div>
+
+      <form id="attendanceForm" method="POST" action="{{ url_for('attendance_action', employee_id=current_user.id) }}" data-api="{{ url_for('attendance_api', employee_id=current_user.id) }}">
+        <button type="submit" name="clockin" class="btn btn-green">🟢 Clock In</button>
+        <button type="submit" name="clockout" class="btn btn-red">🔴 Clock Out</button>
+      </form>
     </div>
 
-    <!-- Leaves -->
-    <div class="card">
-        <h2>My Leave Requests</h2>
-        <table>
-            <tr><th>Date Filed</th><th>Type</th><th>Status</th></tr>
-            {% for leave in leaves %}
-            <tr>
-                <td>{{ leave.date_filed.strftime("%b %d, %Y") }}</td>
-                <td>{{ leave.leave_type }}</td>
-                <td>{{ leave.status }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <div class="container card dashboard-section">
+        <h2>Quick Actions</h2>
+        <div class="dashboard-links">
+            <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+            <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
+            <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
+            <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
+            <a href="{{ url_for('quiz', employee_id=current_user.id) }}" class="btn btn-primary">📝 Take Quiz</a>
+            <a href="{{ url_for('assessment', action='menu') }}" class="btn btn-primary">🧠 Assessments</a>
+            <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">📝 Monthly Peer Evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
+            <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}" class="btn btn-primary">⭐ Merit / Demerit</a>
+            <a href="{{ url_for('profile', user_id=current_user.id) }}" class="btn btn-primary">👤 My Profile</a>
+            <a href="{{ url_for('bulletin') }}" class="btn btn-primary">📢 Company Bulletin</a>
+            <a href="{{ url_for('company_files') }}" class="btn btn-primary">📁 Company Files</a>
+            <a href="{{ url_for('submit_incident') }}" class="btn btn-primary">⚠️ Incident Report</a>
+            <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
+        </div>
     </div>
 
-    <!-- Payroll -->
-    <div class="card">
-        <h2>My Payroll History</h2>
-        <table>
-            <tr><th>Cutoff Start</th><th>Cutoff End</th><th>Net Pay</th></tr>
-            {% for pay in payrolls %}
-            <tr>
-                <td>{{ pay.cutoff_start.strftime("%b %d, %Y") }}</td>
-                <td>{{ pay.cutoff_end.strftime("%b %d, %Y") }}</td>
-                <td>₱{{ "%.2f"|format(pay.net_pay) }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <div class="container card dashboard-section">
+        <h2>Dashboard Summary</h2>
+        <div class="stats">
+            <div>
+                <h3>Attendance Records</h3>
+                <p><b>{{ attendance_records|length }}</b></p>
+            </div>
+            <div>
+                <h3>Leave Entries</h3>
+                <p><b>{{ leaves|length }}</b></p>
+            </div>
+            <div>
+                <h3>Payroll Records</h3>
+                <p><b>{{ payrolls|length }}</b></p>
+            </div>
+            <div>
+                <h3>Loan Requests</h3>
+                <p><b>{{ loans|length }}</b></p>
+            </div>
+        </div>
     </div>
 
-    <!-- Loans -->
-    <div class="card">
-        <h2>My Loans</h2>
-        <table>
-            <tr><th>Date</th><th>Amount</th><th>Status</th></tr>
-            {% for loan in loans %}
-            <tr>
-                <td>{{ loan.date_requested.strftime("%b %d, %Y") }}</td>
-                <td>₱{{ "%.2f"|format(loan.amount) }}</td>
-                <td>{{ loan.status }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-
-    <!-- Quizzes -->
-    <div class="card">
-        <h2>My Quiz Results</h2>
-        <table>
-            <tr><th>Quiz Title</th><th>Score</th><th>Date</th></tr>
-            {% for quiz in quizzes %}
-            <tr>
-                <td>{{ quiz.quiz_title }}</td>
-                <td>{{ quiz.score }}</td>
-                <td>{{ quiz.date_taken.strftime("%b %d, %Y") }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-
-    <!-- Bulletins -->
-    <div class="card">
-        <h2>Latest Bulletins</h2>
+      <div class="container card dashboard-section ai-insights">
+        <h4>AI Insights</h4>
         <ul>
-            {% for b in bulletins %}
-            <li><b>{{ b.title }}</b> - {{ b.created_at.strftime("%b %d, %Y") }}</li>
+          {% for key, value in insights.items() %}
+          <li>
+            {% if "Perfect" in value or "Strong" in value or "Complete" in value %}
+              <span class="badge badge-success">&#10004; Good</span>
+            {% elif "decreased" in value or "Notice" in value %}
+              <span class="badge badge-warning">&#128176; Notice</span>
+            {% else %}
+              <span class="badge badge-danger">&#9888; Warning</span>
+            {% endif %}
+            {{ value }}
+          </li>
+          {% endfor %}
+        </ul>
+        <form action="{{ url_for('export_insights_pdf', emp_id=current_user.id) }}" method="post">
+          <button type="submit" class="btn btn-sm btn-primary">&#128196; Export Insights to PDF</button>
+        </form>
+      </div>
+
+    <div class="container card dashboard-section">
+        <h2>Recent Updates</h2>
+        <ul>
+            {% for post in bulletins %}
+                <li>{{ post.title }} - {{ post.date }}</li>
             {% endfor %}
         </ul>
     </div>
+
+    <div class="container card dashboard-section">
+        <h2>Need Help?</h2>
+        <p>Use the buttons above to access your key workflows. All pages include a Back to Dashboard link for easier navigation.</p>
+    </div>
+
+<script>
+    // Real-time Clock
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').innerText = now.toLocaleString();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Hours Worked + Lunch Break Hourglass
+    const attendanceState = document.getElementById('attendanceState');
+    const lunchPanel = document.getElementById('lunchBreakPanel');
+    const lunchTitle = document.getElementById('lunchBreakTitle');
+    const lunchCountdown = document.getElementById('lunchBreakCountdown');
+    let lastLunchState = '';
+
+    function notifyLunch(title, message, state) {
+      if (lastLunchState === state) return;
+      lastLunchState = state;
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: message });
+      }
+      if (window.AudioContext || window.webkitAudioContext) {
+        const audio = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+        oscillator.frequency.value = 880;
+        gain.gain.setValueAtTime(0.08, audio.currentTime);
+        oscillator.start();
+        oscillator.stop(audio.currentTime + 0.25);
+      }
+    }
+
+    function updateLunchBreak(now) {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 0, 0);
+      if (now >= start && now < end) {
+        const remaining = end - now;
+        const totalSeconds = Math.ceil(remaining / 1000);
+        const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+        const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        lunchPanel.style.display = 'block';
+        lunchTitle.textContent = 'Lunch break: timer paused';
+        lunchCountdown.textContent = `${hours}:${minutes}:${seconds} until 1:00 PM`;
+        notifyLunch('Lunch break', 'Work timer paused until 1:00 PM.', 'lunch-start');
+        return true;
+      }
+      if (now >= end) {
+        lunchPanel.style.display = 'none';
+        notifyLunch('Resume work', 'Lunch break ended. Work timer has resumed.', 'lunch-end');
+      } else {
+        lunchPanel.style.display = 'none';
+      }
+      return false;
+    }
+
+    function parseClockInTimestamp(value) {
+      if (!value) return null;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    function updateHoursWorked() {
+      const state = document.getElementById('attendanceState');
+      const hoursEl = document.getElementById('hoursWorked');
+      const progressEl = document.getElementById('progressBar');
+      if (!state || !hoursEl || !progressEl) return;
+
+      const clockInIso = state.dataset.clockIn || '';
+      const clockInTime = parseClockInTimestamp(clockInIso);
+      const isClockedIn = state.dataset.clockedIn === 'true' && !!clockInTime;
+      const completedHours = Number(state.dataset.workedHours || 0);
+      const now = new Date();
+      const onLunch = updateLunchBreak(now);
+      let diffHrs = completedHours;
+
+      if (isClockedIn && clockInTime) {
+        let diffMs = now - clockInTime;
+        if (!Number.isFinite(diffMs) || diffMs < 0) {
+          diffMs = completedHours * 60 * 60 * 1000;
+        }
+        const lunchStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+        const lunchEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 0, 0);
+        if (now > lunchEnd) diffMs -= lunchEnd - lunchStart;
+        else if (now > lunchStart) diffMs -= now - lunchStart;
+        diffHrs = Math.max(diffMs / (1000 * 60 * 60), 0);
+      }
+
+      const elapsedMinutes = Math.max(Math.round((diffHrs * 60) || 0), 0);
+      const hours = Math.floor(elapsedMinutes / 60);
+      const minutes = elapsedMinutes % 60;
+      const displayHours = `${hours}:${String(minutes).padStart(2, '0')}`;
+      hoursEl.innerText = onLunch ? 'Lunch break' : displayHours + ' hrs';
+      const progress = Math.min((diffHrs / 8) * 100, 100);
+      progressEl.style.width = progress + '%';
+      progressEl.style.backgroundColor = progress < 50 ? '#27ae60' : progress < 75 ? '#f39c12' : '#e74c3c';
+    }
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      document.addEventListener('click', () => Notification.requestPermission(), { once: true });
+    }
+    setInterval(updateHoursWorked, 1000);
+    updateHoursWorked();
+</script>
+
+<!-- Light/Dark Mode Toggle -->
+<div class="theme-toggle card" style="text-align:center; margin-top:20px;">
+  <button id="toggleThemeBtn" class="btn btn-primary">Toggle Light/Dark Mode</button>
+</div>
+
+<!-- Success Banner -->
+<div id="successBanner" 
+     style="display:none; background:#27ae60; color:#fff; padding:15px; text-align:center; border-radius:8px; margin-top:20px; opacity:0; transition:opacity 0.8s ease;">
+  🎉 Welcome back, Edz!
+</div>
+
+
+<script>
+  function enableStaffButtonDrag() {
+    const grid = document.querySelector('.dashboard-links');
+    if (!grid) return;
+    let draggedButton = null;
+    grid.querySelectorAll('.btn').forEach((button, index) => {
+      button.draggable = true;
+      button.dataset.actionId = button.dataset.actionId || `staff-action-${index}`;
+    });
+    const savedOrder = JSON.parse(localStorage.getItem('hrisStaffActionOrder') || '[]');
+    savedOrder.forEach(id => {
+      const button = grid.querySelector(`[data-action-id="${id}"]`);
+      if (button) grid.appendChild(button);
+    });
+    grid.querySelectorAll('.btn').forEach(button => {
+      button.addEventListener('dragstart', () => {
+        draggedButton = button;
+        button.classList.add('dragging');
+      });
+      button.addEventListener('dragend', () => {
+        button.classList.remove('dragging');
+        draggedButton = null;
+        localStorage.setItem('hrisStaffActionOrder', JSON.stringify(
+          [...grid.querySelectorAll('.btn')].map(item => item.dataset.actionId)
+        ));
+      });
+      button.addEventListener('dragover', event => {
+        event.preventDefault();
+        if (draggedButton && draggedButton !== button) {
+          const box = button.getBoundingClientRect();
+          grid.insertBefore(draggedButton, event.clientY < box.top + box.height / 2 ? button : button.nextSibling);
+        }
+      });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', enableStaffButtonDrag);
+
+  // Light/Dark Mode Toggle
+  const themeBtn = document.getElementById('toggleThemeBtn');
+  themeBtn.addEventListener('click', function () {
+    document.body.classList.toggle('dark-mode');
+  });
+
+  // Success Banner (trigger after login redirect)
+  function showSuccessBanner() {
+    const banner = document.getElementById('successBanner');
+    banner.style.display = 'block';
+    setTimeout(() => { banner.style.opacity = 1; }, 50); // fade in
+    setTimeout(() => { banner.style.opacity = 0; }, 4000); // fade out after 4s
+    setTimeout(() => { banner.style.display = 'none'; }, 4800); // hide completely
+  }
+  // Example: tawagin mo `showSuccessBanner()` sa dashboard page after successful login
+
+  function showAttendanceMessage(message, color) {
+    const messageBox = document.getElementById('attendanceMessage');
+    messageBox.textContent = message;
+    messageBox.style.background = color;
+    messageBox.style.display = 'block';
+  }
+
+  // AJAX submit for attendance form to show real-time success message without navigation
+  const attendanceForm = document.getElementById('attendanceForm');
+  if (attendanceForm) {
+    attendanceForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const form = this;
+      const apiUrl = form.dataset.api || form.action;
+      const btnIn = form.querySelector('button[name="clockin"]');
+      const btnOut = form.querySelector('button[name="clockout"]');
+      if (btnIn) btnIn.disabled = true;
+      if (btnOut) btnOut.disabled = true;
+
+      try {
+        const formData = new FormData(form);
+        const clickedButton = e.submitter;
+        if (clickedButton && clickedButton.name) {
+          formData.append(clickedButton.name, clickedButton.value || '1');
+        }
+        const res = await fetch(apiUrl, { method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await res.json();
+        const color = data.status === 'success' ? '#27ae60' : data.status === 'warning' ? '#f39c12' : '#e74c3c';
+        showAttendanceMessage(data.message || 'Success', color);
+        if (data.status === 'success' && attendanceState) {
+          attendanceState.dataset.clockedIn = data.clocked_in ? 'true' : 'false';
+          attendanceState.dataset.clockIn = data.clock_in || '';
+          attendanceState.dataset.workedHours = data.worked_hours || 0;
+          updateHoursWorked();
+        }
+      } catch (err) {
+        showAttendanceMessage('❌ Error performing action', '#e74c3c');
+      } finally {
+        if (btnIn) btnIn.disabled = false;
+        if (btnOut) btnOut.disabled = false;
+      }
+    });
+  }
+</script>
+
+<style>
+  /* Dark mode styles */
+  .dark-mode {
+    background-color: #121212;
+    color: #f1f1f1;
+  }
+  .dark-mode .card {
+    background-color: #1e1e1e;
+    color: #f1f1f1;
+  }
+  .dark-mode .btn-primary {
+    background-color: #1565c0;
+  }
+
+  /* Spinner styles */
+  .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    margin: auto;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
 </body>
 </html>

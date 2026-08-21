@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Peer Evaluation</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #263238; }
+        .card { max-width: 850px; margin: 0 auto 20px; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h2 { color: #1976d2; margin-top: 0; }
+        label { display: block; margin-top: 14px; font-weight: 700; }
+        select, textarea { box-sizing: border-box; width: 100%; padding: 10px; margin-top: 6px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
+        textarea { min-height: 90px; resize: vertical; }
+        .question { padding: 14px 0; border-bottom: 1px solid #e5e9ed; }
+        .question p { margin: 0 0 8px; }
+        .rating { display: flex; gap: 16px; flex-wrap: wrap; font-weight: 400; }
+        .rating label { margin: 0; font-weight: 400; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 10px 18px; margin-top: 18px; background: #1976d2; color: #fff; cursor: pointer; text-decoration: none; }
+        .notice { background: #fff4d6; color: #6b4f00; padding: 12px; border-radius: 6px; }
+        .submitted { color: #2e7d32; font-size: .9rem; }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+    <div class="card">
+        <h2>Monthly Peer Evaluation</h2>
+        <p>Rate a coworker for {{ month_start.strftime('%B %Y') }}. Use 1 as the lowest and 5 as the highest rating.</p>
+        <p class="notice">Your answers help improve teamwork and workplace support. You cannot submit the same coworker twice in one month.</p>
+
+        <form method="POST">
+            <label for="employee_id">Coworker to evaluate</label>
+            <select id="employee_id" name="employee_id" required>
+                <option value="">Select coworker</option>
+                {% for employee in employees %}
+                    <option value="{{ employee.id }}" {% if employee.id in submitted_ids %}disabled{% endif %}>
+                        {{ employee.first_name }} {{ employee.last_name }}{% if employee.id in submitted_ids %} - Already submitted{% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+
+            {% for question in questions %}
+            <div class="question">
+                <p>{{ loop.index }}. {{ question.text }}</p>
+                <div class="rating">
+                    {% for rating in range(1, 6) %}
+                    <label><input type="radio" name="question_{{ question.id }}" value="{{ rating }}" required> {{ rating }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <label for="remarks">Optional remarks</label>
+            <textarea id="remarks" name="remarks" placeholder="Share constructive feedback..."></textarea>
+            <button type="submit" class="btn">Submit Monthly Evaluation</button>
+        </form>
+        <a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a>
+    </div>
+</body>
+</html>

@@ -1,13 +1,64 @@
-<!-- Summary Stats -->
-<div class="stats">
-    <div>
-        <h3 style="color:green;">Total Merit Points</h3>
-        <p style="font-size:28px;"><b>{{ merit_points }}</b></p>
-        <p>Attendance: {{ attendance_merit }} | Evaluation: {{ eval_merit }} | Quiz: {{ quiz_merit }}</p>
-    </div>
-    <div>
-        <h3 style="color:red;">Total Demerit Points</h3>
-        <p style="font-size:28px;"><b>{{ demerit_points }}</b></p>
-        <p>Attendance: {{ attendance_demerit }} | Evaluation: {{ eval_demerit }} | Quiz: {{ quiz_demerit }}</p>
-    </div>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assessment and Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #263238; }
+        .card { max-width: 1050px; margin: 0 auto 20px; padding: 24px; background: #f8faf9; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h1, h2 { color: #1976d2; }
+        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .summary div { padding: 16px; background: #e8f1ee; border-radius: 6px; text-align: center; }
+        .summary strong { display: block; font-size: 28px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        th, td { border: 1px solid #d8e0dc; padding: 12px; text-align: left; }
+        th { background: #1976d2; color: #fff; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 11px 16px; margin: 8px 8px 0 0; background: #1976d2; color: #fff; text-decoration: none; }
+        .btn-green { background: #2e7d32; }
+        @media (max-width: 650px) { .summary { grid-template-columns: 1fr; } table { font-size: 14px; } }
+    </style>
+</head>
+<body>
+{% if view == 'evaluation' %}
+    <section class="card">
+        <h1>My Evaluation Results</h1>
+        <p>Your evaluation records are consolidated here.</p>
+        <div class="summary">
+            <div><span>Total Results</span><strong>{{ evaluations|length }}</strong></div>
+            <div><span>Average Rating</span><strong>{{ average_rating }}</strong></div>
+            <div><span>Scale</span><strong>1-5</strong></div>
+        </div>
+        <a class="btn btn-green" href="{{ url_for('peer_evaluation') }}">Monthly Peer Evaluation</a>
+        <a class="btn" href="{{ url_for('evaluation_results_export', file_format='pdf') }}">Download PDF</a>
+        <a class="btn" href="{{ url_for('evaluation_results_export', file_format='csv') }}">Download CSV</a>
+    </section>
+    <section class="card">
+        <h2>Evaluation History</h2>
+        <table>
+            <thead><tr><th>Date</th><th>Evaluator</th><th>Rating</th><th>Category</th><th>Remarks</th></tr></thead>
+            <tbody>
+            {% for evaluation in evaluations %}
+                <tr>
+                    <td>{{ evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A' }}</td>
+                    <td>{{ evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A' }}</td>
+                    <td>{{ evaluation.rating or 'N/A' }}</td>
+                    <td>{{ evaluation.category or 'General' }}</td>
+                    <td>{{ evaluation.remarks or 'No remarks' }}</td>
+                </tr>
+            {% else %}<tr><td colspan="5">No evaluation results yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </section>
+{% else %}
+    <section class="card">
+        <h1>Assessment</h1>
+        <p>Choose an assessment activity from your dashboard.</p>
+        <a class="btn" href="{{ url_for('assessment', action='evaluation') }}">View Evaluation Results</a>
+        <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Take Quiz</a>
+    </section>
+{% endif %}
+<p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</body>
+</html>

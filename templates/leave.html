@@ -13,14 +13,23 @@
         th, td { border:1px solid #ddd; padding:8px; text-align:center; }
         th { background:#2196f3; color:white; }
         tr:nth-child(even) { background:#f9f9f9; }
-        .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; }
+        .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; display:inline-block; }
+        .btn-danger { background:#d9534f; }
+        .admin-action-cell { display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
+        .decline-form { background:transparent; padding:0; margin:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .decline-form input { width:150px; min-width:120px; margin:0; }
+        .decline-form button { white-space:nowrap; }
         .stats { display:flex; justify-content:space-around; margin:20px; }
         .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; text-align:center; }
+        canvas { display:block; width:260px !important; height:180px !important; max-width:100%; margin:20px auto; }
+        #leaveStatusChart { width:180px !important; height:180px !important; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
 
 {% if not print_mode %}
+    {% if current_user.role.lower() != 'admin' %}
     <!-- Apply Leave Form -->
     <h2>Apply Leave</h2>
     <form method="POST">
@@ -37,7 +46,7 @@
         <label>End Date:</label>
         <input type="date" name="end_date" required>
         <label>Days:</label>
-        <input type="number" name="days" required>
+        <input type="number" name="days" min="1" step="1" required>
         <label>Reason:</label>
         <input type="text" name="reason" required>
         <button type="submit">Submit Request</button>
@@ -50,12 +59,16 @@
         <div><h3>Rejected</h3><p style="color:red;"><b>{{ rejected }}</b></p></div>
         <div><h3>LWOP</h3><p style="color:gray;"><b>{{ lwop }}</b></p></div>
     </div>
+    {% endif %}
 {% endif %}
 
     <!-- Leave History Table -->
     <h2>Leave History</h2>
     <table>
         <tr>
+            {% if current_user.role.lower() == 'admin' and not print_mode %}
+                <th>Employee</th>
+            {% endif %}
             <th>Type</th><th>Days</th><th>Start</th><th>End</th><th>Reason</th><th>Status</th><th>Paid?</th>
             {% if current_user.role.lower() == 'admin' and not print_mode %}
                 <th>Remaining SIL Credits</th><th>Action</th>
@@ -63,6 +76,9 @@
         </tr>
         {% for leave in leaves %}
         <tr>
+            {% if current_user.role.lower() == 'admin' and not print_mode %}
+                <td>{{ leave.employee.first_name }} {{ leave.employee.last_name }}</td>
+            {% endif %}
             <td>{{ leave.leave_type }}</td>
             <td>{{ leave.days }}</td>
             <td>{{ leave.start_date }}</td>
@@ -81,8 +97,13 @@
             {% if current_user.role.lower() == 'admin' and not print_mode %}
             <td>{{ leave.employee.sil_credits }}</td>
             <td>
-                <a href="{{ url_for('leave', leave_id=leave.id, action='approve') }}" class="btn">Approve</a>
-                <a href="{{ url_for('leave', leave_id=leave.id, action='reject') }}" class="btn">Reject</a>
+                <div class="admin-action-cell">
+                    <a href="{{ url_for('approve_leave', id=leave.id) }}" class="btn">Approve</a>
+                    <form action="{{ url_for('reject_leave', id=leave.id) }}" method="POST" class="decline-form">
+                        <input type="text" name="reason" placeholder="Reason for decline" required>
+                        <button type="submit" class="btn btn-danger">Decline</button>
+                    </form>
+                </div>
             </td>
             {% endif %}
         </tr>
@@ -90,11 +111,10 @@
     </table>
 
 {% if not print_mode %}
-    <!-- Export Options -->
-    <div style="margin-top:20px;">
-        <a href="{{ url_for('leave', export='csv') }}" class="btn">Export to CSV</a>
-        <a href="{{ url_for('leave', export='excel') }}" class="btn">Export to Excel</a>
-        <a href="{{ url_for('leave', export='print') }}" class="btn">Print View</a>
+    <!-- PDF Export / View -->
+    <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+        <a href="{{ url_for('leave', export='print') }}" class="btn" target="_blank">View PDF</a>
+        <button type="button" class="btn" onclick="window.print()">Download PDF</button>
     </div>
 
     <!-- Analytics Charts -->
@@ -132,7 +152,7 @@
     </script>
 
     <br>
-    <a href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+    <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
 {% endif %}
 
 </body>

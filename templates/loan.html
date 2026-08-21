@@ -16,6 +16,8 @@
         .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; }
         .stats { display:flex; justify-content:space-around; margin:20px; }
         .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:30%; text-align:center; }
+        canvas { display:block; width:260px !important; height:180px !important; max-width:100%; margin:20px auto; }
+        #loanStatusChart { width:180px !important; height:180px !important; }
         .print-section { display:none; }
         @media print {
             body { background:white; }
@@ -23,8 +25,10 @@
             .print-section { display:block; }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
+    {% if current_user.role.lower() != 'admin' %}
     <!-- Apply Loan Form -->
     <div class="no-print">
         <h2>Apply for Loan</h2>
@@ -46,6 +50,7 @@
             <div><h3>Rejected</h3><p style="color:red;"><b>{{ rejected }}</b></p></div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Loan History Table -->
     <h2>Loan History</h2>
@@ -69,19 +74,21 @@
             </td>
             {% if current_user.role.lower() == 'admin' %}
             <td class="no-print">
-                <a href="{{ url_for('loan', action='approve', loan_id=l.id) }}" class="btn">Approve</a>
-                <a href="{{ url_for('loan', action='reject', loan_id=l.id) }}" class="btn">Reject</a>
+                <a href="{{ url_for('approve_loan', id=l.id) }}" class="btn">Approve</a>
+                <form action="{{ url_for('reject_loan', id=l.id) }}" method="POST" style="display:inline;">
+                    <input type="text" name="reason" placeholder="Reason for decline" required>
+                    <button type="submit" class="btn btn-danger">Decline</button>
+                </form>
             </td>
             {% endif %}
         </tr>
         {% endfor %}
     </table>
 
-    <!-- Export Options -->
-    <div class="no-print" style="margin-top:20px;">
-        <a href="{{ url_for('loan', action='csv') }}" class="btn">Download CSV</a>
-        <a href="{{ url_for('loan', action='excel') }}" class="btn">Download Excel</a>
-        <a href="{{ url_for('loan', action='print') }}" class="btn">Download PDF / Print</a>
+    <!-- PDF Export / View -->
+    <div class="no-print" style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+        <a href="{{ url_for('loan', action='print') }}" class="btn" target="_blank">View PDF</a>
+        <button type="button" class="btn" onclick="window.print()">Download PDF</button>
     </div>
 
     <!-- Analytics Charts -->
@@ -93,14 +100,37 @@
 
     <!-- Print Section -->
     <div class="print-section">
-        <h2 style="text-align:center;">Loan History (Print View)</h2>
-        <p><strong>Employee:</strong> {{ current_user.first_name }} {{ current_user.last_name }}</p>
-        <p><strong>Total Loans:</strong> {{ loans|length }}</p>
-        <p><strong>Approved:</strong> {{ approved }} | <strong>Pending:</strong> {{ pending }} | <strong>Rejected:</strong> {{ rejected }}</p>
+        <h2 style="text-align:center;">Approved Loan Record</h2>
+        <p><strong>Employee Name:</strong> {{ current_user.first_name }} {{ current_user.last_name }}</p>
+        <p><strong>Company:</strong> {{ current_user.company or 'N/A' }}</p>
+        <p><strong>Approved Loans:</strong> {{ loans|length }}</p>
+        <p><strong>Generated:</strong> {{ now.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        <p><strong>Authorized Personnel:</strong> ___________________________</p>
         <br>
-        <div style="margin-top:50px;">
-            <div>Prepared by: ___________________________</div>
-            <div>Employee Signature: _____________________</div>
+        <table style="width:100%; border:1px solid #000; border-collapse:collapse; margin-top:20px;">
+            <tr>
+                <th style="border:1px solid #000; padding:6px;">Amount</th>
+                <th style="border:1px solid #000; padding:6px;">Reason</th>
+                <th style="border:1px solid #000; padding:6px;">Date Needed</th>
+                <th style="border:1px solid #000; padding:6px;">Status</th>
+            </tr>
+            {% for loan in loans %}
+            <tr>
+                <td style="border:1px solid #000; padding:6px;">₱{{ "%.2f"|format(loan.amount) }}</td>
+                <td style="border:1px solid #000; padding:6px;">{{ loan.reason }}</td>
+                <td style="border:1px solid #000; padding:6px;">{{ loan.date_needed }}</td>
+                <td style="border:1px solid #000; padding:6px;">{{ loan.status }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <br>
+        <div style="margin-top:40px; display:flex; justify-content:space-between; gap:40px;">
+            <div style="flex:1;">
+                <div>Employee Signature: _________________________________</div>
+            </div>
+            <div style="flex:1; text-align:right;">
+                <div>Authorized Personnel: ______________________________</div>
+            </div>
         </div>
     </div>
 
@@ -136,6 +166,6 @@
     </script>
 
     <br class="no-print">
-    <a class="no-print" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+    <a class="dashboard-back-link no-print" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
 </body>
 </html>

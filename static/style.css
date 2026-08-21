@@ -1,7 +1,7 @@
 /* === Global Layout === */
 body {
   font-family: 'Inter', 'Segoe UI', sans-serif;
-  background-color: #F8F9FA;
+  background-color: #e9efed;
   color: #212529;
   margin: 0;
   padding: 0;
@@ -22,7 +22,7 @@ h3 { font-size: 32px; font-weight: 600; }
 
 /* === Cards & Panels === */
 .card {
-  background: #FFFFFF;
+  background: #f8faf9;
   border-radius: 12px;
   box-shadow: 0 3px 8px rgba(0,0,0,0.08);
   padding: 24px;
@@ -45,20 +45,38 @@ h3 { font-size: 32px; font-weight: 600; }
   cursor: pointer;
   transition: background 0.3s ease, transform 0.2s ease;
 }
+
 .btn-primary {
-  background-color: #1f7fdf;
+  background-color: #1f7fdf; /* modern soft blue */
   color: #fff;
 }
 .btn-primary:hover {
-  background-color: #7844f3;
+  background-color: #1565c0; /* darker blue on hover */
   transform: scale(1.03);
 }
+
 .btn-secondary {
   background-color: #E0E0E0;
   color: #333;
 }
 .btn-secondary:hover {
   background-color: #CCCCCC;
+}
+
+.btn-green {
+  background-color: #27ae60;
+  color: #fff;
+}
+.btn-green:hover {
+  background-color: #219150;
+}
+
+.btn-red {
+  background-color: #e74c3c;
+  color: #fff;
+}
+.btn-red:hover {
+  background-color: #c0392b;
 }
 
 /* === Tables === */
@@ -86,7 +104,7 @@ h3 { font-size: 32px; font-weight: 600; }
 
 /* === Links === */
 a {
-  color: #7B2CBF;
+  color: #1E88E5;
   text-decoration: none;
   font-size: 22px;
 }
@@ -96,7 +114,7 @@ a:hover {
 
 /* === Header & Footer === */
 header, footer {
-  background-color: #FFFFFF;
+  background-color: #f1f5f3;
   box-shadow: 0 2px 6px rgba(0,0,0,0.05);
   padding: 20px 24px;
   text-align: center;
@@ -207,13 +225,13 @@ header, footer {
   padding: 10px 20px;
   margin-right: 5px;
   border: none;
-  background: #7B2CBF;
+  background: #1E88E5;
   color: #fff;
   cursor: pointer;
   border-radius: 6px;
   font-size: 18px;
 }
-.tab-btn:hover { background: #9D4EDD; }
+.tab-btn:hover { background: #42A5F5; }
 .tab-content { margin-top: 15px; }
 
 /* === Flash Messages by Category === */
@@ -349,3 +367,18 @@ body.dark-mode .login-container button[type="submit"] {
 body.dark-mode .login-container button[type="submit"]:hover {
   background-color: #BB86FC;
 }
+<div class="card dashboard-section text-center">
+    <h3>👥 HR & Attendance</h3>
+    <div class="dashboard-links">
+        <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+        <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 View Payroll & Payslip</a>
+        <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
+        <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
+        <a href="{{ url_for('quiz', employee_id=current_user.id) }}" class="btn btn-primary">📝 Take Quiz</a>
+        <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}" class="btn btn-primary">⭐ Merit/Demerit</a>
+        <a href="{{ url_for('profile', user_id=current_user.id) }}" class="btn btn-primary">👤 My Profile</a>
+        <a href="{{ url_for('bulletin') }}" class="btn btn-primary">📢 Bulletin Board</a>
+        <a href="{{ url_for('logout') }}" class="btn btn-secondary logout-link">🚪 Logout</a>
+    </div>
+</div>
+

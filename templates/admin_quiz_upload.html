@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Quiz Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #263238; }
+        .card { max-width: 900px; margin: 0 auto 20px; background: #f8faf9; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h1 { color: #1976d2; margin-top: 0; }
+        .hint { background: #eef5f2; padding: 14px; border-left: 4px solid #1976d2; }
+        input[type=file] { display: block; margin: 16px 0; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 10px 16px; background: #1976d2; color: #fff; text-decoration: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #d8e0dc; padding: 10px; text-align: left; }
+        th { background: #e1ebe7; }
+        code { background: #e7eeeb; padding: 2px 4px; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Quiz Management</h1>
+        <p>Upload quiz questions for staff. Only administrators can access this page.</p>
+        <div class="hint">
+            CSV headers: <code>category,question,choice_a,choice_b,choice_c,choice_d,correct_answer,points</code>
+        </div>
+        <form method="POST" enctype="multipart/form-data">
+            <input type="file" name="quiz_file" accept=".csv" required>
+            <button type="submit" class="btn">Upload Quiz CSV</button>
+        </form>
+    </main>
+
+    <section class="card">
+        <h2>Uploaded Quiz Summary</h2>
+        <table>
+            <thead><tr><th>Category</th><th>Questions</th></tr></thead>
+            <tbody>
+            {% for category, count in quiz_counts %}
+                <tr><td>{{ category }}</td><td>{{ count }}</td></tr>
+            {% else %}
+                <tr><td colspan="2">No quiz questions uploaded yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a>
+    </section>
+</body>
+</html>

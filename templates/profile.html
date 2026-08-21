@@ -1,228 +1,147 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ emp.first_name }} {{ emp.last_name }} - Profile</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #f0f2f5;
-            margin: 0;
-            padding: 0;
-        }
-        .profile-container {
-            max-width: 1000px;
-            margin: 40px auto;
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
-            padding: 30px;
-        }
-        .profile-header {
-            text-align: center;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 20px;
-        }
-        .profile-pic {
-            width: 140px;
-            height: 140px;
-            border-radius: 50%;
-            object-fit: cover;
-            margin-bottom: 15px;
-            border: 4px solid #0095f6;
-        }
-        h2 { margin: 10px 0; color: #333; }
-        .tabs {
-            display: flex;
-            justify-content: center;
-            margin-top: 20px;
-            border-bottom: 1px solid #ddd;
-        }
-        .tabs button {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            background: none;
-            cursor: pointer;
-            font-weight: bold;
-            transition: color 0.3s;
-        }
-        .tabs button.active {
-            border-bottom: 3px solid #0095f6;
-            color: #0095f6;
-        }
-        .tab-content { display: none; padding: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 24px; color: #263238; }
+        .profile-container { max-width: 1000px; margin: 0 auto; }
+        .nav-tabs { display: flex; list-style: none; margin: 24px 0 0; padding: 0; border-bottom: 1px solid #c8d0d7; overflow-x: auto; }
+        .nav-link { display: block; padding: 11px 16px; color: #1976d2; cursor: pointer; text-decoration: none; white-space: nowrap; }
+        .nav-link.active { background: #fff; border: 1px solid #c8d0d7; border-bottom-color: #fff; margin-bottom: -1px; font-weight: 700; }
+        .tab-content { display: none; background: #fff; padding: 28px; border-radius: 0 0 10px 10px; box-shadow: 0 4px 14px rgba(0,0,0,.10); }
         .tab-content.active { display: block; }
-        .details-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px 30px;
-        }
-        .details-grid p {
-            margin: 0;
-            padding: 10px;
-            background: #f9fafc;
-            border-radius: 8px;
-            border: 1px solid #eee;
-        }
-        .btn-edit {
-            background: #0095f6;
-            color: #fff;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-        .edit-form { display: none; margin-top: 20px; }
-        .edit-form input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; }
-        /* Feed style */
-        .feed { margin-top: 30px; }
-        .feed-item {
-            background: #fafafa;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid #eee;
-        }
-        .feed-item h4 { margin: 0 0 10px; color: #0095f6; }
-        .feed-item p { margin: 0; }
+        .profile-header { text-align: center; margin-bottom: 24px; }
+        .profile-pic { display: block; width: 180px; height: 180px; object-fit: cover; border-radius: 50%; margin: 0 auto 18px; border: 4px solid #1976d2; }
+        .profile-header h2 { margin: 0; color: #1976d2; }
+        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+        .details-grid p { margin: 0; padding: 10px; background: #f7f9fb; border: 1px solid #e5e9ed; border-radius: 6px; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 10px 18px; margin-top: 20px; cursor: pointer; text-decoration: none; background: #1976d2; color: #fff; font-size: 15px; }
+        .btn-secondary { background: #607d8b; }
+        .edit-form { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e9ed; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+        .form-field { display: flex; flex-direction: column; gap: 5px; }
+        .form-field.full { grid-column: 1 / -1; }
+        input { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #e5e9ed; padding: 9px; text-align: left; }
+        th { background: #f7f9fb; }
+        .back-link { display: inline-block; color: #1976d2; text-decoration: none; font-weight: 600; }
+        .feed-item { border-bottom: 1px solid #e5e9ed; padding: 10px 0; }
+        .feed-item:last-child { border-bottom: 0; }
+        @media (max-width: 640px) { body { padding: 12px; } .details-grid, .form-grid { grid-template-columns: 1fr; } .form-field.full { grid-column: auto; } table { font-size: 13px; } }
     </style>
-    <script>
-        function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            document.querySelector('[data-tab="'+tabId+'"]').classList.add('active');
-        }
-        function toggleEdit() {
-            document.getElementById('view-mode').style.display = 'none';
-            document.getElementById('edit-mode').style.display = 'block';
-            document.querySelector('.btn-edit').style.display = 'none';
-        }
-    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
 <div class="profile-container">
-    <div class="profile-header">
-        {% if emp.profile_pic %}
-            <img src="{{ url_for('static', filename='uploads/' ~ emp.profile_pic) }}" class="profile-pic">
-        {% else %}
-            <img src="{{ url_for('static', filename='default-avatar.png') }}" class="profile-pic">
-        {% endif %}
-        <h2>{{ emp.first_name }} {{ emp.last_name }}</h2>
-        <p>{{ emp.role }} - {{ emp.company }}</p>
-    </div>
+    <a class="dashboard-back-link back-link" href="{{ url_for('dashboard_admin') if viewer.role.lower() == 'admin' else url_for('dashboard_staff') }}">&#8592; Back to Dashboard</a>
 
-    <!-- Tabs -->
-    <div class="tabs">
-        <button class="active" data-tab="info" onclick="showTab('info')">Personal Info</button>
-        <button data-tab="attendance" onclick="showTab('attendance')">Attendance</button>
-        <button data-tab="payroll" onclick="showTab('payroll')">Payroll History</button>
-        <button data-tab="feed" onclick="showTab('feed')">Feed</button>
-    </div>
+    <ul class="nav-tabs">
+        <li><a class="nav-link active" data-tab="info" onclick="showTab('info')">Personal Info</a></li>
+        <li><a class="nav-link" data-tab="attendance" onclick="showTab('attendance')">Attendance</a></li>
+        <li><a class="nav-link" data-tab="payroll" onclick="showTab('payroll')">Payroll History</a></li>
+        <li><a class="nav-link" data-tab="feed" onclick="showTab('feed')">Feed</a></li>
+    </ul>
 
-    <!-- Personal Info -->
     <div id="info" class="tab-content active">
-        <!-- View mode -->
-        <div class="details-grid" id="view-mode">
-            <p><strong>Role:</strong> {{ emp.role }}</p>
-            <p><strong>Company:</strong> {{ emp.company }}</p>
-            <p><strong>Email:</strong> {{ emp.email }}</p>
-            <p><strong>Contact No:</strong> {{ emp.contact_no }}</p>
-            <p><strong>Address:</strong> {{ emp.address }}</p>
-            <p><strong>Date of Birth:</strong> {{ emp.dob }}</p>
-            <p><strong>Date Started:</strong> {{ emp.date_started }}</p>
-            <p><strong>SSS:</strong> {{ emp.sss }}</p>
-            <p><strong>PhilHealth:</strong> {{ emp.philhealth }}</p>
-            <p><strong>TIN:</strong> {{ emp.tin }}</p>
-            <p><strong>Pag-IBIG:</strong> {{ emp.pagibig }}</p>
-            <p><strong>Emergency Contact:</strong> {{ emp.emergency_contact }}</p>
-            <p><strong>Emergency Address:</strong> {{ emp.emergency_address }}</p>
-            <p><strong>Password:</strong> •••••••</p>
+        <div class="profile-header">
+            {% if emp.profile_pic %}
+                <img src="{{ url_for('static', filename='uploads/' ~ emp.profile_pic) }}" class="profile-pic" alt="Profile picture">
+            {% endif %}
+            <h2>{{ emp.first_name }} {{ emp.last_name }} - Profile</h2>
+            <p>{{ emp.role or 'N/A' }} - {{ emp.company or 'N/A' }}</p>
         </div>
 
-        {% if viewer.id == emp.id or viewer.role.lower() == "admin" %}
-            <button class="btn-edit" onclick="toggleEdit()">Edit Profile</button>
-        {% endif %}
+        <div class="details-grid" id="profile-view">
+            <p><strong>Role:</strong> {{ emp.role or 'N/A' }}</p>
+            <p><strong>Email:</strong> {{ emp.email or 'N/A' }}</p>
+            <p><strong>Address:</strong> {{ emp.address or 'N/A' }}</p>
+            <p><strong>Date Started:</strong> {{ emp.date_started or 'N/A' }}</p>
+            <p><strong>SSS:</strong> {{ emp.sss or 'N/A' }}</p>
+            <p><strong>PhilHealth:</strong> {{ emp.philhealth or 'N/A' }}</p>
+            <p><strong>Pag-IBIG:</strong> {{ emp.pagibig or 'N/A' }}</p>
+            <p><strong>TIN:</strong> {{ emp.tin or 'N/A' }}</p>
+            <p><strong>Emergency Contact:</strong> {{ emp.emergency_contact or 'N/A' }}</p>
+            <p><strong>Emergency Address:</strong> {{ emp.emergency_address or 'N/A' }}</p>
+        </div>
 
-        <!-- Edit mode -->
-        <form method="POST" enctype="multipart/form-data" class="edit-form" id="edit-mode">
-            <input type="text" name="role" value="{{ emp.role }}">
-            <input type="text" name="company" value="{{ emp.company }}">
-            <input type="text" name="first_name" value="{{ emp.first_name }}">
-            <input type="text" name="last_name" value="{{ emp.last_name }}">
-            <input type="email" name="email" value="{{ emp.email }}">
-            <input type="text" name="contact_no" value="{{ emp.contact_no }}">
-            <input type="text" name="address" value="{{ emp.address }}">
-            <input type="date" name="dob" value="{{ emp.dob }}">
-            <input type="date" name="date_started" value="{{ emp.date_started }}">
-            <input type="text" name="sss" value="{{ emp.sss }}">
-            <input type="text" name="philhealth" value="{{ emp.philhealth }}">
-            <input type="text" name="tin" value="{{ emp.tin }}">
-            <input type="text" name="pagibig" value="{{ emp.pagibig }}">
-            <input type="text" name="emergency_contact" value="{{ emp.emergency_contact }}">
-            <input type="text" name="emergency_address" value="{{ emp.emergency_address }}">
-            <input type="password" name="password" value="{{ emp.password }}">
-            <input type="file" name="profile_pic">
-            <button type="submit" class="btn-edit">Save Changes</button>
-        </form>
-    </div>
-
-    <!-- Attendance -->
-    <div id="attendance" class="tab-content">
-        <h3>Attendance Records</h3>
-        <table>
-            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th></tr></thead>
-            <tbody>
-                {% for a in emp.attendance %}
-                <tr><td>{{ a.date }}</td><td>{{ a.clock_in }}</td><td>{{ a.clock_out }}</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-        <!-- Payroll -->
-    <div id="payroll" class="tab-content">
-        <h3>Payroll History</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Cutoff</th>
-                    <th>Gross</th>
-                    <th>Deductions</th>
-                    <th>Net Pay</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for p in emp.payroll %}
-                <tr>
-                    <td>{{ p.cutoff_start }} - {{ p.cutoff_end }}</td>
-                    <td>{{ "%.2f"|format(p.gross_income) }}</td>
-                    <td>{{ "%.2f"|format(p.total_deductions) }}</td>
-                    <td>{{ "%.2f"|format(p.net_pay) }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Feed -->
-    <div id="feed" class="tab-content">
-        <h3>Recent Updates</h3>
-        {% if emp.feed %}
-            {% for post in emp.feed %}
-            <div class="feed-item">
-                <h4>{{ post.title }}</h4>
-                <p>{{ post.content }}</p>
-                <small>Posted on {{ post.date_posted.strftime('%Y-%m-%d') }}</small>
+        {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
+        <button class="btn" type="button" onclick="toggleEdit()">Edit Profile</button>
+        <form method="POST" enctype="multipart/form-data" class="edit-form" id="profile-edit" action="{{ url_for('profile', user_id=emp.id) }}">
+            <div class="form-grid">
+                <label class="form-field">First Name<input type="text" name="first_name" value="{{ emp.first_name or '' }}" required></label>
+                <label class="form-field">Last Name<input type="text" name="last_name" value="{{ emp.last_name or '' }}" required></label>
+                <label class="form-field">Email<input type="email" name="email" value="{{ emp.email or '' }}"></label>
+                <label class="form-field">Contact No<input type="text" name="contact_no" value="{{ emp.contact_no or '' }}"></label>
+                <label class="form-field full">Address<input type="text" name="address" value="{{ emp.address or '' }}"></label>
+                <label class="form-field">Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
+                <label class="form-field">Date of Birth<input type="date" name="dob" value="{{ emp.dob or '' }}"></label>
+                <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
+                <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>
+                <label class="form-field">TIN<input type="text" name="tin" value="{{ emp.tin or '' }}"></label>
+                <label class="form-field">Pag-IBIG<input type="text" name="pagibig" value="{{ emp.pagibig or '' }}"></label>
+                <label class="form-field">Emergency Contact<input type="text" name="emergency_contact" value="{{ emp.emergency_contact or '' }}"></label>
+                <label class="form-field full">Emergency Address<input type="text" name="emergency_address" value="{{ emp.emergency_address or '' }}"></label>
+                <label class="form-field full">Profile Picture<input type="file" name="profile_pic" accept="image/*"></label>
             </div>
-            {% endfor %}
-        {% else %}
-            <p>No updates yet.</p>
+            <button type="submit" class="btn">Save Changes</button>
+            <button type="button" class="btn btn-secondary" onclick="toggleEdit()">Cancel</button>
+        </form>
         {% endif %}
+    </div>
+
+    <div id="attendance" class="tab-content">
+        <h2>Attendance</h2>
+        <table>
+            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for record in emp.attendances|sort(attribute='date', reverse=true) %}
+                <tr><td>{{ record.date }}</td><td>{{ record.clock_in or 'N/A' }}</td><td>{{ record.clock_out or 'N/A' }}</td><td>{{ '%.2f'|format(record.hours or 0) }}</td><td>{{ record.status or 'N/A' }}</td></tr>
+            {% else %}<tr><td colspan="5">No attendance records found.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div id="payroll" class="tab-content">
+        <h2>Payroll History</h2>
+        <table>
+            <thead><tr><th>Cut-off</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+            <tbody>
+            {% for record in emp.payrolls|sort(attribute='cutoff_start', reverse=true) %}
+                <tr><td>{{ record.cutoff_start }} - {{ record.cutoff_end }}</td><td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td><td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td><td>₱{{ '%.2f'|format(record.net_pay or 0) }}</td></tr>
+            {% else %}<tr><td colspan="4">No payroll records found.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div id="feed" class="tab-content">
+        <h2>Feed</h2>
+        {% for post in bulletins %}
+            <article class="feed-item"><h3>{{ post.title }}</h3><p>{{ post.content }}</p><small>{{ post.created_at }}</small></article>
+        {% else %}<p>No updates yet.</p>{% endfor %}
     </div>
 </div>
+
+<script>
+    function showTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+        const panel = document.getElementById(tabId);
+        const link = document.querySelector('.nav-link[data-tab="' + tabId + '"]');
+        if (panel) panel.classList.add('active');
+        if (link) link.classList.add('active');
+    }
+
+    function toggleEdit() {
+        const form = document.getElementById('profile-edit');
+        const view = document.getElementById('profile-view');
+        const editing = form.style.display === 'block';
+        form.style.display = editing ? 'none' : 'block';
+        view.style.display = editing ? 'grid' : 'none';
+    }
+</script>
 </body>
 </html>

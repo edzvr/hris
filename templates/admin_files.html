@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company Files</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        .card { max-width: 1000px; margin: 0 auto 20px; padding: 24px; background: #f8faf9; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h1 { color: #1976d2; }
+        .upload-form { display: grid; grid-template-columns: 1fr 2fr auto; gap: 12px; align-items: center; }
+        select, input[type=file] { width: 100%; box-sizing: border-box; padding: 9px; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 10px 16px; background: #1976d2; color: #fff; cursor: pointer; text-decoration: none; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        th, td { border: 1px solid #d8e0dc; padding: 10px; text-align: left; }
+        th { background: #e1ebe7; }
+        @media (max-width: 700px) { .upload-form { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Company Files</h1>
+        <p>Upload any file and choose which company can access it.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <form class="upload-form" method="POST" enctype="multipart/form-data">
+            <select name="company" required>
+                <option value="">Choose company</option>
+                {% for company in companies %}<option value="{{ company }}">{{ company }}</option>{% endfor %}
+            </select>
+            <input type="file" name="file" required>
+            <button type="submit" class="btn">Upload File</button>
+        </form>
+    </main>
+
+    {% for company, filenames in company_files.items() %}
+    <section class="card">
+        <h2>{{ company }} Files</h2>
+        <table>
+            <thead><tr><th>File Name</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for filename in filenames %}<tr><td>{{ filename }}</td><td>Available</td></tr>
+            {% else %}<tr><td colspan="2">No files uploaded.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endfor %}
+    <p style="max-width:1000px;margin:0 auto;"><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
+        <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
+    </main>
+</body>
+</html>

@@ -1,49 +1,255 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Payroll & Payslip</title>
+    <title>Payroll - {{ emp.first_name }} {{ emp.last_name }}</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #f4f7f6; }
-        .card { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background: #1976d2; color: white; }
-        .btn { display: inline-block; padding: 10px 20px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; margin: 5px; }
-        .back { background: #2c3e50; }
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
+        h2 { color:#1976d2; }
+        .section { background:#fff; padding:20px; border-radius:8px; margin-bottom:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#2196f3; color:white; }
+        tr:nth-child(even) { background:#f9f9f9; }
+        select, button { padding:8px; margin:5px; border-radius:6px; }
+        /* Ensure dropdowns open above other elements */
+        select {
+            position: relative;
+            z-index: 9999;
+            min-width: 220px;
+            -webkit-appearance: menulist;
+            appearance: menulist;
+            cursor: pointer;
+        }
+        .btn { background:#1976d2; color:white; border:none; cursor:pointer; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
-    <div class="card">
-        <h2>Payroll Summary: {{ emp.first_name }} {{ emp.last_name }}</h2>
-        <p><b>Cut-off Period:</b> {{ start_cutoff }} to {{ end_cutoff }}</p>
 
-        <form method="POST">
-            <table>
-                <tr><th>Description</th><th>Amount (PHP)</th></tr>
-                <tr><td>Daily Rate</td><td><input type="number" name="daily_rate" value="{{ emp.daily_rate or 0 }}" step="0.01"></td></tr>
-                <tr><td>Basic Pay ({{ worked_days_count }} days x {{ emp.daily_rate }})</td><td>{{ "%.2f"|format(basic_pay) }}</td></tr>
-                <tr><td>Allowance</td><td><input type="number" name="allowance" value="{{ emp.allowance or 0 }}" step="0.01"></td></tr>
-                <tr><td>Incentives</td><td><input type="number" name="incentives" value="{{ emp.incentives or 0 }}" step="0.01"></td></tr>
-                <tr style="background:#e8f5e9;"><td><b>Gross Income</b></td><td><b>{{ "%.2f"|format(gross_income) }}</b></td></tr>
-                <tr><td>SSS</td><td>{{ "%.2f"|format(sss) }}</td></tr>
-                <tr><td>PhilHealth</td><td>{{ "%.2f"|format(philhealth) }}</td></tr>
-                <tr><td>Pag-IBIG</td><td>{{ "%.2f"|format(pagibig) }}</td></tr>
-                <tr><td>Loan Deduction</td><td>{{ "%.2f"|format(loan) }}</td></tr>
-                <tr style="background:#ffebee;"><td><b>NET PAY</b></td><td><b>{{ "%.2f"|format(net_pay) }}</b></td></tr>
-            </table>
-            <button type="submit" style="width: 100%; margin-top: 20px;">Save & Calculate</button>
-        </form>
-
-        <br>
-        <h3>Payslip Options</h3>
-        <!-- ✅ Download buttons inside Payroll page -->
-        <a href="{{ url_for('download_payslip', employee_id=emp.id, type='weekly') }}" class="btn">Weekly Payslip (PDF)</a>
-        <a href="{{ url_for('download_payslip', employee_id=emp.id, type='monthly') }}" class="btn">Monthly Summary (PDF)</a>
-
-        <br><br>
-        <!-- Back button -->
-        <a href="{{ url_for('dashboard_staff') }}" class="btn back">← Back to Dashboard</a>
+<div class="section" style="padding: 0; overflow: hidden; border: 2px solid #3a2d1f; background: #fff;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px 10px; border-bottom: 2px solid #3a2d1f;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="border: 2px solid #3a2d1f; border-radius: 8px; padding: 8px 10px; font-weight: 700; font-size: 14px; line-height: 1.1; color: #1e1e1e; background: #f5f5f5;">
+                {% if emp.company == 'Trece-Uno' %}
+                    TRECE-UNO<br>AUTO SUPPLY
+                {% else %}
+                    AUTO-EXPERT<br>AUTO SUPPLY
+                {% endif %}
+            </div>
+            <div>
+                <div style="font-size: 20px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px;">
+                    {% if emp.company == 'Trece-Uno' %}
+                        TRECE-UNO AUTO SUPPLY
+                    {% else %}
+                        AUTO-EXPERT AUTO SUPPLY
+                    {% endif %}
+                </div>
+                <div style="font-size: 14px; font-style: italic; color: #4a4a4a;">
+                    {% if emp.company == 'Trece-Uno' %}
+                        Trece Martires Cavite, Philippines<br>
+                        treceunoautosupply@gmail.com
+                    {% else %}
+                        Quezon City Philippines<br>
+                        autoxpert.autosupply@gmail.com
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div style="font-size: 30px; font-weight: 700; letter-spacing: 1px; color: #1f1f1f; margin-top: 14px;">PAYSLIP</div>
     </div>
+
+    <div style="padding: 16px 22px 0;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 6px 0; width: 22%; font-weight: 700;">Employee ID:</td>
+                <td style="padding: 6px 0; width: 28%;">{{ emp.id }}</td>
+                <td style="padding: 6px 0; width: 20%; font-weight: 700;">Date Hired:</td>
+                <td style="padding: 6px 0; width: 30%;">{{ emp.date_started }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px 0; font-weight: 700;">Employee Name:</td>
+                <td style="padding: 6px 0;">{{ emp.first_name }} {{ emp.last_name }}</td>
+                <td style="padding: 6px 0; font-weight: 700;">Department:</td>
+                <td style="padding: 6px 0;">{% if emp.company %}{{ emp.company }}{% else %}N/A{% endif %}</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px 0; font-weight: 700;">Position:</td>
+                <td style="padding: 6px 0;">{{ emp.role }}</td>
+                <td style="padding: 6px 0; font-weight: 700;">Daily Rate:</td>
+                <td style="padding: 6px 0;">₱{{ "%.2f"|format(emp.daily_rate or 0) }}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<div class="section">
+    {% if current_user.role.lower() == 'admin' %}
+    <h3>Leave Eligibility</h3>
+    <form method="POST" action="{{ url_for('payroll', employee_id=emp.id) }}">
+        <label>
+            <input type="hidden" name="sil_eligible" value="0">
+            <input type="checkbox" name="sil_eligible" value="1" {% if emp.sil_eligible %}checked{% endif %}>
+            Eligible for Service Incentive Leave (SIL)
+        </label>
+        <p>Remaining SIL credits: <strong>{{ emp.sil_credits or 0 }} day(s)</strong></p>
+        <button type="submit" class="btn">Save SIL Eligibility</button>
+    </form>
+    {% else %}
+    <h3>Service Incentive Leave</h3>
+    <p>Eligibility: <strong>{{ 'Eligible' if emp.sil_eligible else 'Not yet eligible' }}</strong></p>
+    <p>Remaining SIL credits: <strong>{{ emp.sil_credits or 0 }} day(s)</strong></p>
+    {% endif %}
+</div>
+
+<div class="section">
+    <h3>Salary History {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
+    <table>
+        <tr>
+            <th>Cutoff Start</th><th>Cutoff End</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th><th>Payslip</th>
+        </tr>
+        {% for record in history %}
+        <tr>
+            <td>{{ record.cutoff_start }}</td>
+            <td>{{ record.cutoff_end }}</td>
+            <td>₱{{ "%.2f"|format(record.gross_income) }}</td>
+            <td>₱{{ "%.2f"|format(record.total_deductions) }}</td>
+            <td><strong>₱{{ "%.2f"|format(record.net_pay) }}</strong></td>
+            <td><a href="{{ url_for('payslip', emp_id=emp.id, payroll_id=record.id) }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No payroll records found.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="section">
+    <h3>Download Payslip</h3>
+    <form method="get" action="{{ url_for('payroll', employee_id=emp.id) }}">
+        <label>Select Cutoff:</label>
+        <select name="cutoff" required>
+            {% for record in history %}
+            <option value="{{ record.id }}">{{ record.cutoff_start }} to {{ record.cutoff_end }}</option>
+            {% endfor %}
+        </select>
+        <input type="hidden" name="download" value="true">
+        <button type="submit" class="btn">📄 Download Payslip</button>
+    </form>
+</div>
+
+{% if payslip %}
+<div class="section">
+    <h3>Detailed Payslip</h3>
+    <table border="1" cellpadding="8" cellspacing="0" style="width:100%; border-collapse:collapse;">
+        <tr>
+            <th colspan="3" style="background:#f0f0f0;">Earnings</th>
+            <th colspan="3" style="background:#f0f0f0;">Deductions</th>
+        </tr>
+        <tr>
+            <th>Description</th>
+            <th>Days/Hrs</th>
+            <th>Amount</th>
+            <th>Description</th>
+            <th>Mins</th>
+            <th>Amount</th>
+        </tr>
+        <tr>
+            <td>Actual Worked Days</td>
+            <td>{{ payslip.actual_worked_days }}</td>
+            <td>₱{{ "%.2f"|format(payslip.gross_income) }}</td>
+            <td>Late/UT</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.late_ut) }}</td>
+        </tr>
+        <tr>
+            <td>Adjustment</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.adjustment) }}</td>
+            <td>SSS</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.sss) }}</td>
+        </tr>
+        <tr>
+            <td>Night Differential</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.night_differential) }}</td>
+            <td>PhilHealth</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.philhealth) }}</td>
+        </tr>
+        <tr>
+            <td>Regular Overtime</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.regular_overtime) }}</td>
+            <td>HDMF</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.pagibig) }}</td>
+        </tr>
+        <tr>
+            <td>Rest Day</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.rest_day) }}</td>
+            <td>SSS Loan</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.sss_loan) }}</td>
+        </tr>
+        <tr>
+            <td>Special Holiday</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.special_holiday) }}</td>
+            <td>HDMF Loan</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.hdmf_loan) }}</td>
+        </tr>
+        <tr>
+            <td>Special Holiday OT</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.special_holiday_ot) }}</td>
+            <td>Cash Advance</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.cash_advance) }}</td>
+        </tr>
+        <tr>
+            <td>Regular Holiday</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.regular_holiday) }}</td>
+            <td>Withholding Tax</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.withholding_tax) }}</td>
+        </tr>
+        <tr>
+            <td>Regular Holiday OT</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.regular_holiday_ot) }}</td>
+            <td>Gross Deductions</td>
+            <td></td>
+            <td><strong>₱{{ "%.2f"|format(payslip.total_deductions) }}</strong></td>
+        </tr>
+        <tr>
+            <td><strong>Gross Income</strong></td>
+            <td></td>
+            <td><strong>₱{{ "%.2f"|format(payslip.gross_income) }}</strong></td>
+            <td><strong>NET PAY</strong></td>
+            <td></td>
+            <td><strong>₱{{ "%.2f"|format(payslip.net_pay) }}</strong></td>
+        </tr>
+    </table>
+</div>
+{% endif %}
+
+<div class="section">
+    <h3>View Payroll by Year</h3>
+    <form method="GET" action="{{ url_for('payroll', employee_id=emp.id) }}">
+        <label>Select Year:</label>
+        <select name="year" onchange="this.form.submit()">
+            {% for y in years %}
+            <option value="{{ y }}" {% if selected_year == y|string %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+<a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">⬅ Back to Dashboard</a>
+
 </body>
 </html>

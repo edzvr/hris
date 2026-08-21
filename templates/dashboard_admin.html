@@ -1,206 +1,576 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Admin Dashboard</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f7f6; margin:0; padding:0; }
-        .stats { display:flex; justify-content:space-around; text-align:center; margin:20px; }
-        .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:22%; }
-        .tabs { display:flex; margin:20px; }
-        .tabs button { flex:1; padding:10px; cursor:pointer; background:#1976d2; color:white; border:none; }
-        .tabs button.active { background:#388e3c; }
-        .tab-content { display:none; margin:20px; }
-        .tab-content.active { display:block; }
-        .card { background:white; padding:20px; border-radius:10px; margin-bottom:20px; }
-        table { width:100%; border-collapse:collapse; margin-top:10px; }
-        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
-        th { background:#2196f3; color:white; }
-        tr:nth-child(even) { background:#f9f9f9; }
-        .btn { padding:6px 12px; background:#388e3c; color:white; text-decoration:none; border-radius:6px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Admin Dashboard</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+        background: #eef3f1;
+      margin: 0;
+      padding: 0;
+      color: hsl(207, 47%, 32%);
+      font-size: 20px;
+      line-height: 1.5;
+    }
+    h2 { margin: 0 0 16px; font-size: 36px; }
+    h3 { margin: 0 0 12px; font-size: 28px; }
+    p, td, th, label, input, select { font-size: 21px; }
+    .card {
+      background: #fff;
+      padding: 20px;
+        border-radius: 10px;
+      margin: 20px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      text-align: center;
+      margin: 20px;
+    }
+    .stats div {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+      width: 22%;
+    }
+    .tabs {
+      display: none;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .admin-actions-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--admin-buttons-per-row, 3), minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .admin-actions-grid .btn {
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      text-align: center;
+      min-height: var(--admin-button-height, 94px);
+      padding: var(--admin-button-padding, 20px) 16px;
+      font-size: var(--admin-button-font-size, 23px);
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .admin-actions-grid .btn[draggable="true"] { cursor: grab; }
+    .admin-actions-grid .btn.dragging { opacity: 0.45; cursor: grabbing; }
+    .admin-top-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 20px; }
+    .admin-top-actions .btn { margin: 0; }
+    .tabs button {
+      flex: 1;
+      padding: 18px 24px;
+      font-size: 20px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--admin-button-color, #86a9cf);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      transition: background 0.3s;
+    }
+    .tabs button:hover { background: #6f94be; }
+    .tabs button.active { background: #5f83ad; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 14px;
+      text-align: center;
+    }
+    th {
+      background: #86a9cf;
+      color: #fff;
+    }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .btn {
+      border: none;
+      padding: 20px 36px;
+      font-size: 22px;
+      font-weight: 600;
+      background: var(--admin-button-color, #86a9cf);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      display: inline-block;
+      margin: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease, transform 0.2s ease;
+    }
+    .btn:hover { background: var(--admin-button-hover, #6f94be); }
+    @media (hover: hover) and (pointer: fine) {
+      .btn:hover { transform: scale(1.03); }
+    }
+    .btn-danger, .btn-red, .logout-link { background: #d99590 !important; color: #542b2b !important; }
+    .btn-danger:hover, .btn-red:hover, .logout-link:hover { background: #c47e79; }
+    .profile {
+      margin: 20px;
+      padding: 20px;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .profile-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    .profile-avatar { text-align: center; }
+    .profile-info {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 18px;
+    }
+    .profile-info p { margin: 4px 0; }
+    .profile-edit-button { margin-top: 16px; }
+    .profile h3 { color: #555; }
+    .profile img {
+     border-radius: 50%;
+     border: 4px solid #1E88E5;
+     width: 220px;   /* mas malaki */
+     height: 220px;  /* fixed size para hindi mag‑stretch */
+     object-fit: cover; /* para sakto ang crop */
+     margin-bottom: 15px;
+  }
+    /* Modal styling */
+    .modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%;
+             background:rgba(0,0,0,0.5); }
+    .modal-content {
+      background:#fff; margin:8% auto; padding:20px; border-radius:10px; width:420px;
+      box-shadow:0 4px 10px rgba(0,0,0,0.2);
+    }
+    .close { float:right; font-size:24px; cursor:pointer; }
+    .modal-content input, .modal-content button {
+      width: 100%; padding: 8px; margin: 6px 0; border-radius: 6px; border:1px solid #ccc;
+    }
+    .modal-content button { background:#555; color:#fff; border:none; }
+    .modal-content button:hover { background:#333; }
+    .alert { padding:10px; border-radius:6px; margin-bottom:10px; }
+    .alert.success { background:#d4edda; color:#155724; }
+    .alert.error { background:#f8d7da; color:#721c24; }
+    @media (max-width: 900px) {
+      .admin-actions-grid { grid-template-columns: repeat(min(var(--admin-buttons-per-row, 3), 2), minmax(0, 1fr)); }
+      .profile-layout { grid-template-columns: 180px 1fr; gap: 16px; }
+      .profile img { width: 160px; height: 160px; }
+    }
+    @media (max-width: 560px) {
+      .admin-actions-grid { grid-template-columns: repeat(min(var(--admin-buttons-per-row, 3), 1), minmax(0, 1fr)); }
+      .profile-layout { grid-template-columns: 1fr; }
+      .profile-info { grid-template-columns: 1fr; }
+    }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
-<body>
-    <!-- Quick Stats -->
-    <div class="stats">
-        <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
-        <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
-        <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
-        <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
+<body class="admin-dashboard-page">
+  <!-- Welcome -->
+  <div class="card">
+    <h2>Welcome, {{ admin.first_name }} {{ admin.last_name }} 👋</h2>
+  </div>
+
+  <div class="admin-top-actions">
+    <a href="{{ url_for('backup') }}" class="btn">💾 Backup Database / App</a>
+  </div>
+
+  <!-- Quick Stats -->
+  <div class="stats">
+    <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
+    <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
+    <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
+    <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
+  </div>
+
+ <!-- Admin Profile -->
+<div class="profile">
+  <h3>Admin Profile</h3>
+  <div class="profile-layout">
+    <div class="profile-avatar">
+      {% if admin.profile_pic %}
+        <img src="{{ url_for('static', filename='uploads/' ~ admin.profile_pic) }}" alt="Profile Picture">
+      {% endif %}
     </div>
-
-    <!-- Tabs -->
-    <div class="tabs">
-        <button class="active" onclick="showTab('employees')">Employees</button>
-        <button onclick="showTab('leaves')">Leaves</button>
-        <button onclick="showTab('bulletins')">Bulletins</button>
-        <button onclick="showTab('payroll')">Payroll & OT</button>
-        <button onclick="showTab('evaluation')">Evaluation</button>
-        <button onclick="showTab('analytics')">Analytics</button>
-        <button onclick="showTab('reports')">Reports</button>
-        <button onclick="showTab('settings')">Settings</button>
+    <div>
+      <div class="profile-info">
+        <p><strong>Name:</strong> {{ admin.first_name }} {{ admin.last_name }}</p>
+        <p><strong>Email:</strong> {{ admin.email }}</p>
+        <p><strong>Address:</strong> {{ admin.address }}</p>
+        <p><strong>SSS:</strong> {{ admin.sss }}</p>
+        <p><strong>PhilHealth:</strong> {{ admin.philhealth }}</p>
+        <p><strong>TIN:</strong> {{ admin.tin }}</p>
+        <p><strong>Pag-IBIG:</strong> {{ admin.pagibig }}</p>
+        <p><strong>Emergency Contact:</strong> {{ admin.emergency_contact }}</p>
+        <p><strong>Emergency Address:</strong> {{ admin.emergency_address }}</p>
+      </div>
+      <button class="btn profile-edit-button" onclick="openModal()">Edit Profile</button>
     </div>
+  </div>
+</div>
 
-    <!-- Employees Tab -->
-    <div id="employees" class="tab-content active">
-        <div class="card">
-            <h2>Employees - Trece-Uno</h2>
-            <table>
-                <tr><th>Name</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th></tr>
-                {% for emp in trece_employees %}
-                <tr>
-                    <td>{{ emp.first_name }} {{ emp.last_name }}</td>
-                    <td>{{ emp.daily_rate }}</td>
-                    <td>{{ emp.allowance }}</td>
-                    <td>{{ emp.incentives }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-        </div>
-        <div class="card">
-            <h2>Employees - Auto Expert</h2>
-            <table>
-                <tr><th>Name</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th></tr>
-                {% for emp in auto_employees %}
-                <tr>
-                    <td>{{ emp.first_name }} {{ emp.last_name }}</td>
-                    <td>{{ emp.daily_rate }}</td>
-                    <td>{{ emp.allowance }}</td>
-                    <td>{{ emp.incentives }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-        </div>
+
+  <!-- Modal -->
+  <div id="editModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <h3>Edit Profile</h3>
+
+      <!-- Flash messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert {% if category == 'success' %}success{% else %}error{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" enctype="multipart/form-data">
+        <input type="text" name="first_name" value="{{ admin.first_name }}" placeholder="First Name">
+        <input type="text" name="last_name" value="{{ admin.last_name }}" placeholder="Last Name">
+        <input type="email" name="email" value="{{ admin.email }}" placeholder="Email">
+        <input type="text" name="address" value="{{ admin.address }}" placeholder="Address">
+        <input type="text" name="sss" value="{{ admin.sss }}" placeholder="SSS">
+        <input type="text" name="philhealth" value="{{ admin.philhealth }}" placeholder="PhilHealth">
+        <input type="text" name="tin" value="{{ admin.tin }}" placeholder="TIN">
+        <input type="text" name="pagibig" value="{{ admin.pagibig }}" placeholder="Pag-IBIG">
+        <input type="text" name="emergency_contact" value="{{ admin.emergency_contact }}" placeholder="Emergency Contact">
+        <input type="text" name="emergency_address" value="{{ admin.emergency_address }}" placeholder="Emergency Address">
+        <input type="file" name="profile_pic">
+        <input type="password" name="new_password" placeholder="New Password">
+        <input type="password" name="confirm_password" placeholder="Confirm Password">
+        <button type="submit">Save Changes</button>
+      </form>
     </div>
+  </div>
 
-    <!-- Leaves Tab -->
-    <div id="leaves" class="tab-content">
-        <div class="card">
-            <h2>Leave Requests</h2>
-            <p>Trece-Uno Leaves: {{ trece_leaves|length }}</p>
-            <p>Auto Expert Leaves: {{ auto_leaves|length }}</p>
-        </div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="active" onclick="showTab('employees')">Employees</button>
+    <button onclick="showTab('leaves')">Leaves</button>
+    <button onclick="showTab('loans')">Loans</button>
+    <button onclick="showTab('bulletins')">Bulletins</button>
+    <button onclick="showTab('payroll')">Payroll & OT</button>
+    <button onclick="showTab('evaluation')">Evaluation</button>
+    <button onclick="showTab('analytics')">Analytics</button>
+    <button onclick="showTab('reports')">Reports</button>
+    <button onclick="showTab('settings')">Settings</button>
+  </div>
+  <!-- Employees Tab -->
+  <div id="employees" class="tab-content active">
+    <div class="card">
+      <h2>Employees - Trece-Uno</h2>
+      <table>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        {% for emp in trece_employees %}
+        <tr>
+          <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
+          <td>{{ emp.role or 'N/A' }}</td>
+          <td>{{ emp.registered_at.strftime('%Y-%m-%d %I:%M %p') if emp.registered_at else 'N/A' }}</td>
+          <td>{{ emp.daily_rate }}</td>
+          <td>{{ emp.allowance }}</td>
+          <td>{{ emp.incentives }}</td>
+          <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
+          <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
+          <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
+          <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
+        </tr>
+        {% endfor %}
+      </table>
     </div>
-
-    <!-- Bulletins Tab -->
-    <div id="bulletins" class="tab-content">
-        <div class="card">
-            <h2>Bulletins</h2>
-            <p>Unread Bulletins: {{ unread_count }}</p>
-        </div>
+    <div class="card">
+      <h2>Employees - Auto Expert</h2>
+      <table>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        {% for emp in auto_employees %}
+        <tr>
+          <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
+          <td>{{ emp.role or 'N/A' }}</td>
+          <td>{{ emp.registered_at.strftime('%Y-%m-%d %I:%M %p') if emp.registered_at else 'N/A' }}</td>
+          <td>{{ emp.daily_rate }}</td>
+          <td>{{ emp.allowance }}</td>
+          <td>{{ emp.incentives }}</td>
+          <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
+          <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
+          <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
+          <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
+        </tr>
+        {% endfor %}
+      </table>
     </div>
+  </div>
 
-    <!-- Payroll & OT Tab -->
-    <div id="payroll" class="tab-content">
-        <div class="card">
-            <h2>Payroll & Overtime</h2>
-            <a href="{{ url_for('payroll_dashboard') }}" class="btn">Payroll Dashboard</a>
-            <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">Holiday OT Dashboard</a>
-        </div>
+  <!-- Admin Actions -->
+  <div id="adminActionsCard" class="card">
+    <h2>Admin Actions</h2>
+    <div class="admin-actions-grid">
+      <button type="button" class="btn non-draggable" onclick="showTab('employees', this)">👥 Employees</button>
+      <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">🕒 Attendance & OT</a>
+      <a href="{{ url_for('leave') }}" class="btn">🏖️ Leave Requests</a>
+      <a href="{{ url_for('loan') }}" class="btn">💸 Loan Requests</a>
+      <a href="{{ url_for('evaluation_dashboard') }}" class="btn">📊 Evaluation</a>
+      <a href="{{ url_for('admin_quiz_upload') }}" class="btn">📝 Quiz Questionnaire</a>
+      <a href="{{ url_for('admin_files') }}" class="btn">📁 Upload Company Files</a>
+      <a href="{{ url_for('employee_201_selector') }}" class="btn">🗂️ Staff 201 Files</a>
+      <a href="{{ url_for('admin_incidents') }}" class="btn">⚠️ Incident Reports</a>
+      <a href="{{ url_for('payroll_dashboard') }}" class="btn">💰 Payroll</a>
+      <button type="button" class="btn non-draggable" onclick="showTab('settings', this)">⚙️ Reports & Settings</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
     </div>
-    <!-- Evaluation Tab -->
-    <div id="evaluation" class="tab-content">
-        <div class="card">
-            <h2>Employee Evaluation</h2>
-        
+    <div id="admin-actions-content"></div>
+  </div>
+
+  <!-- Leaves Tab -->
+  <div id="leaves" class="tab-content">
+    <div class="card">
+      <h2>Leave Requests</h2>
+      <p>Pending Leave Requests: <strong>{{ pending_leaves }}</strong></p>
+      <table>
+        <tr><th>Employee</th><th>Type</th><th>Date Filed</th><th>Status</th><th>Actions</th></tr>
+        {% for leave in pending_leaves_list %}
+        <tr>
+          <td>{{ leave.employee.first_name }} {{ leave.employee.last_name }}</td>
+          <td>{{ leave.type }}</td>
+          <td>{{ leave.date_filed.strftime('%Y-%m-%d') }}</td>
+          <td>{{ leave.status }}</td>
+          <td>
+            <a href="{{ url_for('approve_leave', id=leave.id) }}" class="btn">Approve</a>
+            <form action="{{ url_for('reject_leave', id=leave.id) }}" method="POST" style="display:inline;">
+              <input type="text" name="reason" placeholder="Reason for decline" required>
+              <button type="submit" class="btn btn-danger">Decline</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
     </div>
+  </div>
 
-    <!-- Analytics Tab -->
-    <div id="analytics" class="tab-content">
-        <div class="card">
-            <h2>Analytics</h2>
-            <canvas id="payrollTrendChart" width="400" height="200"></canvas>
-            <canvas id="leaveStatusChart" width="400" height="200"></canvas>
-            <canvas id="otStatusChart" width="400" height="200"></canvas>
-            <canvas id="employeeChart" width="400" height="200"></canvas>
-        </div>
+  <!-- Loans Tab -->
+  <div id="loans" class="tab-content">
+    <div class="card">
+      <h2>Loan Requests</h2>
+      <p>Pending Loan Requests: <strong>{{ pending_loans }}</strong></p>
+      <table>
+        <tr><th>Employee</th><th>Amount</th><th>Date Filed</th><th>Status</th><th>Actions</th></tr>
+        {% for loan in pending_loans_list %}
+        <tr>
+          <td>{{ loan.employee.first_name }} {{ loan.employee.last_name }}</td>
+          <td>₱{{ loan.amount }}</td>
+          <td>{{ loan.date_filed.strftime('%Y-%m-%d') }}</td>
+          <td>{{ loan.status }}</td>
+          <td>
+            <a href="{{ url_for('approve_loan', id=loan.id) }}" class="btn">Approve</a>
+            <form action="{{ url_for('reject_loan', id=loan.id) }}" method="POST" style="display:inline;">
+              <input type="text" name="reason" placeholder="Reason for decline" required>
+              <button type="submit" class="btn btn-danger">Decline</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
     </div>
+  </div>
 
-    <!-- Reports Tab -->
-    <div id="reports" class="tab-content">
-        <div class="card">
-            <h2>Reports</h2>
-            <a href="{{ url_for('export_evaluations_pdf') }}" class="btn">Export Evaluations PDF</a>
-            <a href="{{ url_for('export_evaluations_excel') }}" class="btn">Export Evaluations Excel</a>
-        </div>
+  <!-- Analytics Tab -->
+  <div id="analytics" class="tab-content">
+    <div class="card">
+      <h2>Payroll Trend (Last 6 Cutoffs)</h2>
+          <canvas id="payrollChart"
+            data-trend-labels='{{ trend_labels|tojson|forceescape }}'
+            data-trend-values='{{ trend_values|tojson|forceescape }}'></canvas>
     </div>
+  </div>
 
-    <!-- Settings Tab -->
-    <div id="settings" class="tab-content">
-        <div class="card">
-            <h2>Settings</h2>
-            <p>Configure system preferences, user roles, and access controls.</p>
-        </div>
-    </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    function showTab(tabId, trigger) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
+      const target = document.getElementById(tabId);
+      if (!target) return;
+      target.classList.add('active');
+      if (trigger) trigger.classList.add('active');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', `#${tabId}`);
+    }
+    function openModal() {
+      document.getElementById('editModal').style.display = 'block';
+    }
+    function closeModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
 
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        // Payroll Trend (Line Chart)
-        var ctxTrend = document.getElementById('payrollTrendChart').getContext('2d');
-        new Chart(ctxTrend, {
-            type: 'line',
-            data: {
-                labels: {{ trend_labels|tojson }},
-                datasets: [{
-                    label: 'Payroll Total (₱)',
-                    data: {{ trend_values|tojson }},
-                    borderColor: '#1976d2',
-                    fill: false
-                }]
-            }
-        });
-
-        // Leave Status (Pie Chart)
-        var ctxLeave = document.getElementById('leaveStatusChart').getContext('2d');
-        new Chart(ctxLeave, {
-            type: 'pie',
-            data: {
-                labels: ['Approved','Pending','Rejected'],
-                datasets: [{
-                    data: [{{ trece_leaves|length + auto_leaves|length }},
-                           {{ pending_leaves }}, 5],
-                    backgroundColor: ['#4caf50','#ff9800','#f44336']
-                }]
-            }
-        });
-
-        // OT Status (Bar Chart)
-        var ctxOT = document.getElementById('otStatusChart').getContext('2d');
-        new Chart(ctxOT, {
-            type: 'bar',
-            data: {
-                labels: ['Approved','Pending','Rejected'],
-                datasets: [{
-                    label: 'OT Requests',
-                    data: [10, {{ pending_ot }}, 3],
-                    backgroundColor: ['#388e3c','#ffeb3b','#e53935']
-                }]
-            }
-        });
-
-        // Employee distribution (Pie Chart)
-        var ctxEmp = document.getElementById('employeeChart').getContext('2d');
-        new Chart(ctxEmp, {
-            type: 'pie',
-            data: {
-                labels: ['Trece-Uno', 'Auto Expert'],
-                datasets: [{
-                    data: [{{ trece_employees|length }}, {{ auto_employees|length }}],
-                    backgroundColor: ['#ff9800','#4caf50']
-                }]
-            }
-        });
-
-        // Tab switching
-        function showTab(tabId) {
-            var tabs = document.querySelectorAll('.tab-content');
-            var buttons = document.querySelectorAll('.tabs button');
-            tabs.forEach(t => t.classList.remove('active'));
-            buttons.forEach(b => b.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
+    // Payroll Chart
+    const chartCanvas = document.getElementById('payrollChart');
+    const ctx = chartCanvas.getContext('2d');
+    const payrollChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: JSON.parse(chartCanvas.dataset.trendLabels),
+        datasets: [{
+          label: 'Total Payroll',
+          data: JSON.parse(chartCanvas.dataset.trendValues),
+          borderColor: '#555',
+          backgroundColor: 'rgba(136,136,136,0.2)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: {
+        responsive: false,
+        animation: false,
+        maintainAspectRatio: false,
+        width: 900,
+        height: 320,
+        plugins: {
+          legend: { display: true }
         }
-    </script>
+      }
+    });
+
+    function saveSettings() {
+      const settings = {
+        theme: document.getElementById('themeSelect').value,
+        notifications: document.getElementById('notifications').checked,
+        buttonColor: document.getElementById('buttonColor').value,
+        buttonSize: document.getElementById('buttonSize').value,
+        buttonsPerRow: document.getElementById('buttonsPerRow').value
+      };
+      localStorage.setItem('hrisAdminSettings', JSON.stringify(settings));
+      applyAdminSettings(settings);
+      alert('Settings saved.');
+    }
+
+    function applyAdminSettings(settings) {
+      document.body.classList.toggle('admin-dark-mode', settings.theme === 'dark');
+      document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#86a9cf');
+      document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#6f94be');
+      const sizes = {
+        small: { height: '70px', padding: '12px', fontSize: '18px' },
+        medium: { height: '94px', padding: '20px', fontSize: '23px' },
+        large: { height: '125px', padding: '28px', fontSize: '27px' }
+      };
+      const size = sizes[settings.buttonSize] || sizes.medium;
+      document.documentElement.style.setProperty('--admin-button-height', size.height);
+      document.documentElement.style.setProperty('--admin-button-padding', size.padding);
+      document.documentElement.style.setProperty('--admin-button-font-size', size.fontSize);
+      document.documentElement.style.setProperty('--admin-buttons-per-row', settings.buttonsPerRow || '3');
+    }
+
+    function resetDashboardSettings() {
+      localStorage.removeItem('hrisAdminSettings');
+      localStorage.removeItem('hrisAdminActionOrder');
+      window.location.reload();
+    }
+
+    function enableDashboardButtonDrag() {
+      const grid = document.querySelector('.admin-actions-grid');
+      if (!grid) return;
+      let draggedButton = null;
+      grid.querySelectorAll('.btn:not(.non-draggable)').forEach((button, index) => {
+        button.draggable = true;
+        button.dataset.actionId = button.dataset.actionId || `action-${index}`;
+      });
+      const savedOrder = JSON.parse(localStorage.getItem('hrisAdminActionOrder') || '[]');
+      savedOrder.forEach(id => {
+        const button = grid.querySelector(`[data-action-id="${id}"]`);
+        if (button) grid.appendChild(button);
+      });
+      grid.querySelectorAll('.btn:not(.non-draggable)').forEach(button => {
+        button.addEventListener('dragstart', () => {
+          draggedButton = button;
+          button.classList.add('dragging');
+        });
+        button.addEventListener('dragend', () => {
+          button.classList.remove('dragging');
+          draggedButton = null;
+          localStorage.setItem('hrisAdminActionOrder', JSON.stringify(
+            [...grid.querySelectorAll('.btn')].map(item => item.dataset.actionId)
+          ));
+        });
+        button.addEventListener('dragover', event => {
+          event.preventDefault();
+          if (draggedButton && draggedButton !== button) {
+            const box = button.getBoundingClientRect();
+            grid.insertBefore(draggedButton, event.clientX < box.left + box.width / 2 ? button : button.nextSibling);
+          }
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const actionsContent = document.getElementById('admin-actions-content');
+      const employeesPanel = document.getElementById('employees');
+      const settingsPanel = document.getElementById('settings');
+      if (actionsContent && employeesPanel && settingsPanel) {
+        actionsContent.appendChild(employeesPanel);
+        actionsContent.appendChild(settingsPanel);
+        employeesPanel.classList.add('active');
+      }
+      const storedSettings = JSON.parse(localStorage.getItem('hrisAdminSettings') || '{}');
+      document.getElementById('themeSelect').value = storedSettings.theme || 'light';
+      document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
+      document.getElementById('buttonColor').value = storedSettings.buttonColor || '#86a9cf';
+      document.getElementById('buttonSize').value = storedSettings.buttonSize || 'medium';
+      document.getElementById('buttonsPerRow').value = storedSettings.buttonsPerRow || '3';
+      applyAdminSettings(storedSettings);
+      enableDashboardButtonDrag();
+      const initialTab = window.location.hash.substring(1);
+      if (initialTab && document.getElementById(initialTab)) {
+        showTab(initialTab);
+      }
+    });
+  </script>
+  <!-- Settings Tab -->
+  <div id="settings" class="tab-content">
+    <div class="card">
+      <h2>Settings</h2>
+      <form id="settingsForm">
+        <label>Theme:</label>
+        <select id="themeSelect">
+          <option value="light">Light (Gray)</option>
+          <option value="dark">Dark Mode</option>
+        </select>
+        <br><br>
+        <label><input type="checkbox" id="notifications"> Enable Notifications</label>
+        <br><br>
+        <label>Button color: <input type="color" id="buttonColor" value="#86a9cf"></label>
+        <br><br>
+        <label>Button size:
+          <select id="buttonSize">
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </label>
+        <br><br>
+        <label>Buttons per row:
+          <select id="buttonsPerRow">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <p>Drag the action buttons to arrange them. Your arrangement is saved on this browser.</p>
+        <br><br>
+        <button type="button" class="btn" onclick="saveSettings()">Save Settings</button>
+        <button type="button" class="btn" onclick="resetDashboardSettings()">Reset Layout</button>
+      </form>
+    </div>
+  </div>
+
+  
 </body>
 </html>

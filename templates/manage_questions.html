@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Peer Questionnaire</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; color:#263238; }
+        .card { max-width:1000px; margin:0 auto 20px; background:#fff; padding:24px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+        h2 { color:#1976d2; }
+        input { padding:10px; border:1px solid #c8d0d7; border-radius:5px; width:65%; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:10px; text-align:left; }
+        th { background:#2196f3; color:#fff; }
+        .btn { display:inline-block; padding:9px 14px; border:0; border-radius:6px; background:#1976d2; color:#fff; text-decoration:none; cursor:pointer; }
+        .btn-warning { background:#b7791f; }
+        .btn-muted { background:#607d8b; }
+        .status-active { color:#2e7d32; font-weight:700; }
+        .status-inactive { color:#c62828; font-weight:700; }
+        form { display:inline; }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+    <div class="card">
+        <h2>Monthly Peer Questionnaire</h2>
+        <p>Add, edit, approve, or deactivate the questions shown to staff.</p>
+        <form method="POST">
+            <input type="text" name="question_text" placeholder="Enter a new questionnaire item" required>
+            <input type="hidden" name="category" value="peer">
+            <button type="submit" class="btn">Add Question</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead><tr><th>Question</th><th>Category</th><th>Status</th><th>Admin Actions</th></tr></thead>
+            <tbody>
+            {% for question in questions %}
+                <tr>
+                    <td>{{ question.text }}</td>
+                    <td>{{ question.category }}</td>
+                    <td class="{{ 'status-active' if question.is_active else 'status-inactive' }}">
+                        {{ 'Approved / Active' if question.is_active else 'Inactive / Not approved' }}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('edit_question', id=question.id) }}" class="btn">Edit</a>
+                        <form method="POST" action="{{ url_for('toggle_question', id=question.id) }}">
+                            <button type="submit" class="btn {{ 'btn-warning' if question.is_active else 'btn-muted' }}">
+                                {{ 'Deactivate' if question.is_active else 'Approve' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">No questionnaire items yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <a href="{{ url_for('evaluation_dashboard') }}" class="btn btn-muted" style="margin-top:20px;">Back to Evaluation Dashboard</a>
+        <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link" style="margin-top:20px;">Back to Dashboard</a>
+    </div>
+</body>
+</html>

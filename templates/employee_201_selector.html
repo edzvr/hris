@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Select Staff 201 File</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        .card { max-width: 650px; margin: 0 auto; padding: 24px; background: #f8faf9; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        select, button { width: 100%; box-sizing: border-box; padding: 12px; margin-top: 10px; }
+        button { border: 0; border-radius: 6px; background: #238b63; color: #fff; font-weight: 700; cursor: pointer; }
+        .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+        .actions button { margin-top: 0; }
+        @media (max-width: 560px) { .actions { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Select Staff Member</h1>
+        <p>Choose one employee to open the individual 201 file.</p>
+        <form id="staff201Form" method="GET">
+            <label for="employee_id">Employee name</label>
+            <select id="employee_id" required>
+                <option value="">Select employee</option>
+                {% for employee in employees %}
+                    <option value="{{ employee.id }}">{{ employee.first_name }} {{ employee.last_name }}{% if employee.company %} - {{ employee.company }}{% endif %}</option>
+                {% endfor %}
+            </select>
+            <div class="actions">
+                <button type="button" data-url="{{ url_for('employee_201_pdf', employee_id=0) }}" onclick="openEmployee201(this.dataset.url)">Download 201 PDF</button>
+                <button type="button" data-url="{{ url_for('employee_201_documents', employee_id=0) }}" onclick="openEmployee201(this.dataset.url)">Manage 201 Documents</button>
+            </div>
+        </form>
+        <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a></p>
+    </main>
+    <script>
+        function openEmployee201(baseUrl) {
+            const employeeId = document.getElementById('employee_id').value;
+            if (!employeeId) {
+                alert('Please select an employee first.');
+                return;
+            }
+            window.location.href = baseUrl.replace('/0', '/' + employeeId);
+        }
+    </script>
+</body>
+</html>

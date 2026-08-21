@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payslip - {{ employee.first_name }} {{ employee.last_name }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 24px; color: #1f2933; }
+        .payslip-card { max-width: 900px; margin: 0 auto; background: #fff; padding: 28px; border: 1px solid #d7dde2; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+        h2 { margin-top: 0; color: #1976d2; text-transform: uppercase; }
+        .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 22px; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td { width: 50%; border: 1px solid #d7dde2; padding: 12px 14px; vertical-align: top; text-align: left; }
+        .table th { background: #1976d2; color: #fff; }
+        .table p { margin: 0 0 9px; }
+        .table p:last-child { margin-bottom: 0; }
+        .net-pay { margin-top: 20px; padding: 14px 16px; background: #eef7ee; border-left: 4px solid #2e7d32; font-size: 1.15rem; }
+        .actions { margin-top: 20px; }
+        .actions a { color: #1976d2; }
+        @media (max-width: 640px) {
+            body { padding: 12px; }
+            .payslip-card { padding: 18px; }
+            .meta { grid-template-columns: 1fr; }
+            .table th, .table td { display: block; width: auto; }
+            .table th + th { display: none; }
+        }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+    <main class="payslip-card">
+        <h2>Payslip</h2>
+        <div class="meta">
+            <p><strong>Employee:</strong> {{ employee.first_name }} {{ employee.last_name }}</p>
+            <p><strong>Employee ID:</strong> {{ employee.id }}</p>
+            <p><strong>Cut-Off:</strong> {{ payroll.cutoff_start.strftime('%m-%d-%Y') }} ~ {{ payroll.cutoff_end.strftime('%m-%d-%Y') }}</p>
+            <p><strong>Department:</strong> {{ employee.company or 'N/A' }}</p>
+        </div>
+
+        <table class="table">
+            <tr>
+                <th>Earnings</th>
+                <th>Deductions</th>
+            </tr>
+            <tr>
+                <td>
+                    <p>Basic Pay: ₱{{ '%.2f'|format(basic_pay) }}</p>
+                    <p>OT Pay: ₱{{ '%.2f'|format(ot_pay) }}</p>
+                    <p><strong>Gross Income: ₱{{ '%.2f'|format(payroll.gross_income or 0) }}</strong></p>
+                </td>
+                <td>
+                    <p>SSS: ₱{{ '%.2f'|format(payroll.sss or 0) }}</p>
+                    <p>PhilHealth: ₱{{ '%.2f'|format(payroll.philhealth or 0) }}</p>
+                    <p>Pag-IBIG: ₱{{ '%.2f'|format(payroll.pagibig or 0) }}</p>
+                    <p>Tax: ₱{{ '%.2f'|format(tax) }}</p>
+                    <p>Loan: ₱{{ '%.2f'|format(payroll.loan or 0) }}</p>
+                    <p>Cash Advance: ₱{{ '%.2f'|format(payroll.cash_advance or 0) }}</p>
+                    <p><strong>Total Deductions: ₱{{ '%.2f'|format(payroll.total_deductions or 0) }}</strong></p>
+                </td>
+            </tr>
+        </table>
+
+        <p class="net-pay"><strong>Net Pay: ₱{{ '%.2f'|format(payroll.net_pay or 0) }}</strong></p>
+        <div class="actions">
+            <a href="{{ url_for('payroll', employee_id=employee.id) }}">Back to Payroll</a>
+            <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+        </div>
+    </main>
+</body>
+</html>

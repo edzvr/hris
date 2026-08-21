@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Question</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+    <h2>Edit Question</h2>
+    <form method="POST">
+        <label>Question:</label>
+        <input type="text" name="question_text" value="{{ question.text }}">
+        <label>Category:</label>
+        <input type="text" name="category" value="{{ question.category }}">
+        <button type="submit">Save Changes</button>
+    </form>
+    <a href="{{ url_for('manage_questions') }}">Back</a>
+    <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a></p>
+</body>
+</html>

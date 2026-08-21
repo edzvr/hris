@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Incident Reports</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; }
+        .card { max-width: 1100px; margin: auto; padding: 24px; background: #f8faf9; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #d8e0dc; padding: 10px; text-align: left; }
+        th { background: #1976d2; color: #fff; }
+        .btn { padding: 8px 12px; margin: 3px; background: #1976d2; color: #fff; border: 0; border-radius: 5px; text-decoration: none; cursor: pointer; }
+        select { padding: 8px; margin-right: 8px; }
+        form { display: inline-block; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h2>Incident Reports</h2>
+        <form method="GET" style="margin-bottom: 16px;">
+            <label>Month
+                <select name="month">
+                    <option value="">All months</option>
+                    {% for month in months %}
+                    <option value="{{ month }}" {% if selected_month == month %}selected{% endif %}>{{ month }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Year
+                <select name="year">
+                    <option value="">All years</option>
+                    {% for year in years %}
+                    <option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="btn" type="submit">Filter</button>
+        </form>
+        <table>
+            <thead><tr><th>Employee</th><th>Date</th><th>Category</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for report in reports %}
+            <tr>
+                <td>{{ report.employee.full_name() }}</td>
+                <td>{{ report.created_at.strftime('%Y-%m-%d') if report.created_at else 'N/A' }}</td>
+                <td>{{ report.category }}</td>
+                <td>{{ report.description }}</td>
+                <td>{{ report.status }}</td>
+                <td>
+                    <a class="btn" href="{{ url_for('incident_report_pdf', emp_id=report.employee_id, month=selected_month, year=selected_year) }}">PDF</a>
+                    {% if report.status == 'pending' %}
+                    <form method="POST" action="{{ url_for('review_incident', report_id=report.id) }}">
+                        <input type="hidden" name="action" value="approve">
+                        <input type="hidden" name="admin_signature" value="admin-review">
+                        <button class="btn" type="submit">Approve</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('review_incident', report_id=report.id) }}">
+                        <input type="hidden" name="action" value="reject">
+                        <input type="hidden" name="admin_signature" value="admin-review">
+                        <button class="btn" type="submit">Reject</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No incident reports for this period.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a></p>
+    </main>
+</body>
+</html>

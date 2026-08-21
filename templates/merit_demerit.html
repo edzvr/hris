@@ -13,9 +13,11 @@
         th, td { border:1px solid #ddd; padding:10px; text-align:center; }
         th { background:#2196f3; color:white; }
         tr:nth-child(even) { background:#f9f9f9; }
-        canvas { margin-top:30px; }
+        canvas { display:block; width:260px !important; height:180px !important; max-width:100%; margin:20px auto; }
+        #pointsChart { width:180px !important; height:180px !important; }
         .btn { padding:8px 16px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; margin-right:10px; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
     <div class="card">
@@ -111,7 +113,7 @@
     </script>
 
     <br>
-    <a href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+    <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
 <!-- Summary Stats -->
 <div class="stats">
     <div>

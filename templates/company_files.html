@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ company }} Company Files</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        .card { max-width: 900px; margin: 0 auto; padding: 24px; background: #f8faf9; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+        h1 { color: #1976d2; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border: 1px solid #d8e0dc; text-align: left; }
+        th { background: #e1ebe7; }
+        .btn { display: inline-block; border: 0; border-radius: 6px; padding: 10px 16px; background: #1976d2; color: #fff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>{{ company }} Company Files</h1>
+        <p>Download files shared with your company.</p>
+        <table>
+            <thead><tr><th>File Name</th><th>Action</th></tr></thead>
+            <tbody>
+            {% for filename in files %}
+                <tr>
+                    <td>{{ filename }}</td>
+                    <td><a class="btn" href="{{ url_for('download_file', company=company, filename=filename) }}">Download</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="2">No files have been uploaded for your company yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p><a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+    </main>
+</body>
+</html>

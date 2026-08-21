@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Evaluation Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
+        .card { background:#fff; padding:20px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); margin-bottom:20px; }
+        h2 { color:#1976d2; }
+        table { width:100%; border-collapse:collapse; margin-top:20px; }
+        th, td { border:1px solid #ddd; padding:10px; text-align:left; }
+        th { background:#2196f3; color:white; }
+        textarea { width:100%; min-height:80px; padding:10px; border-radius:8px; border:1px solid #ccc; }
+        input[type="number"], input[type="text"] { padding:6px; border-radius:6px; border:1px solid #ccc; }
+        .btn { display:inline-block; padding:10px 18px; background:#1976d2; color:white; text-decoration:none; border-radius:8px; margin-top:10px; }
+        .btn-danger { background:#e53935; }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+    <div class="card">
+        <h2>Monthly Peer Evaluation Check</h2>
+        <p>Questionnaire completion for {{ month_start.strftime('%B %Y') }}.</p>
+        <a href="{{ url_for('manage_questions') }}" class="btn">Edit / Approve Questionnaire</a>
+        <a href="{{ url_for('evaluation_results_export', file_format='pdf') }}" class="btn">Download All Results PDF</a>
+        <a href="{{ url_for('evaluation_results_export', file_format='csv') }}" class="btn">Download All Results CSV</a>
+        <form method="GET" action="{{ url_for('evaluation_results_export', file_format='pdf') }}" style="margin-top:10px;">
+            <select name="employee_id" required>
+                <option value="">Download one employee</option>
+                {% for employee in employees %}
+                    <option value="{{ employee.id }}">{{ employee.first_name }} {{ employee.last_name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn">Download Selected PDF</button>
+        </form>
+        <table>
+            <tr><th>Employee</th><th>Company</th><th>Status</th></tr>
+            {% for item in peer_status %}
+            <tr>
+                <td>{{ item.employee.first_name }} {{ item.employee.last_name }}</td>
+                <td>{{ item.employee.company or 'N/A' }}</td>
+                <td>
+                    {% if item.submitted %}
+                        <span style="color:green; font-weight:bold;">&#10004; Completed</span>
+                    {% else %}
+                        <span style="color:#d97706; font-weight:bold;">&#9888; Pending</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Admin Manage Questions -->
+    <div class="card">
+        <h2>Manage Questions (Admin)</h2>
+        <form method="POST" action="{{ url_for('manage_questions') }}">
+            <input type="text" name="question_text" placeholder="New question..." style="width:70%; padding:8px;">
+            <button type="submit" class="btn">Add Question</button>
+        </form>
+
+        <table>
+            <tr>
+                <th>Question</th>
+                <th>Category</th>
+                <th>Actions</th>
+            </tr>
+            {% for q in questions %}
+            <tr>
+                <td>{{ q.text }}</td>
+                <td>{{ q.category }}</td>
+                <td>
+                    <a href="{{ url_for('edit_question', id=q.id) }}" class="btn">Edit</a>
+                    <a href="{{ url_for('delete_question', id=q.id) }}" class="btn btn-danger">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Employee Evaluation Form -->
+    <div class="card">
+        <h2>Employee Evaluation</h2>
+        <p>Rate employees on each active question (1 = Lowest, 5 = Highest). Add remarks if needed.</p>
+        <form method="POST">
+            <table>
+                <tr>
+                    <th>Employee</th>
+                    {% for q in questions %}
+                        <th>{{ q.text }} (1–5)</th>
+                    {% endfor %}
+                    <th>Remarks</th>
+                </tr>
+                {% for emp in employees %}
+                <tr>
+                    <td>{{ emp.first_name }} {{ emp.last_name }} ({{ emp.company }})</td>
+                    {% for q in questions %}
+                        <td><input type="number" name="q{{ q.id }}_{{ emp.id }}" min="1" max="5" style="width:60px;"></td>
+                    {% endfor %}
+                    <td><textarea name="remarks_{{ emp.id }}" placeholder="Add remarks..."></textarea></td>
+                </tr>
+                {% endfor %}
+            </table>
+            <button type="submit" class="btn">Save Evaluations</button>
+        </form>
+    </div>
+
+    <!-- Recent Evaluations -->
+    <div class="card">
+        <h2>Recent Evaluations</h2>
+        {% if evaluations %}
+            <table>
+                <tr>
+                    <th>Date</th>
+                    <th>Employee</th>
+                    <th>Evaluator</th>
+                    <th>Rating</th>
+                    <th>Remarks</th>
+                </tr>
+                {% for e in evaluations %}
+                <tr>
+                    <td>{{ e.date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ e.employee.first_name }} {{ e.employee.last_name }}</td>
+                    <td>{{ e.evaluator.first_name }} {{ e.evaluator.last_name if e.evaluator else 'N/A' }}</td>
+                    <td>{{ e.rating }}</td>
+                    <td>{{ e.remarks or 'No remarks' }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        {% else %}
+            <p>No evaluation records found.</p>
+        {% endif %}
+    </div>
+
+    <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">&#8592; Back to Dashboard</a>
+</body>
+</html>

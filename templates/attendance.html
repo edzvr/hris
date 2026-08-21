@@ -1,84 +1,127 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Attendance Report</title>
-    <style>
-        body { font-family: Calibri, sans-serif; background: #f4f7f6; margin: 0; }
-        .container { padding: 20px; max-width: 1000px; margin: auto; background: white; border-radius: 10px; }
-        .back, .download { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #2c3e50; color: white; text-decoration: none; border-radius: 6px; }
-        .download { background: #27ae60; margin-right: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #2c3e50; color: white; }
-        tr:nth-child(even) { background: #f9f9f9; }
-        form { margin-top: 20px; }
-        select { padding: 5px; margin-right: 10px; }
-    </style>
+    <title>Attendance Report - {{ emp.first_name }} {{ emp.last_name }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
-<body>
-    <div class="container">
-        <h2>Attendance Report: {{ emp.first_name }} {{ emp.last_name }}</h2>
+<body class="bg-light">
 
-        <!-- Summary -->
-        <div class="summary">
-            <h3>Attendance Summary ({{ date_range }})</h3>
-            <p>Present: {{ total_present }}</p>
-            <p>Late: {{ total_late }}</p>
-            <p>Absent: {{ total_absent }}</p>
-            <p>Average Hours Worked: {{ "%.2f"|format(avg_hours) }} hrs/day</p>
-            <p>Performance Score: {{ performance_score }} / 100</p>
-            <p><b>AI Suggestion:</b> {{ motivation }}</p>
+<div class="container my-4">
+    <!-- Header with Single Logo -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        {% if emp.company == "Auto-Expert" %}
+            <img src="{{ url_for('static', filename='uploads/autoxpertlogo.jpg') }}" alt="Auto-Expert Logo" height="60">
+        {% elif emp.company == "Trece-Uno" %}
+            <img src="{{ url_for('static', filename='uploads/trece-uno logo.jpg') }}" alt="Trece-Uno Logo" height="60">
+        {% endif %}
+        <div class="text-center flex-grow-1">
+            <h2 class="fw-bold">Attendance Report</h2>
+            <h5>{{ emp.first_name }} {{ emp.last_name }} (ID: {{ emp.id }})</h5>
+            <p class="text-muted">Date Range: {{ date_range }}</p>
         </div>
-
-        <!-- History Table -->
-        <h3>Attendance History</h3>
-        <table>
-            <tr>
-                <th>Date</th><th>Clock In</th><th>Clock Out</th>
-                <th>Status</th><th>Hours</th><th>Branch</th>
-            </tr>
-            {% for log in dtr_records %}
-            <tr>
-                <td>{{ log.date }}</td>
-                <td>{{ log.clock_in }}</td>
-                <td>{{ log.clock_out }}</td>
-                <td>{{ log.status }}</td>
-                <td>{{ "%.2f"|format(log.hours) }}</td>
-                <td>{{ log.branch }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-
-        <!-- Download Options -->
-        <h3>Download Attendance Report</h3>
-        <form method="GET" action="{{ url_for('attendance', employee_id=emp.id) }}">
-            <label for="month">Month:</label>
-            <select name="month" id="month">
-                <option value="">All</option>
-                {% for m in months %}
-                <option value="{{ m }}">{{ m }}</option>
-                {% endfor %}
-            </select>
-
-            <label for="year">Year:</label>
-            <select name="year" id="year">
-                {% for y in years %}
-                <option value="{{ y }}">{{ y }}</option>
-                {% endfor %}
-            </select>
-
-            <label for="format">Format:</label>
-            <select name="format" id="format">
-                <option value="csv">CSV</option>
-                <option value="pdf">PDF</option>
-            </select>
-
-            <button type="submit" class="download">⬇ Download Report</button>
-        </form>
-
-        <!-- Back button -->
-        <a href="{{ url_for('dashboard_staff') }}" class="back">⬅ Back to Dashboard</a>
+        <!-- Back to Staff Dashboard -->
+        <a href="{{ url_for('dashboard_staff') }}" class="dashboard-back-link">Back to Dashboard</a>
     </div>
+
+    <!-- Date Range Filter -->
+    <form method="get" class="row g-3 mb-4">
+        <div class="col-md-4">
+            <label for="start_date" class="form-label">Start Date</label>
+            <input type="date" id="start_date" name="start_date" class="form-control">
+        </div>
+        <div class="col-md-4">
+            <label for="end_date" class="form-label">End Date</label>
+            <input type="date" id="end_date" name="end_date" class="form-control">
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100">Filter</button>
+        </div>
+    </form>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title">Present</h6>
+                    <h3>{{ total_present }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title">Late</h6>
+                    <h3>{{ total_late }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title">Absent</h6>
+                    <h3>{{ total_absent }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title">Avg Hours</h6>
+                    <h3>{{ avg_hours|round(2) }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Score -->
+    <div class="alert alert-info text-center">
+        <h5>Performance Score: {{ performance_score }}/100</h5>
+        <p>{{ motivation }}</p>
+    </div>
+
+    <!-- PDF & Print Options -->
+    <div class="mb-3 text-end">
+        <a href="?format=pdf" target="_blank" class="btn btn-primary btn-sm">View PDF Report</a>
+        <a href="?format=pdf" download class="btn btn-danger btn-sm">Download PDF</a>
+        <button onclick="window.print()" class="btn btn-secondary btn-sm">Print Page</button>
+    </div>
+
+    <!-- DTR Table -->
+    <div class="card">
+        <div class="card-header fw-bold">Daily Time Records</div>
+        <div class="card-body p-0">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Clock In</th>
+                        <th>Clock Out</th>
+                        <th>Status</th>
+                        <th>Hours</th>
+                        <th>Branch</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in dtr_records %}
+                    <tr>
+                        <td>{{ record.date }}</td>
+                        <td>{{ record.clock_in }}</td>
+                        <td>{{ record.clock_out }}</td>
+                        <td>{{ record.status }}</td>
+                        <td>{{ record.hours|round(2) }}</td>
+                        <td>{{ record.branch }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

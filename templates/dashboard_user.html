@@ -55,6 +55,7 @@
                 <a href="{{ url_for('logout') }}" class="logout-link">🚪 Logout</a>
             </div>
         </div>
+        <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
     </div>
 </body>
 </html>

@@ -4,46 +4,107 @@
     <meta charset="UTF-8">
     <title>Holiday + Overtime Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #f4f7f6; }
-        .card { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin:0; padding:20px; }
+        .card { max-width: 1150px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h2 { color: #1976d2; text-align:center; }
+        .table-wrap { width: 100%; overflow-x: auto; margin-top: 20px; }
+        table { width: 100%; min-width: 1050px; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
         th { background: #1976d2; color: white; }
         tr:nth-child(even) { background: #f9f9f9; }
-        .btn { display: inline-block; padding: 10px 20px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; }
+        th:last-child, td:last-child { min-width: 170px; white-space: nowrap; }
+        td:last-child form { display: inline-block !important; margin: 0 3px; vertical-align: middle; }
+        .btn { display: inline-block; padding: 6px 12px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; font-size:14px; }
+        .btn:hover { background: #2e7d32; }
+        .btn-reject { background:#d32f2f; }
+        .btn-reject:hover { background:#b71c1c; }
+        .back-link { display:inline-block; margin-top:20px; color:#1976d2; text-decoration:none; font-weight:bold; }
+        .back-link:hover { text-decoration:underline; }
+        .filter { margin-bottom:15px; text-align:center; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
+
+        <!-- Filter dropdown -->
+        <div class="filter">
+            <form method="GET">
+                <label for="status">Filter by Status:</label>
+                <select name="status" onchange="this.form.submit()">
+                    <option value="">All</option>
+                    <option value="Pending" {% if filter_status == 'Pending' %}selected{% endif %}>Pending</option>
+                    <option value="Approved" {% if filter_status == 'Approved' %}selected{% endif %}>Approved</option>
+                    <option value="Rejected" {% if filter_status == 'Rejected' %}selected{% endif %}>Rejected</option>
+                </select>
+            </form>
+        </div>
+
+        <div class="table-wrap">
         <table>
             <tr>
                 <th>Attendance ID</th>
-                <th>Employee ID</th>
+                <th>Employee</th>
                 <th>Date</th>
                 <th>Holiday Name</th>
                 <th>Status</th>
+                <th>Clock Out</th>
                 <th>OT Hours</th>
                 <th>OT Type</th>
                 <th>OT Status</th>
+                <th>Actions</th>
             </tr>
-            {% for att in holiday_attendance %}
+            {% for att in records %}
             <tr>
                 <td>{{ att.id }}</td>
-                <td>{{ att.employee_id }}</td>
+                <td>{{ att.employee.first_name }} {{ att.employee.last_name }}</td>
                 <td>{{ att.date }}</td>
-                <td>{{ PH_HOLIDAYS_2026.get(att.date, '') }}</td>
+                <td>{{ holidays.get(att.date, '') }}</td>
                 <td>{{ att.status }}</td>
-                <td>{{ att.overtime_hours or 0 }}</td>
+                <td>{{ att.clock_out }}</td>
                 <td>
-                    {% if att.is_weekday_ot %}Weekday{% elif att.is_restday_ot %}Rest Day{% elif att.is_holiday_ot %}Holiday{% else %}None{% endif %}
+                    {% if att.clock_out and (att.clock_out.hour > 17 or (att.clock_out.hour == 17 and att.clock_out.minute > 0)) %}
+                        {{ (att.clock_out.hour - 17) + (att.clock_out.minute/60) }}
+                    {% else %}
+                        {{ att.overtime_hours or 0 }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if att.is_weekday_ot %}Weekday
+                    {% elif att.is_restday_ot %}Rest Day
+                    {% elif att.is_holiday_ot %}Holiday
+                    {% elif att.clock_out and (att.clock_out.hour > 17 or (att.clock_out.hour == 17 and att.clock_out.minute > 0)) %}Beyond 5PM
+                    {% else %}None{% endif %}
                 </td>
                 <td>{{ att.ot_status or 'Pending' }}</td>
+                <td>
+                    {% if att.ot_status != 'Approved' %}
+                        <form method="POST" style="display:inline;">
+                            <input type="hidden" name="att_id" value="{{ att.id }}">
+                            <input type="hidden" name="action" value="approve">
+                            <button type="submit" class="btn">Approve</button>
+                        </form>
+                        <form method="POST" style="display:inline;">
+                            <input type="hidden" name="att_id" value="{{ att.id }}">
+                            <input type="hidden" name="action" value="reject">
+                            <button type="submit" class="btn btn-reject">Reject</button>
+                        </form>
+                    {% else %}
+                        ✅ Approved
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </table>
+        </div>
         <br>
-        <a href="{{ url_for('export_holiday_ot') }}" class="btn">⬇ Export CSV</a>
+        <!-- Export button -->
+        <a href="{{ url_for('holiday_ot_dashboard', export='csv') }}" class="btn">⬇ Export CSV</a>
+        <!-- Back to Admin Dashboard -->
+        <div style="text-align:center;">
+            <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>
+        </div>
     </div>
 </body>
 </html>
