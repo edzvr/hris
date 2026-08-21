@@ -38,12 +38,19 @@ app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
-from flask_mail import Mail, Message
-mail = Mail(app)  # make sure app.config has MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD
+
+# Optional Flask-Mail support
+try:
+    from flask_mail import Mail, Message
+    mail = Mail(app)
+except ImportError:
+    mail = None
+    Message = None
+    logger.warning("Flask-Mail not installed — email features disabled")
 
 
 def send_leave_email(employee, leave, decision):
-    if not employee.email or not app.config.get('MAIL_SERVER'):
+    if not mail or not employee.email or not app.config.get('MAIL_SERVER'):
         return
     try:
         mail.send(Message(
@@ -59,7 +66,7 @@ def send_leave_email(employee, leave, decision):
 
 
 def send_resume_work_email(employee):
-    if not employee.email or not app.config.get('MAIL_SERVER'):
+    if not mail or not employee.email or not app.config.get('MAIL_SERVER'):
         return
     try:
         mail.send(Message(
@@ -375,7 +382,7 @@ def generate_monthly_peer_eval_reminder():
         # Try to email admins if mail configured
         try:
             admins = Employee.query.filter(Employee.role.ilike('%admin%')).all()
-            if admins and app.config.get('MAIL_SERVER'):
+            if mail and admins and app.config.get('MAIL_SERVER'):
                 with app.app_context():
                     for a in admins:
                         if not a.email:
@@ -393,7 +400,7 @@ def generate_monthly_peer_eval_reminder():
 
 def send_lunch_reminder(phase):
     """Email staff when lunch starts or the workday resumes."""
-    if not app.config.get('MAIL_SERVER') or not app.config.get('MAIL_USERNAME'):
+    if not mail or not app.config.get('MAIL_SERVER') or not app.config.get('MAIL_USERNAME'):
         logger.info("Lunch email skipped: Flask-Mail is not configured.")
         return
 
