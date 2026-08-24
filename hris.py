@@ -36,6 +36,8 @@ app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == '
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+instance_dir = os.path.join(basedir, 'instance')
+os.makedirs(instance_dir, exist_ok=True)
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 
@@ -429,6 +431,9 @@ def send_lunch_reminder(phase):
 
 # ------------------ EXTENSIONS ------------------
 db.init_app(app)
+with app.app_context():
+    db.create_all()
+
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -713,10 +718,13 @@ def employee_201_pdf(employee_id):
 @app.route('/admin/employee_201/<int:employee_id>/documents', methods=['GET', 'POST'])
 @login_required
 def employee_201_documents(employee_id):
-    if 'admin' not in current_user.role.lower():
+    is_admin = 'admin' in current_user.role.lower()
+    if not is_admin and current_user.id != employee_id:
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
     if request.method == 'POST':
+        if not is_admin:
+            return 'Access denied', 403
         upload = request.files.get('document')
         phase = request.form.get('phase', '').strip().lower()
         document_type = request.form.get('document_type', '').strip()
@@ -752,15 +760,22 @@ def employee_201_documents(employee_id):
         'philhealth and pag-ibig contributions': '10+ years',
         'hazardous medical records': '20 years'
     }
-    return render_template('employee_201_documents.html', employee=employee, documents=documents, retention_guidance=retention_guidance)
+    return render_template(
+        'employee_201_documents.html',
+        employee=employee,
+        documents=documents,
+        retention_guidance=retention_guidance,
+        can_manage_documents=is_admin
+    )
 
 
 @app.route('/admin/employee_document/<int:document_id>/download')
 @login_required
 def download_employee_document(document_id):
-    if 'admin' not in current_user.role.lower():
-        return 'Access denied', 403
     document = EmployeeDocument.query.get_or_404(document_id)
+    is_admin = 'admin' in current_user.role.lower()
+    if not is_admin and current_user.id != document.employee_id:
+        return 'Access denied', 403
     path = os.path.join(app.config['UPLOAD_FOLDER'], 'employee_201', str(document.employee_id), document.stored_filename)
     if not os.path.isfile(path):
         return 'Document not found', 404

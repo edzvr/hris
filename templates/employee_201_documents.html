@@ -24,15 +24,24 @@
     <main class="card">
         <h1>Employee 201 File</h1>
         <p><strong>{{ employee.first_name }} {{ employee.last_name }}</strong> | {{ employee.company }} | ID {{ employee.id }}</p>
+        {% if can_manage_documents %}
         <form method="POST" enctype="multipart/form-data">
             <div class="form-grid">
                 <select name="phase" required><option value="">Phase</option><option value="pre-employment">Pre-Employment</option><option value="employment">Employment</option><option value="separation">Separation</option></select>
-                <input name="document_type" placeholder="Document type" required>
+                <select name="document_type" required>
+                    <option value="">Document type</option>
+                    <option value="Employee ID - Front">Employee ID - Front</option>
+                    <option value="Employee ID - Back">Employee ID - Back</option>
+                    <option value="201 File">201 File</option>
+                    <option value="Government ID">Government ID</option>
+                    <option value="Other Supporting Document">Other Supporting Document</option>
+                </select>
                 <input type="number" name="retention_years" min="0" placeholder="Retention years">
-                <input type="file" name="document" required>
+                <input type="file" name="document" accept="image/jpeg,image/png,image/webp,application/pdf" required>
             </div>
             <button type="submit" class="btn">Upload 201 Document</button>
         </form>
+        {% endif %}
         <p><a class="btn" href="{{ url_for('employee_201_pdf', employee_id=employee.id) }}">Download 201 Index PDF</a> <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a></p>
     </main>
 

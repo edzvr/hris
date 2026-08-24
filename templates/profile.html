@@ -44,6 +44,9 @@
         <li><a class="nav-link" data-tab="attendance" onclick="showTab('attendance')">Attendance</a></li>
         <li><a class="nav-link" data-tab="payroll" onclick="showTab('payroll')">Payroll History</a></li>
         <li><a class="nav-link" data-tab="feed" onclick="showTab('feed')">Feed</a></li>
+        {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
+        <li><a class="nav-link" href="{{ url_for('employee_201_documents', employee_id=emp.id) }}">My 201 Files</a></li>
+        {% endif %}
     </ul>
 
     <div id="info" class="tab-content active">
