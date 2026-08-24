@@ -51,20 +51,51 @@ except ImportError:
     logger.warning("Flask-Mail not installed — email features disabled")
 
 
-def send_leave_email(employee, leave, decision):
-    if not mail or not employee.email or not app.config.get('MAIL_SERVER'):
-        return
+def send_notification_email(recipients, subject, body):
+    """Send an email only when the optional mail service is configured."""
+    recipients = [email for email in recipients if email]
+    if not mail or not app.config.get('MAIL_SERVER') or not recipients:
+        return False
     try:
         mail.send(Message(
-            subject=f"Leave request {decision}",
-            recipients=[employee.email],
-            body=(
-                f"Your {leave.leave_type} leave request for "
-                f"{leave.start_date} to {leave.end_date} was {decision}."
-            )
+            subject=subject,
+            sender=app.config.get('MAIL_DEFAULT_SENDER'),
+            recipients=recipients,
+            body=body
         ))
+        return True
     except Exception:
-        logger.exception("Leave email could not be sent")
+        logger.exception("Notification email could not be sent")
+        return False
+
+
+def notify_admins(subject, body):
+    admin_emails = [
+        employee.email for employee in Employee.query.filter(Employee.role.ilike('%admin%')).all()
+    ]
+    return send_notification_email(admin_emails, subject, body)
+
+
+def send_leave_email(employee, leave, decision):
+    send_notification_email(
+        [employee.email],
+        f"Leave request {decision}",
+        (
+            f"Your {leave.leave_type} leave request for "
+            f"{leave.start_date} to {leave.end_date} was {decision}."
+        )
+    )
+
+
+def send_loan_email(employee, loan, decision):
+    send_notification_email(
+        [employee.email],
+        f"Loan request {decision}",
+        (
+            f"Your loan request for PHP {loan.amount:,.2f}, needed on "
+            f"{loan.date_needed}, was {decision}."
+        )
+    )
 
 
 def send_resume_work_email(employee):
@@ -1114,6 +1145,7 @@ def dashboard_admin():
     pending_loans = Loan.query.filter_by(status="Pending").count()
     pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
     pending_loans_list = Loan.query.filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
+    bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).all()
 
     from sqlalchemy import func
     trend_records = (
@@ -1148,6 +1180,7 @@ def dashboard_admin():
         pending_loans=pending_loans,
         pending_leaves_list=pending_leaves_list,
         pending_loans_list=pending_loans_list,
+        bulletins=bulletins,
         company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,
@@ -2118,6 +2151,13 @@ def leave():
         )
         db.session.add(new_leave)
         db.session.commit()
+        notify_admins(
+            'New leave application',
+            (
+                f'{emp.full_name()} submitted a {leave_type} leave request for '
+                f'{start_date} to {end_date} ({days} day(s)).'
+            )
+        )
         flash("✅ Leave application submitted!", "success")
         return redirect(url_for('leave'))
 
@@ -2275,6 +2315,7 @@ def approve_loan(id):
     loan.decision_date = datetime.utcnow()
     loan.approver = f"{current_user.first_name} {current_user.last_name}"
     db.session.commit()
+    send_loan_email(Employee.query.get_or_404(loan.employee_id), loan, 'approved')
     flash("✅ Loan approved.", "success")
     return redirect(url_for('dashboard_admin'))
 
@@ -2292,6 +2333,7 @@ def reject_loan(id):
     loan.decision_date = datetime.utcnow()
     loan.approver = f"{current_user.first_name} {current_user.last_name}"
     db.session.commit()
+    send_loan_email(Employee.query.get_or_404(loan.employee_id), loan, 'rejected')
     flash("❌ Loan request rejected.", "danger")
     return redirect(url_for('dashboard_admin'))
 
@@ -2312,6 +2354,11 @@ def loan():
         loan.decision_date = datetime.utcnow()
         loan.approver = f"{current_user.first_name} {current_user.last_name}"
         db.session.commit()
+        send_loan_email(
+            Employee.query.get_or_404(loan.employee_id),
+            loan,
+            'approved' if action == 'approve' else 'rejected'
+        )
         flash(f"Loan {action}d successfully!", "success")
         return redirect(url_for('loan'))
 
@@ -2373,6 +2420,13 @@ def loan():
             )
             db.session.add(new_loan)
             db.session.commit()
+            notify_admins(
+                'New loan application',
+                (
+                    f'{emp.full_name()} submitted a loan request for PHP {amount:,.2f}, '
+                    f'needed on {date_needed}. Reason: {new_loan.reason}'
+                )
+            )
             flash("✅ Loan application submitted successfully!", "success")
         return redirect(url_for('loan'))
 
@@ -3157,14 +3211,64 @@ def download_file(company, filename):
 
 
 # ------------------ BULLETIN MODULE ------------------
+@app.route('/admin/bulletins', methods=['POST'])
+@login_required
+def create_bulletin():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+
+    title = request.form.get('title', '').strip()
+    content = request.form.get('content', '').strip()
+    if not title or not content:
+        flash('Announcement title and content are required.', 'danger')
+        return redirect(url_for('dashboard_admin') + '#bulletins')
+
+    post = Bulletin(title=title, content=content, author=current_user.full_name())
+    db.session.add(post)
+    db.session.commit()
+
+    recipient_emails = [
+        employee.email for employee in Employee.query.filter(Employee.email.isnot(None)).all()
+        if employee.email
+    ]
+    email_sent = False
+    if mail and app.config.get('MAIL_SERVER') and recipient_emails:
+        try:
+            message = Message(
+                subject=f'Company Announcement: {title}',
+                sender=app.config.get('MAIL_DEFAULT_SENDER'),
+                recipients=recipient_emails
+            )
+            message.body = f'{title}\n\n{content}\n\nPosted by: {current_user.full_name()}'
+            mail.send(message)
+            email_sent = True
+        except Exception:
+            logger.exception('Announcement email could not be sent')
+
+    flash(
+        'Announcement published and email notifications sent.' if email_sent else
+        'Announcement published. Email notifications were skipped because email is not configured.',
+        'success'
+    )
+    return redirect(url_for('dashboard_admin') + '#bulletins')
+
+
+@app.route('/admin/bulletins/<int:bulletin_id>/delete', methods=['POST'])
+@login_required
+def delete_bulletin(bulletin_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    post = Bulletin.query.get_or_404(bulletin_id)
+    db.session.delete(post)
+    db.session.commit()
+    flash('Announcement deleted.', 'success')
+    return redirect(url_for('dashboard_admin') + '#bulletins')
+
+
 @app.route('/bulletin')
 @login_required
 def bulletin():
-    # Sample placeholder data (palitan mo ng actual DB query)
-    posts = [
-        {"title": "Team Meeting", "content": "Reminder: Meeting on Friday at 3PM", "date": "2026-07-28"},
-        {"title": "Holiday Notice", "content": "Office closed on August 21 for Ninoy Aquino Day", "date": "2026-07-29"},
-    ]
+    posts = Bulletin.query.order_by(Bulletin.created_at.desc()).all()
     return render_template("bulletin.html", posts=posts)
 
 # ------------------BACK UP ------------------
