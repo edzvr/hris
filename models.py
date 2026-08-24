@@ -26,6 +26,7 @@ class Employee(db.Model, UserMixin):
     philhealth = db.Column(db.String(50))
     tin = db.Column(db.String(50))
     pagibig = db.Column(db.String(50))
+    emergency_person = db.Column(db.String(100))
     emergency_contact = db.Column(db.String(100))
     emergency_address = db.Column(db.String(200))
     sil_credits = db.Column(db.Integer, default=5)

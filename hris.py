@@ -572,6 +572,7 @@ def register():
             philhealth=request.form.get('philhealth'),
             tin=request.form.get('tin'),
             pagibig=request.form.get('pagibig'),
+            emergency_person=request.form.get('emergency_person'),
             emergency_contact=request.form.get('emergency_contact'),
             emergency_address=emergency_address,
             profile_pic=filename,
@@ -604,6 +605,7 @@ def profile(user_id):
             emp.philhealth = request.form.get('philhealth')
             emp.tin = request.form.get('tin')
             emp.pagibig = request.form.get('pagibig')
+            emp.emergency_person = request.form.get('emergency_person')
             emp.emergency_contact = request.form.get('emergency_contact')
             emp.emergency_address = request.form.get('emergency_address')
 
@@ -822,6 +824,73 @@ from flask import Response, make_response, request, render_template
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+
+
+@app.route('/profile/<int:employee_id>/download')
+@login_required
+def download_employee_profile(employee_id):
+    employee = Employee.query.get_or_404(employee_id)
+    is_admin = 'admin' in current_user.role.lower()
+    if not is_admin and current_user.id != employee.id:
+        return 'Access denied', 403
+
+    authorized_person = Employee.query.filter(
+        Employee.role.ilike('%admin%')
+    ).order_by(Employee.first_name, Employee.last_name).first()
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    page_width, page_height = letter
+    y = page_height - 54
+
+    def write_line(label, value, bold=False, gap=18):
+        nonlocal y
+        if y < 90:
+            pdf.showPage()
+            y = page_height - 54
+        pdf.setFont('Helvetica-Bold' if bold else 'Helvetica', 10)
+        pdf.drawString(54, y, f'{label}: {value or "N/A"}')
+        y -= gap
+
+    pdf.setTitle(f'Employee Information - {employee.full_name()}')
+    pdf.setFont('Helvetica-Bold', 16)
+    pdf.drawCentredString(page_width / 2, y, employee.company or 'Company')
+    y -= 26
+    pdf.setFont('Helvetica-Bold', 13)
+    pdf.drawCentredString(page_width / 2, y, 'EMPLOYEE INFORMATION RECORD')
+    y -= 34
+
+    write_line('Employee Name', employee.full_name(), bold=True)
+    write_line('Employee ID', employee.id)
+    write_line('Company', employee.company)
+    write_line('Role', employee.role)
+    write_line('Email', employee.email)
+    write_line('Contact Number', employee.contact_no)
+    write_line('Date of Birth', employee.dob)
+    write_line('Address', employee.address)
+    write_line('Date Started', employee.date_started)
+    y -= 8
+    write_line('GOVERNMENT INFORMATION', '', bold=True, gap=20)
+    write_line('SSS', employee.sss)
+    write_line('PhilHealth', employee.philhealth)
+    write_line('TIN', employee.tin)
+    write_line('Pag-IBIG', employee.pagibig)
+    y -= 8
+    write_line('EMERGENCY CONTACT', '', bold=True, gap=20)
+    write_line('Emergency Person', employee.emergency_person)
+    write_line('Contact Number', employee.emergency_contact)
+    write_line('Address', employee.emergency_address)
+
+    y = max(y - 48, 100)
+    pdf.line(page_width - 250, y, page_width - 70, y)
+    pdf.setFont('Helvetica-Bold', 10)
+    pdf.drawCentredString(page_width - 160, y - 15, authorized_person.full_name() if authorized_person else 'Authorized Representative')
+    pdf.setFont('Helvetica', 9)
+    pdf.drawCentredString(page_width - 160, y - 29, 'Authorized Signatory')
+    pdf.drawString(54, 44, f'Generated on {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+    pdf.save()
+    buffer.seek(0)
+    filename = f'employee_information_{employee.id}.pdf'
+    return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
 @app.route('/attendance/<int:employee_id>')
 @login_required
