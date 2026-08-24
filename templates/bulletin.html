@@ -16,9 +16,11 @@
     {% for post in posts %}
     <div class="card">
         <h3>{{ post.title }}</h3>
-        <p class="date">{{ post.date }}</p>
+        <p class="date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') if post.created_at else 'N/A' }}{% if post.author %} | {{ post.author }}{% endif %}</p>
         <p>{{ post.content }}</p>
     </div>
+    {% else %}
+    <div class="card"><p>No company announcements yet.</p></div>
     {% endfor %}
 
     <div style="margin-top:20px; text-align:center;">
