@@ -590,7 +590,9 @@ def register():
 
         emp = Employee(
             first_name=request.form['first_name'],
+            middle_name=request.form.get('middle_name'),
             last_name=request.form['last_name'],
+            suffix_name=request.form.get('suffix_name'),
             dob=dob_val,
             role=request.form['role'],
             company=request.form['company'],
