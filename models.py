@@ -58,7 +58,8 @@ class Employee(db.Model, UserMixin):
         return check_password_hash(self.password, raw_password)
 
     def full_name(self):
-        return f"{self.first_name} {self.last_name}"
+        name_parts = [self.first_name, self.middle_name, self.last_name, self.suffix_name]
+        return " ".join(part.strip() for part in name_parts if part and part.strip())
 
 # ------------------ ATTENDANCE ------------------
 class Attendance(db.Model):
