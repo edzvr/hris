@@ -1,5 +1,6 @@
 # ------------------ HRIS MAIN APP ------------------
 import os, random, logging
+import secrets
 from datetime import datetime, date, timedelta, time
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -129,7 +130,8 @@ from models import (
     RedemptionHistory,
     IncidentReport,
     MeritDemerit,
-    EmployeeDocument
+    EmployeeDocument,
+    PasswordResetToken
 )
 
 from utils.helpers import compute_weekly_deductions, compute_merit_demerit, ai_suggestion
@@ -543,24 +545,72 @@ def login():
             else:
                 flash("❌ Invalid email or password", "danger")
 
-        # --- FORGOT PASSWORD FLOW ---
-        elif action == "forgot":
-            emp = Employee.query.filter_by(email=email).first()
-            if emp:
-                temp_pass = "Temp1234"
-                emp.password = generate_password_hash(temp_pass)
-                db.session.commit()
-                flash(f"🔑 Temporary password generated: {temp_pass}", "info")
-                return redirect(url_for('login'))
-            else:
-                flash("❌ Email not found", "danger")
-
     return render_template("login.html")
+
+
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        emp = Employee.query.filter_by(email=email).first()
+
+        if emp and emp.email:
+            token = secrets.token_urlsafe(32)
+            reset_token = PasswordResetToken(
+                employee_id=emp.id,
+                token=token,
+                expires_at=datetime.utcnow() + timedelta(hours=1)
+            )
+            db.session.add(reset_token)
+            db.session.commit()
+
+            reset_url = url_for('reset_password', token=token, _external=True)
+            send_notification_email(
+                [emp.email],
+                "Password Reset Request",
+                (
+                    "Use this link to reset your HRIS password:\n"
+                    f"{reset_url}\n\n"
+                    "This link expires in 1 hour and can only be used once."
+                )
+            )
+
+        flash("If that email is registered, a password reset link has been sent.", "info")
+        return redirect(url_for('login'))
+
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    reset_token = PasswordResetToken.query.filter_by(token=token, used=False).first()
+    if not reset_token or reset_token.expires_at < datetime.utcnow():
+        flash("Invalid or expired reset link.", "danger")
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.", "danger")
+            return render_template('reset_password.html', token=token)
+        if password != password_confirm:
+            flash("Passwords do not match.", "danger")
+            return render_template('reset_password.html', token=token)
+
+        reset_token.employee.set_password(password)
+        reset_token.used = True
+        db.session.commit()
+        flash("Password reset successful. Please login.", "success")
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', token=token)
 
 # ------------------ GLOBAL AUTH CHECK ------------------
 @app.before_request
 def check_authentication():
-    exempt_routes = ['login', 'register', 'static']
+    exempt_routes = ['login', 'register', 'static', 'forgot_password', 'reset_password']
     if not current_user.is_authenticated and request.endpoint not in exempt_routes:
         return redirect(url_for('login'))
 

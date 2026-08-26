@@ -61,6 +61,19 @@ class Employee(db.Model, UserMixin):
         name_parts = [self.first_name, self.middle_name, self.last_name, self.suffix_name]
         return " ".join(part.strip() for part in name_parts if part and part.strip())
 
+
+class PasswordResetToken(db.Model):
+    __tablename__ = "password_reset_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    token = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False, nullable=False)
+
+    employee = db.relationship("Employee", backref="reset_tokens")
+
 # ------------------ ATTENDANCE ------------------
 class Attendance(db.Model):
     __tablename__ = "attendances"
