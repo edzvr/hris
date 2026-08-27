@@ -1682,7 +1682,16 @@ def apply_overtime_details(attendance):
     if not attendance.clock_in or not attendance.clock_out:
         return
 
-    overtime_start = datetime.combine(attendance.date, time(17, 0))
+    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
+    is_trece_sunday = (
+        attendance.date.weekday() == 6
+        and employee
+        and str(employee.company or '').lower().startswith('trece')
+    )
+    overtime_start = datetime.combine(
+        attendance.date,
+        time(12, 0) if is_trece_sunday else time(17, 0)
+    )
     attendance.overtime_hours = round(
         max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
         2
@@ -1693,10 +1702,6 @@ def apply_overtime_details(attendance):
         status="Approved"
     ).first()
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    is_trece_sunday = (
-        attendance.date.weekday() == 6
-        and str(attendance.employee.company or '').lower().startswith('trece')
-    )
     attendance.is_restday_ot = bool(application and attendance.date.weekday() == 6 and not is_trece_sunday)
     attendance.is_holiday_ot = bool(application and holiday)
     attendance.is_weekday_ot = bool(
@@ -1711,6 +1716,8 @@ def apply_overtime_details(attendance):
 def holiday_multiplier(attendance):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
     if holiday and holiday.holiday_type == 'Regular Holiday':
+        if attendance.is_restday_ot:
+            return 3.38
         return 2.60
     if holiday and attendance.is_restday_ot:
         return 1.95
@@ -1723,13 +1730,20 @@ def holiday_multiplier(attendance):
 
 def regular_day_pay(attendance, daily_rate):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
+    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
     is_trece_sunday = (
         attendance.date.weekday() == 6
-        and str(attendance.employee.company or '').lower().startswith('trece')
+        and employee
+        and str(employee.company or '').lower().startswith('trece')
     )
+    is_restday = attendance.date.weekday() == 6 and not is_trece_sunday
     if holiday and holiday.holiday_type == 'Regular Holiday':
+        if is_restday:
+            return daily_rate * 2.6
         return daily_rate * 2.0
     if holiday:
+        if is_restday:
+            return daily_rate * 1.5
         return daily_rate * 1.3
     if attendance.date.weekday() == 6 and not is_trece_sunday:
         return 0.0
