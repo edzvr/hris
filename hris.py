@@ -9,6 +9,11 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename 
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
 # ------------------ LOGGING CONFIG ------------------
 log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(log_dir, exist_ok=True)
@@ -25,12 +30,25 @@ logger = logging.getLogger(__name__)
 
 # ------------------ APP CONFIG ------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("HRIS_SECRET_KEY", "secret")
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(basedir, 'instance', 'hris.db')}"
+
+if load_dotenv:
+    load_dotenv(os.path.join(basedir, '.env'))
+    load_dotenv(os.path.join(basedir, '.env.local'))
+else:
+    logger.warning("python-dotenv not installed; .env file values will not be loaded")
+
+app.secret_key = os.environ.get("HRIS_SECRET_KEY", "secret")
+database_url = os.environ.get(
+    'DATABASE_URL',
+    f"sqlite:///{os.path.join(basedir, 'instance', 'hris.db')}"
+)
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql+psycopg2://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['FILES_FOLDER'] = os.path.join(basedir, 'static', 'files')
+app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', os.path.join(basedir, 'static', 'uploads'))
+app.config['FILES_FOLDER'] = os.environ.get('FILES_FOLDER', os.path.join(basedir, 'static', 'files'))
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', '')
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
 app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
@@ -41,6 +59,12 @@ instance_dir = os.path.join(basedir, 'instance')
 os.makedirs(instance_dir, exist_ok=True)
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
+
+if not os.path.isabs(app.config['UPLOAD_FOLDER']):
+    app.config['UPLOAD_FOLDER'] = os.path.join(basedir, app.config['UPLOAD_FOLDER'])
+
+if not os.path.isabs(app.config['FILES_FOLDER']):
+    app.config['FILES_FOLDER'] = os.path.join(basedir, app.config['FILES_FOLDER'])
 
 # Optional Flask-Mail support
 try:
@@ -55,7 +79,14 @@ except ImportError:
 def send_notification_email(recipients, subject, body):
     """Send an email only when the optional mail service is configured."""
     recipients = [email for email in recipients if email]
-    if not mail or not app.config.get('MAIL_SERVER') or not recipients:
+    if not mail:
+        logger.warning("Email send skipped: Flask-Mail is not available.")
+        return False
+    if not app.config.get('MAIL_SERVER'):
+        logger.warning("Email send skipped: MAIL_SERVER is not configured.")
+        return False
+    if not recipients:
+        logger.warning("Email send skipped: no recipients provided.")
         return False
     try:
         mail.send(Message(
