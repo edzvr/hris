@@ -42,6 +42,28 @@
         </div>
 
         <div class="table-wrap">
+        <h3>Employee OT Applications</h3>
+        <table>
+            <tr><th>Employee</th><th>Date</th><th>Requested Time</th><th>Reason</th><th>Status</th><th>Action</th></tr>
+            {% for application in applications %}
+            <tr>
+                <td>{{ application.employee.first_name }} {{ application.employee.last_name }}</td>
+                <td>{{ application.ot_date }}</td>
+                <td>{{ application.start_time.strftime('%H:%M') }} - {{ application.end_time.strftime('%H:%M') }}</td>
+                <td>{{ application.reason }}</td>
+                <td>{{ application.status }}</td>
+                <td>
+                    {% if application.status == 'Pending' %}
+                    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='approve') }}" style="display:inline"><button type="submit" class="btn">Approve</button></form>
+                    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='reject') }}" style="display:inline"><button type="submit" class="btn btn-reject">Reject</button></form>
+                    {% else %}{{ application.decision_note or 'Decided' }}{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No OT applications yet.</td></tr>
+            {% endfor %}
+        </table>
+
         <table>
             <tr>
                 <th>Attendance ID</th>

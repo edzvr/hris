@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apply for Overtime</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; padding: 20px; }
+        .card { max-width: 720px; margin: auto; background: white; padding: 24px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+        label { display: block; margin-top: 14px; font-weight: 700; }
+        input, textarea { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 6px; }
+        .actions { display: flex; gap: 10px; margin-top: 20px; }
+        .btn { border: 0; border-radius: 6px; padding: 10px 16px; background: #1976d2; color: white; text-decoration: none; cursor: pointer; }
+        .btn-secondary { background: #68737d; }
+        table { width: 100%; margin-top: 28px; border-collapse: collapse; }
+        th, td { padding: 9px; border-bottom: 1px solid #ddd; text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Apply for Overtime</h2>
+        <form method="POST">
+            <label for="ot_date">OT Date</label>
+            <input id="ot_date" type="date" name="ot_date" required>
+            <label for="start_time">Expected Start Time</label>
+            <input id="start_time" type="time" name="start_time" value="17:00" required>
+            <label for="end_time">Expected End Time</label>
+            <input id="end_time" type="time" name="end_time" required>
+            <label for="reason">Reason</label>
+            <textarea id="reason" name="reason" rows="3" required></textarea>
+            <div class="actions">
+                <button class="btn" type="submit">Submit OT Application</button>
+                <a class="btn btn-secondary" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a>
+            </div>
+        </form>
+
+        <h3>My OT Applications</h3>
+        <table>
+            <thead><tr><th>Date</th><th>Schedule</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody>
+            {% for application in applications %}
+                <tr>
+                    <td>{{ application.ot_date }}</td>
+                    <td>{{ application.start_time.strftime('%H:%M') }} - {{ application.end_time.strftime('%H:%M') }}</td>
+                    <td>{{ application.status }}</td>
+                    <td>{{ application.reason }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">No OT applications yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

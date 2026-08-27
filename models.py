@@ -98,6 +98,23 @@ class Attendance(db.Model):
     def __repr__(self):
         return f"<Attendance {self.date} - {self.status}>"
 
+
+class OTApplication(db.Model):
+    __tablename__ = "ot_applications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    ot_date = db.Column(db.Date, nullable=False)
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="Pending")
+    decision_note = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    decided_at = db.Column(db.DateTime, nullable=True)
+
+    employee = db.relationship("Employee", backref="ot_applications")
+
 # ------------------ HOLIDAY ------------------
 class Holiday(db.Model):
     __tablename__ = "holidays"

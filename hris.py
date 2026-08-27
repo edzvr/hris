@@ -184,7 +184,8 @@ from models import (
     IncidentReport,
     MeritDemerit,
     EmployeeDocument,
-    PasswordResetToken
+    PasswordResetToken,
+    OTApplication
 )
 
 from utils.helpers import compute_weekly_deductions, compute_merit_demerit, ai_suggestion
@@ -1686,14 +1687,79 @@ def apply_overtime_details(attendance):
         max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
         2
     )
-    attendance.is_restday_ot = attendance.date.weekday() >= 5
-    attendance.is_holiday_ot = Holiday.query.filter_by(date=attendance.date).first() is not None
-    attendance.is_weekday_ot = (
-        attendance.overtime_hours > 0
+    application = OTApplication.query.filter_by(
+        employee_id=attendance.employee_id,
+        ot_date=attendance.date,
+        status="Approved"
+    ).first()
+    attendance.is_restday_ot = bool(application and attendance.date.weekday() >= 5)
+    attendance.is_holiday_ot = bool(
+        application and Holiday.query.filter_by(date=attendance.date).first()
+    )
+    attendance.is_weekday_ot = bool(
+        application
+        and attendance.overtime_hours > 0
         and not attendance.is_restday_ot
         and not attendance.is_holiday_ot
     )
-    attendance.ot_status = "Pending" if attendance.overtime_hours > 0 else None
+    attendance.ot_status = "Approved" if application and attendance.overtime_hours > 0 else None
+
+
+@app.route('/apply_ot', methods=['GET', 'POST'])
+@login_required
+def apply_ot():
+    if "staff" not in current_user.role.lower():
+        return redirect(url_for('dashboard_admin'))
+    if request.method == 'POST':
+        try:
+            ot_date = datetime.strptime(request.form['ot_date'], '%Y-%m-%d').date()
+            start_time = datetime.strptime(request.form['start_time'], '%H:%M').time()
+            end_time = datetime.strptime(request.form['end_time'], '%H:%M').time()
+        except (KeyError, TypeError, ValueError):
+            flash('Please provide a valid OT date and time.', 'danger')
+            return redirect(url_for('apply_ot'))
+        if end_time <= start_time or not request.form.get('reason', '').strip():
+            flash('OT end time must be after start time and a reason is required.', 'danger')
+            return redirect(url_for('apply_ot'))
+        existing = OTApplication.query.filter_by(
+            employee_id=current_user.id, ot_date=ot_date, status='Pending'
+        ).first()
+        if existing:
+            flash('You already have a pending OT application for this date.', 'warning')
+            return redirect(url_for('apply_ot'))
+        db.session.add(OTApplication(
+            employee_id=current_user.id,
+            ot_date=ot_date,
+            start_time=start_time,
+            end_time=end_time,
+            reason=request.form['reason'].strip()
+        ))
+        db.session.commit()
+        flash('OT application submitted for admin approval.', 'success')
+        return redirect(url_for('dashboard_staff'))
+    applications = OTApplication.query.filter_by(
+        employee_id=current_user.id
+    ).order_by(OTApplication.ot_date.desc()).all()
+    return render_template('apply_ot.html', applications=applications)
+
+
+@app.route('/admin/ot_applications/<int:application_id>/<action>', methods=['POST'])
+@login_required
+def decide_ot_application(application_id, action):
+    if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
+        return 'Access denied', 403
+    application = OTApplication.query.get_or_404(application_id)
+    application.status = 'Approved' if action == 'approve' else 'Rejected'
+    application.decision_note = request.form.get('decision_note', '').strip() or None
+    application.decided_at = datetime.now()
+    if action == 'approve':
+        attendance = Attendance.query.filter_by(
+            employee_id=application.employee_id, date=application.ot_date
+        ).filter(Attendance.clock_out != None).first()
+        if attendance:
+            apply_overtime_details(attendance)
+    db.session.commit()
+    return redirect(url_for('holiday_ot_dashboard'))
 
 
 @app.route('/attendance_action/<int:employee_id>', methods=['POST'])
@@ -2200,6 +2266,8 @@ def holiday_ot_dashboard():
         )
     ]
 
+    applications = OTApplication.query.order_by(OTApplication.ot_date.desc()).all()
+
     # --- Optional filter by status ---
     filter_status = request.args.get("status")
     if filter_status:
@@ -2242,6 +2310,7 @@ def holiday_ot_dashboard():
 
     return render_template("holiday_ot_dashboard.html",
                            records=records,
+                           applications=applications,
                            holidays=holidays,
                            filter_status=filter_status,
                            time=time)
