@@ -1,7 +1,7 @@
 {
   "name": "HRIS Portal",
   "short_name": "HRIS",
-  "start_url": "/login",
+  "start_url": "/dashboard_staff",
   "display": "standalone",
   "background_color": "#f8f9fa",
   "theme_color": "#1f7fdf",
