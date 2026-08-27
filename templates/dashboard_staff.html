@@ -104,6 +104,8 @@
           .btn-sm { padding: 8px 12px; font-size: 15px; }
     </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <meta name="theme-color" content="#1f7fdf">
 </head>
 <body>
     <div class="brand-header">
@@ -417,6 +419,7 @@
         if (clickedButton && clickedButton.name) {
           formData.append(clickedButton.name, clickedButton.value || '1');
         }
+        formData.append('event_time', new Date().toISOString());
         const res = await fetch(apiUrl, { method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await res.json();
         const color = data.status === 'success' ? '#27ae60' : data.status === 'warning' ? '#f39c12' : '#e74c3c';
@@ -428,12 +431,60 @@
           updateHoursWorked();
         }
       } catch (err) {
-        showAttendanceMessage('❌ Error performing action', '#e74c3c');
+        const clickedButton = e.submitter;
+        if (!navigator.onLine && clickedButton && clickedButton.name) {
+          const queue = JSON.parse(localStorage.getItem('hrisAttendanceQueue') || '[]');
+          queue.push({ action: clickedButton.name, event_time: new Date().toISOString() });
+          localStorage.setItem('hrisAttendanceQueue', JSON.stringify(queue));
+          if (attendanceState) {
+            attendanceState.dataset.clockedIn = clickedButton.name === 'clockin' ? 'true' : 'false';
+            if (clickedButton.name === 'clockin') {
+              attendanceState.dataset.clockIn = new Date().toISOString();
+            }
+            updateHoursWorked();
+          }
+          showAttendanceMessage('Saved offline. It will sync when internet returns.', '#f39c12');
+        } else {
+          showAttendanceMessage('❌ Error performing action', '#e74c3c');
+        }
       } finally {
         if (btnIn) btnIn.disabled = false;
         if (btnOut) btnOut.disabled = false;
       }
     });
+  }
+
+  async function syncOfflineAttendance() {
+    const queued = JSON.parse(localStorage.getItem('hrisAttendanceQueue') || '[]');
+    if (!navigator.onLine || !queued.length || !attendanceForm) return;
+    const remaining = [];
+    for (const item of queued) {
+      const formData = new FormData();
+      formData.append(item.action, '1');
+      formData.append('event_time', item.event_time);
+      try {
+        const response = await fetch(attendanceForm.dataset.api, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (!response.ok) throw new Error('Sync failed');
+      } catch (error) {
+        remaining.push(item);
+        break;
+      }
+    }
+    localStorage.setItem('hrisAttendanceQueue', JSON.stringify(remaining));
+    if (!remaining.length && queued.length) {
+      showAttendanceMessage('Offline attendance synced successfully.', '#27ae60');
+      window.location.reload();
+    }
+  }
+
+  window.addEventListener('online', syncOfflineAttendance);
+  syncOfflineAttendance();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('{{ url_for('static', filename='service-worker.js') }}');
   }
 </script>
 

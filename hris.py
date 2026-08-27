@@ -2,6 +2,7 @@
 import os, random, logging
 import secrets
 from datetime import datetime, date, timedelta, time
+from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -27,6 +28,18 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def parse_event_time(value):
+    if not value:
+        return datetime.now()
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if parsed.tzinfo:
+            parsed = parsed.astimezone(ZoneInfo('Asia/Manila')).replace(tzinfo=None)
+        return parsed
+    except (TypeError, ValueError):
+        return datetime.now()
 
 # ------------------ APP CONFIG ------------------
 app = Flask(__name__)
@@ -1655,10 +1668,30 @@ def peer_evaluation():
 
 
 # ------------------ CLOCK IN / OUT (Unified) ------------------
+def apply_overtime_details(attendance):
+    if not attendance.clock_in or not attendance.clock_out:
+        return
+
+    overtime_start = datetime.combine(attendance.date, time(17, 0))
+    attendance.overtime_hours = round(
+        max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
+        2
+    )
+    attendance.is_restday_ot = attendance.date.weekday() >= 5
+    attendance.is_holiday_ot = Holiday.query.filter_by(date=attendance.date).first() is not None
+    attendance.is_weekday_ot = (
+        attendance.overtime_hours > 0
+        and not attendance.is_restday_ot
+        and not attendance.is_holiday_ot
+    )
+    attendance.ot_status = "Pending" if attendance.overtime_hours > 0 else None
+
+
 @app.route('/attendance_action/<int:employee_id>', methods=['POST'])
 @login_required
 def attendance_action(employee_id):
     emp = Employee.query.get_or_404(employee_id)
+    event_now = parse_event_time(request.form.get('event_time'))
 
     if current_user.id != employee_id and "admin" not in current_user.role.lower():
         flash("❌ Access denied.", "danger")
@@ -1667,15 +1700,15 @@ def attendance_action(employee_id):
     if "clockin" in request.form:
         open_log = Attendance.query.filter_by(
             employee_id=employee_id,
-            date=datetime.today().date()
+            date=event_now.date()
         ).filter(Attendance.clock_out == None).first()
         if open_log:
             flash("⚠️ You are already clocked in.", "warning")
             return redirect(url_for('dashboard_staff'))
 
         # --- Clock In Logic ---
-        log = Attendance(date=datetime.today().date(),
-                         clock_in=datetime.now(),
+        log = Attendance(date=event_now.date(),
+                         clock_in=event_now,
                          status="Present",
                          employee_id=employee_id)
         db.session.add(log)
@@ -1686,11 +1719,12 @@ def attendance_action(employee_id):
         # --- Clock Out Logic ---
         log = Attendance.query.filter_by(
             employee_id=employee_id,
-            date=datetime.today().date()
+            date=event_now.date()
         ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
         if log:
-            log.clock_out = datetime.now()
+            log.clock_out = event_now
             log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+            apply_overtime_details(log)
             db.session.commit()
             flash("🔴 Clocked out successfully!", "success")
         else:
@@ -1704,6 +1738,7 @@ def attendance_action(employee_id):
 @login_required
 def attendance_api(employee_id):
     emp = Employee.query.get_or_404(employee_id)
+    event_now = parse_event_time(request.form.get('event_time'))
 
     try:
         if current_user.id != employee_id and "admin" not in current_user.role.lower():
@@ -1712,13 +1747,13 @@ def attendance_api(employee_id):
         if "clockin" in request.form:
             open_log = Attendance.query.filter_by(
                 employee_id=employee_id,
-                date=datetime.today().date()
+                date=event_now.date()
             ).filter(Attendance.clock_out == None).first()
             if open_log:
                 return jsonify(status="warning", message="⚠️ You are already clocked in.")
 
-            log = Attendance(date=datetime.today().date(),
-                             clock_in=datetime.now(),
+            log = Attendance(date=event_now.date(),
+                             clock_in=event_now,
                              status="Present",
                              employee_id=employee_id)
             db.session.add(log)
@@ -1734,11 +1769,12 @@ def attendance_api(employee_id):
         elif "clockout" in request.form:
             log = Attendance.query.filter_by(
                 employee_id=employee_id,
-                date=datetime.today().date()
+                date=event_now.date()
             ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
             if log:
-                log.clock_out = datetime.now()
+                log.clock_out = event_now
                 log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+                apply_overtime_details(log)
                 db.session.commit()
                 return jsonify(status="success", message="🔴 Clocked out successfully!",
                                clocked_in=False, clock_in="", worked_hours=log.hours)
@@ -1761,7 +1797,7 @@ from sqlalchemy import extract
 import os, io
 
 
-def build_payslip_breakdown(emp, payroll_record, worked_days_count=0):
+def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_pay=0.0):
     """Return a payslip payload matching the sample payroll format."""
     gross_income = float(payroll_record.gross_income or 0)
     late_ut = 0.0
@@ -1774,7 +1810,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0):
     withholding_tax = 0.0
     adjustment = 0.0
     night_differential = 0.0
-    regular_overtime = 0.0
+    regular_overtime = float(overtime_pay or 0)
     rest_day = 0.0
     special_holiday = 0.0
     special_holiday_ot = 0.0
@@ -1883,8 +1919,19 @@ def payroll(employee_id):
         extract('month', Attendance.clock_in) == today.month
     ).count()
 
+    approved_overtime_hours = db.session.query(
+        db.func.coalesce(db.func.sum(Attendance.overtime_hours), 0)
+    ).filter(
+        Attendance.employee_id == employee_id,
+        Attendance.clock_out != None,
+        Attendance.ot_status == 'Approved',
+        Attendance.clock_in >= start_cutoff,
+        Attendance.clock_in <= end_cutoff
+    ).scalar()
+
     daily_rate = emp.daily_rate or 0
     basic_pay = daily_rate * worked_days_count
+    approved_overtime_pay = (daily_rate / 8) * 1.25 * float(approved_overtime_hours or 0)
 
     monthly_salary = daily_rate * worked_days_in_month
     deductions = compute_weekly_deductions(monthly_salary, weeks=4)
@@ -1894,7 +1941,7 @@ def payroll(employee_id):
     loan_balance = float(emp.loan_balance or 0)
     loan = loan_balance if loan_balance < 500 else 500.00
 
-    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
+    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
     total_deductions = sss + philhealth + pagibig + loan
     net_pay = gross_income - total_deductions
 
@@ -1914,7 +1961,7 @@ def payroll(employee_id):
     db.session.add(payroll_record)
     db.session.commit()
 
-    payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count)
+    payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
 
     # 👉 Generate payslip PDF in memory
     buffer = io.BytesIO()
