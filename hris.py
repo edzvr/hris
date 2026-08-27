@@ -3,7 +3,7 @@ import os, random, logging
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
@@ -41,9 +41,18 @@ def parse_event_time(value):
     except (TypeError, ValueError):
         return datetime.now()
 
+
+def attendance_status(clock_in):
+    return "Late" if clock_in.time() > time(8, 10) else "Present"
+
 # ------------------ APP CONFIG ------------------
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
+
+
+@app.route('/service-worker.js')
+def service_worker():
+    return send_from_directory(os.path.join(basedir, 'static'), 'service-worker.js')
 
 if load_dotenv:
     load_dotenv(os.path.join(basedir, '.env'))
@@ -654,7 +663,7 @@ def reset_password(token):
 # ------------------ GLOBAL AUTH CHECK ------------------
 @app.before_request
 def check_authentication():
-    exempt_routes = ['login', 'register', 'static', 'forgot_password', 'reset_password']
+    exempt_routes = ['login', 'register', 'static', 'service_worker', 'forgot_password', 'reset_password']
     if not current_user.is_authenticated and request.endpoint not in exempt_routes:
         return redirect(url_for('login'))
 
@@ -1709,7 +1718,7 @@ def attendance_action(employee_id):
         # --- Clock In Logic ---
         log = Attendance(date=event_now.date(),
                          clock_in=event_now,
-                         status="Present",
+                         status=attendance_status(event_now),
                          employee_id=employee_id)
         db.session.add(log)
         db.session.commit()
@@ -1754,7 +1763,7 @@ def attendance_api(employee_id):
 
             log = Attendance(date=event_now.date(),
                              clock_in=event_now,
-                             status="Present",
+                             status=attendance_status(event_now),
                              employee_id=employee_id)
             db.session.add(log)
             db.session.commit()
