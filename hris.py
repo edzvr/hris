@@ -1692,10 +1692,13 @@ def apply_overtime_details(attendance):
         ot_date=attendance.date,
         status="Approved"
     ).first()
-    attendance.is_restday_ot = bool(application and attendance.date.weekday() >= 5)
-    attendance.is_holiday_ot = bool(
-        application and Holiday.query.filter_by(date=attendance.date).first()
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    is_trece_sunday = (
+        attendance.date.weekday() == 6
+        and str(attendance.employee.company or '').lower().startswith('trece')
     )
+    attendance.is_restday_ot = bool(application and attendance.date.weekday() == 6 and not is_trece_sunday)
+    attendance.is_holiday_ot = bool(application and holiday)
     attendance.is_weekday_ot = bool(
         application
         and attendance.overtime_hours > 0
@@ -1703,6 +1706,36 @@ def apply_overtime_details(attendance):
         and not attendance.is_holiday_ot
     )
     attendance.ot_status = "Approved" if application and attendance.overtime_hours > 0 else None
+
+
+def holiday_multiplier(attendance):
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    if holiday and holiday.holiday_type == 'Regular Holiday':
+        return 2.60
+    if holiday and attendance.is_restday_ot:
+        return 1.95
+    if holiday:
+        return 1.69
+    if attendance.is_restday_ot:
+        return 1.69
+    return 1.25
+
+
+def regular_day_pay(attendance, daily_rate):
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    is_trece_sunday = (
+        attendance.date.weekday() == 6
+        and str(attendance.employee.company or '').lower().startswith('trece')
+    )
+    if holiday and holiday.holiday_type == 'Regular Holiday':
+        return daily_rate * 2.0
+    if holiday:
+        return daily_rate * 1.3
+    if attendance.date.weekday() == 6 and not is_trece_sunday:
+        return 0.0
+    if is_trece_sunday:
+        return daily_rate * 0.5
+    return daily_rate
 
 
 @app.route('/apply_ot', methods=['GET', 'POST'])
@@ -1980,12 +2013,13 @@ def payroll(employee_id):
         return redirect(url_for('payroll', employee_id=employee_id))
 
     # Compute payroll
-    worked_days_count = Attendance.query.filter(
+    paid_attendance = Attendance.query.filter(
         Attendance.employee_id == employee_id,
         Attendance.clock_out != None,
         Attendance.clock_in >= start_cutoff,
         Attendance.clock_in <= end_cutoff
-    ).count()
+    ).all()
+    worked_days_count = len(paid_attendance)
 
     worked_days_in_month = Attendance.query.filter(
         Attendance.employee_id == employee_id,
@@ -2005,8 +2039,12 @@ def payroll(employee_id):
     ).scalar()
 
     daily_rate = emp.daily_rate or 0
-    basic_pay = daily_rate * worked_days_count
-    approved_overtime_pay = (daily_rate / 8) * 1.25 * float(approved_overtime_hours or 0)
+    basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
+    approved_overtime_pay = sum(
+        (daily_rate / 8) * holiday_multiplier(attendance) * float(attendance.overtime_hours or 0)
+        for attendance in paid_attendance
+        if attendance.ot_status == 'Approved'
+    )
 
     monthly_salary = daily_rate * worked_days_in_month
     deductions = compute_weekly_deductions(monthly_salary, weeks=4)
@@ -2156,15 +2194,16 @@ def payroll_dashboard():
     employees = Employee.query.all()
 
     for emp in employees:
-        worked_days_count = Attendance.query.filter(
+        paid_attendance = Attendance.query.filter(
             Attendance.employee_id == emp.id,
             Attendance.clock_out != None,
             Attendance.clock_in >= start_cutoff,
             Attendance.clock_in <= end_cutoff
-        ).count()
+        ).all()
+        worked_days_count = len(paid_attendance)
 
         daily_rate = float(emp.daily_rate or 0)
-        basic_pay = daily_rate * worked_days_count
+        basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
         ot_records = [
             attendance for attendance in Attendance.query.filter(
                 Attendance.employee_id == emp.id,
@@ -2201,7 +2240,11 @@ def payroll_dashboard():
             ]
             if attendance.ot_status == 'Approved'
         )
-        approved_ot_pay = (daily_rate / 8) * 1.25 * approved_ot_hours
+        approved_ot_pay = sum(
+            (daily_rate / 8) * holiday_multiplier(attendance) * float(attendance.overtime_hours or 0)
+            for attendance in ot_records
+            if attendance.ot_status == 'Approved'
+        )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + approved_ot_pay
 
         sss = 193.75

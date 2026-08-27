@@ -122,6 +122,7 @@ class Holiday(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, unique=True, nullable=False)
     description = db.Column(db.String(100), nullable=False)
+    holiday_type = db.Column(db.String(40), nullable=False, default="Special Non-Working Holiday")
 
 # ------------------ LEAVE ------------------
 class LeaveRequest(db.Model):
