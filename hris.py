@@ -2137,8 +2137,8 @@ def payroll(employee_id):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
 
-    company_display = "TRECE-UNO AUTO SUPPLY" if emp.company == "Trece-Uno" else "AUTO-EXPERT AUTO SUPPLY"
-    company_brand = "TRECE-UNO" if emp.company == "Trece-Uno" else "AUTO-EXPERT"
+    company_display = payroll_company_name(emp)
+    company_brand = "TRECE-UNO" if company_display.startswith("TRECE") else "AUTO-EXPERT"
 
     # Header
     c.setFont("Helvetica-Bold", 16)
