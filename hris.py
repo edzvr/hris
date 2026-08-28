@@ -794,8 +794,6 @@ def register():
             filename = secure_filename(file.filename)
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-        resume_file = request.files.get('resume_file')
-
         date_started_str = request.form.get('date_started')
         date_started_val = datetime.strptime(date_started_str, '%Y-%m-%d').date() if date_started_str else None
         
@@ -833,21 +831,6 @@ def register():
         
         db.session.add(emp)
         db.session.commit()
-        if resume_file and resume_file.filename:
-            resume_filename = secure_filename(resume_file.filename)
-            if resume_filename and resume_filename.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png', '.webp')):
-                resume_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'employee_201', str(emp.id))
-                os.makedirs(resume_folder, exist_ok=True)
-                stored_resume = f'{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{resume_filename}'
-                resume_file.save(os.path.join(resume_folder, stored_resume))
-                db.session.add(EmployeeDocument(
-                    employee_id=emp.id,
-                    phase='pre-employment',
-                    document_type='Resume / Bio Data',
-                    original_filename=resume_filename,
-                    stored_filename=stored_resume
-                ))
-                db.session.commit()
         flash("🎉 Congratulations! You are now registered.", "success")
         return redirect(url_for('login'))
 
@@ -875,11 +858,12 @@ def profile(user_id):
             emp.emergency_person = request.form.get('emergency_person')
             emp.emergency_contact = request.form.get('emergency_contact')
             emp.emergency_address = request.form.get('emergency_address')
-            emp.resume_summary = request.form.get('resume_summary')
-            emp.resume_education = request.form.get('resume_education')
-            emp.resume_experience = request.form.get('resume_experience')
-            emp.resume_skills = request.form.get('resume_skills')
-            emp.resume_references = request.form.get('resume_references')
+            if 'resume_summary' in request.form:
+                emp.resume_summary = request.form.get('resume_summary')
+                emp.resume_education = request.form.get('resume_education')
+                emp.resume_experience = request.form.get('resume_experience')
+                emp.resume_skills = request.form.get('resume_skills')
+                emp.resume_references = request.form.get('resume_references')
 
             dob_str = request.form.get('dob')
             if dob_str:

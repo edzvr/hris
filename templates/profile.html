@@ -41,6 +41,7 @@
 
     <ul class="nav-tabs">
         <li><a class="nav-link active" data-tab="info" onclick="showTab('info')">Personal Info</a></li>
+        <li><a class="nav-link" data-tab="resume" onclick="showTab('resume')">Resume / Bio Data</a></li>
         <li><a class="nav-link" data-tab="attendance" onclick="showTab('attendance')">Attendance</a></li>
         <li><a class="nav-link" data-tab="payroll" onclick="showTab('payroll')">Payroll History</a></li>
         <li><a class="nav-link" data-tab="feed" onclick="showTab('feed')">Feed</a></li>
@@ -110,6 +111,24 @@
             </div>
             <button type="submit" class="btn">Save Changes</button>
             <button type="button" class="btn btn-secondary" onclick="toggleEdit()">Cancel</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div id="resume" class="tab-content">
+        <h2>Resume / Bio Data</h2>
+        <p>Complete your own resume details. Admin may update this section for the employee.</p>
+        {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
+        <form method="POST" action="{{ url_for('profile', user_id=emp.id) }}">
+            <div class="form-grid">
+                <label class="form-field full">Professional Summary<textarea name="resume_summary" rows="4">{{ emp.resume_summary or '' }}</textarea></label>
+                <label class="form-field full">Education<textarea name="resume_education" rows="4">{{ emp.resume_education or '' }}</textarea></label>
+                <label class="form-field full">Work Experience<textarea name="resume_experience" rows="5">{{ emp.resume_experience or '' }}</textarea></label>
+                <label class="form-field full">Skills<textarea name="resume_skills" rows="4">{{ emp.resume_skills or '' }}</textarea></label>
+                <label class="form-field full">References<textarea name="resume_references" rows="4">{{ emp.resume_references or '' }}</textarea></label>
+            </div>
+            <button type="submit" class="btn">Save Resume</button>
+            <a class="btn" href="{{ url_for('profile_resume', user_id=emp.id) }}">Print Resume</a>
         </form>
         {% endif %}
     </div>
