@@ -284,6 +284,7 @@ class Payroll(db.Model):
     sss = db.Column(db.Float, default=0.0)
     philhealth = db.Column(db.Float, default=0.0)
     pagibig = db.Column(db.Float, default=0.0)
+    withholding_tax = db.Column(db.Float, default=0.0)
     loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

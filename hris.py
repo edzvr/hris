@@ -649,6 +649,61 @@ def audit_logs():
     return render_template('audit_logs.html', logs=logs)
 
 
+@app.route('/admin/monthly-deductions')
+@login_required
+def monthly_deductions():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    month_value = request.args.get('month')
+    try:
+        month_start = datetime.strptime(month_value, '%Y-%m').date() if month_value else datetime.today().date().replace(day=1)
+    except (TypeError, ValueError):
+        month_start = datetime.today().date().replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    rows = db.session.query(Payroll, Employee).join(Employee).filter(
+        Payroll.cutoff_start >= month_start,
+        Payroll.cutoff_start < next_month
+    ).order_by(Employee.company, Employee.last_name, Payroll.cutoff_start).all()
+
+    totals = {key: sum(float(getattr(record, key) or 0) for record, _ in rows) for key in (
+        'sss', 'philhealth', 'pagibig', 'withholding_tax', 'loan', 'total_deductions'
+    )}
+    if request.args.get('download') == 'true':
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf.setFont('Helvetica-Bold', 15)
+        pdf.drawString(50, 780, 'MONTHLY DEDUCTION REPORT')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(50, 760, f'Period: {month_start.strftime("%B %Y")}')
+        y = 725
+        pdf.setFont('Helvetica-Bold', 9)
+        pdf.drawString(40, y, 'Employee / Company')
+        pdf.drawString(220, y, 'SSS')
+        pdf.drawString(270, y, 'PhilHealth')
+        pdf.drawString(345, y, 'Pag-IBIG')
+        pdf.drawString(410, y, 'Tax')
+        pdf.drawString(450, y, 'Loan')
+        pdf.drawString(500, y, 'Total')
+        y -= 18
+        pdf.setFont('Helvetica', 8)
+        for record, employee in rows:
+            if y < 55:
+                pdf.showPage()
+                y = 750
+            pdf.drawString(40, y, f'{employee.full_name()} / {payroll_company_name(employee)}'[:28])
+            for x, key in [(220, 'sss'), (270, 'philhealth'), (345, 'pagibig'), (410, 'withholding_tax'), (450, 'loan'), (500, 'total_deductions')]:
+                pdf.drawRightString(x + 38, y, f'{float(getattr(record, key) or 0):,.2f}')
+            y -= 15
+        pdf.line(40, max(y, 45), 540, max(y, 45))
+        pdf.setFont('Helvetica-Bold', 9)
+        pdf.drawString(40, max(y - 15, 30), 'AUTHORIZED PERSON SIGNATURE: ____________________    DATE: __________')
+        pdf.showPage()
+        pdf.save()
+        buffer.seek(0)
+        return send_file(buffer, as_attachment=True, download_name=f'monthly_deductions_{month_start:%Y_%m}.pdf', mimetype='application/pdf')
+    return render_template('monthly_deductions.html', rows=rows, totals=totals, month_start=month_start)
+
+
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -2017,6 +2072,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     sss = float(payroll_record.sss or 0)
     philhealth = float(payroll_record.philhealth or 0)
     pagibig = float(payroll_record.pagibig or 0)
+    withholding_tax = float(payroll_record.withholding_tax or 0)
     sss_loan = float(payroll_record.loan or 0)
     hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
@@ -2048,6 +2104,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "sss": sss,
         "philhealth": philhealth,
         "pagibig": pagibig,
+        "withholding_tax": withholding_tax,
         "sss_loan": sss_loan,
         "hdmf_loan": hdmf_loan,
         "cash_advance": cash_advance,
@@ -2186,6 +2243,7 @@ def payroll(employee_id):
     payroll_record.sss = sss
     payroll_record.philhealth = philhealth
     payroll_record.pagibig = pagibig
+    payroll_record.withholding_tax = 0.0
     payroll_record.loan = loan
     payroll_record.cash_advance = 0.0
     if finalize and payroll_record.id is None:
