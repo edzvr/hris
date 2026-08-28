@@ -2001,9 +2001,12 @@ def payroll(employee_id):
                                selected_year=selected_year)
 
     # ADMIN VIEW
-    today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
-    end_cutoff = start_cutoff + timedelta(days=6)
+    today = datetime.today().date()
+    start_cutoff = datetime.combine(
+        today - timedelta(days=(today.weekday() + 2) % 7),
+        time.min
+    )
+    end_cutoff = start_cutoff + timedelta(days=7)
 
     if request.method == 'POST':
         # Update payroll fields
@@ -2019,11 +2022,6 @@ def payroll(employee_id):
         sil_eligible_input = request.form.get('sil_eligible')
         if sil_eligible_input is not None:
             emp.sil_eligible = sil_eligible_input == '1'
-
-        # Deduct 500 or remaining balance
-        if emp.loan_balance > 0:
-            deduction = 500.0 if emp.loan_balance >= 500 else emp.loan_balance
-            emp.loan_balance -= deduction
 
         db.session.commit()
         flash("✅ Payroll updated successfully!", "success")
@@ -2078,13 +2076,13 @@ def payroll(employee_id):
     payroll_record = Payroll.query.filter_by(
         employee_id=emp.id,
         cutoff_start=start_cutoff.date(),
-        cutoff_end=end_cutoff.date()
+        cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
     if payroll_record is None:
         payroll_record = Payroll(
             employee_id=emp.id,
             cutoff_start=start_cutoff.date(),
-            cutoff_end=end_cutoff.date()
+            cutoff_end=(end_cutoff - timedelta(days=1)).date()
         )
         db.session.add(payroll_record)
     payroll_record.gross_income = gross_income
@@ -2209,9 +2207,12 @@ def payslip(emp_id, payroll_id):
 @app.route('/payroll_dashboard', methods=['GET', 'POST'])
 @login_required
 def payroll_dashboard():
-    today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
-    end_cutoff = start_cutoff + timedelta(days=6)
+    today = datetime.today().date()
+    start_cutoff = datetime.combine(
+        today - timedelta(days=(today.weekday() + 2) % 7),
+        time.min
+    )
+    end_cutoff = start_cutoff + timedelta(days=7)
 
     if request.method == 'POST':
         for emp in Employee.query.all():
@@ -2318,7 +2319,7 @@ def payroll_dashboard():
     return render_template("payroll_dashboard.html",
                            payroll_data=payroll_data,
                            start_cutoff=start_cutoff.date(),
-                           end_cutoff=end_cutoff.date())
+                           end_cutoff=(end_cutoff - timedelta(days=1)).date())
 
 # ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 5PM) ------------------
 @app.route('/holiday_overtime', methods=['GET','POST'])
