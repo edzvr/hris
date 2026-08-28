@@ -675,6 +675,11 @@ from werkzeug.security import generate_password_hash
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
+        company = request.form.get('company', '').strip()
+        if company not in {'Trece-Uno', 'Auto Expert'}:
+            flash('Please select a valid company.', 'danger')
+            return redirect(url_for('register'))
+
         file = request.files.get('profile_pic')
         filename = None
         if file and file.filename != '':
@@ -699,7 +704,7 @@ def register():
             suffix_name=request.form.get('suffix_name'),
             dob=dob_val,
             role=request.form['role'],
-            company=request.form['company'],
+            company=company,
             email=request.form['email'],
             password=generate_password_hash(request.form['password']),
             contact_no=request.form.get('contact_no'),
