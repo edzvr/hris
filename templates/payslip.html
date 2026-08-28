@@ -29,7 +29,8 @@
 </head>
 <body>
     <main class="payslip-card">
-        <h2>Payslip</h2>
+        <h2>{% if employee.company and employee.company.lower().startswith('trece') %}TRECE-UNO AUTO SUPPLY{% else %}AUTO-EXPERT AUTO SUPPLY{% endif %}</h2>
+        <p><strong>Payslip</strong></p>
         <div class="meta">
             <p><strong>Employee:</strong> {{ employee.first_name }} {{ employee.last_name }}</p>
             <p><strong>Employee ID:</strong> {{ employee.id }}</p>

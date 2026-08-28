@@ -19,7 +19,8 @@
 </head>
 <body>
     <main class="section">
-        <h2>Monthly Payslip Summary</h2>
+        <h2>{% if emp.company and emp.company.lower().startswith('trece') %}TRECE-UNO AUTO SUPPLY{% else %}AUTO-EXPERT AUTO SUPPLY{% endif %}</h2>
+        <h3>Monthly Payslip Summary</h3>
         <p>{{ emp.first_name }} {{ emp.last_name }} | {{ month_start.strftime('%B %Y') }}</p>
         <form method="get">
             <label for="month">Month:</label>

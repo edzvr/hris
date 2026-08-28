@@ -1755,6 +1755,10 @@ def regular_day_pay(attendance, daily_rate):
 def loan_cutoff_deduction(loan_balance, installment=500.0):
     """Return the installment due for one cutoff, capped by the balance."""
     return min(max(float(loan_balance or 0), 0), installment)
+def payroll_company_name(employee):
+    if str(employee.company or '').lower().startswith('trece'):
+        return 'TRECE-UNO AUTO SUPPLY'
+    return 'AUTO-EXPERT AUTO SUPPLY'
 
 
 @app.route('/apply_ot', methods=['GET', 'POST'])
@@ -2292,11 +2296,13 @@ def download_payslip(emp_id, payroll_id):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 16)
-    pdf.drawString(50, 780, 'PAYSLIP')
+    pdf.drawString(50, 780, payroll_company_name(employee))
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(50, 760, 'PAYSLIP')
     pdf.setFont('Helvetica', 10)
-    pdf.drawString(50, 750, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
-    pdf.drawString(50, 735, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
-    pdf.drawString(50, 720, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
+    pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
+    pdf.drawString(50, 715, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
+    pdf.drawString(50, 700, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
     y = 675
     for label, amount in [
         ('Gross Income', payroll_record.gross_income),
@@ -2962,10 +2968,12 @@ def evaluation_results_export(file_format):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 14)
-    pdf.drawString(72, 750, 'Evaluation Results')
+    pdf.drawString(50, 780, payroll_company_name(emp))
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(50, 760, 'MONTHLY PAYSLIP SUMMARY')
     pdf.setFont('Helvetica', 10)
-    pdf.drawString(72, 732, f'Employee: {employee_label}')
-    y = 700
+    pdf.drawString(50, 730, f'Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})')
+    pdf.drawString(50, 715, f'Month: {month_start.strftime("%B %Y")}')
     for evaluation in evaluations:
         date_text = evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A'
         employee_text = evaluation.employee.full_name() if evaluation.employee else 'N/A'
