@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Payslip</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        .section { max-width:800px; margin:0 auto 20px; background:#fff; padding:20px; border-radius:8px; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { border:1px solid #ddd; padding:10px; text-align:right; }
+        th:first-child, td:first-child { text-align:left; }
+        th { background:#1976d2; color:#fff; }
+        button, a { display:inline-block; padding:8px 12px; margin-right:8px; border:0; border-radius:4px; text-decoration:none; }
+        button { background:#1976d2; color:#fff; cursor:pointer; }
+        a { background:#eee; color:#222; }
+    </style>
+</head>
+<body>
+    <main class="section">
+        <h2>Monthly Payslip Summary</h2>
+        <p>{{ emp.first_name }} {{ emp.last_name }} | {{ month_start.strftime('%B %Y') }}</p>
+        <form method="get">
+            <label for="month">Month:</label>
+            <input id="month" type="month" name="month" value="{{ month_start.strftime('%Y-%m') }}">
+            <button type="submit">View</button>
+            <button type="submit" name="download" value="true">Download PDF</button>
+        </form>
+    </main>
+    <section class="section">
+        <table>
+            <tr><th>Finalized Cutoffs</th><th>Gross Income</th><th>Deductions</th><th>Loan Deductions</th><th>Net Pay</th></tr>
+            {% for record in records %}
+            <tr>
+                <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
+                <td>PHP {{ '%.2f'|format(record.gross_income or 0) }}</td>
+                <td>PHP {{ '%.2f'|format(record.total_deductions or 0) }}</td>
+                <td>PHP {{ '%.2f'|format(record.loan or 0) }}</td>
+                <td>PHP {{ '%.2f'|format(record.net_pay or 0) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">No finalized payroll records for this month.</td></tr>
+            {% endfor %}
+            <tr><th>Monthly Total</th><th>PHP {{ '%.2f'|format(totals.gross_income) }}</th><th>PHP {{ '%.2f'|format(totals.deductions) }}</th><th>PHP {{ '%.2f'|format(totals.loan) }}</th><th>PHP {{ '%.2f'|format(totals.net_pay) }}</th></tr>
+        </table>
+    </section>
+    <section class="section" style="display:grid;grid-template-columns:1fr 1fr;gap:48px;text-align:center;margin-top:40px;">
+        <div style="border-top:1px solid #333;padding-top:8px;">Authorized Person Signature</div>
+        <div style="border-top:1px solid #333;padding-top:8px;">Date</div>
+    </section>
+    <p><a href="{{ url_for('payroll', employee_id=emp.id) }}">Back to Payroll</a></p>
+</body>
+</html>

@@ -61,6 +61,10 @@
         </table>
 
         <p class="net-pay"><strong>Net Pay: ₱{{ '%.2f'|format(payroll.net_pay or 0) }}</strong></p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:55px;text-align:center;">
+            <div style="border-top:1px solid #333;padding-top:8px;">Authorized Person Signature</div>
+            <div style="border-top:1px solid #333;padding-top:8px;">Date</div>
+        </div>
         <div class="actions">
             <a href="{{ url_for('payroll', employee_id=employee.id) }}">Back to Payroll</a>
             <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>

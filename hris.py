@@ -2163,6 +2163,11 @@ def payroll(employee_id):
     c.line(50, 400, 550, 400)
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, 385, "Authorized by Admin")
+    c.line(50, 340, 250, 340)
+    c.line(350, 340, 550, 340)
+    c.setFont("Helvetica", 10)
+    c.drawString(50, 325, "Authorized Person Signature")
+    c.drawString(350, 325, "Date")
 
     c.showPage()
     c.save()
@@ -2183,6 +2188,58 @@ def payroll(employee_id):
          payslip=payslip,
          selected_year=None,
          years=[])
+
+
+@app.route('/payroll/<int:employee_id>/monthly')
+@login_required
+def monthly_payroll(employee_id):
+    emp = Employee.query.get_or_404(employee_id)
+    if current_user.id != employee_id and 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+
+    month_value = request.args.get('month')
+    try:
+        month_start = datetime.strptime(month_value, '%Y-%m').date() if month_value else datetime.today().date().replace(day=1)
+    except ValueError:
+        month_start = datetime.today().date().replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    records = Payroll.query.filter(
+        Payroll.employee_id == employee_id,
+        Payroll.cutoff_start >= month_start,
+        Payroll.cutoff_start < next_month
+    ).order_by(Payroll.cutoff_start).all()
+    totals = {
+        'gross_income': sum(float(record.gross_income or 0) for record in records),
+        'deductions': sum(float(record.total_deductions or 0) for record in records),
+        'net_pay': sum(float(record.net_pay or 0) for record in records),
+        'loan': sum(float(record.loan or 0) for record in records),
+    }
+
+    if request.args.get('download') == 'true':
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf.setFont('Helvetica-Bold', 16)
+        pdf.drawString(50, 780, 'MONTHLY PAYSLIP SUMMARY')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(50, 750, f'Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})')
+        pdf.drawString(50, 735, f'Month: {month_start.strftime("%B %Y")}')
+        y = 690
+        for label, key in [('Gross Income', 'gross_income'), ('Total Deductions', 'deductions'), ('Loan Deductions', 'loan'), ('NET PAY', 'net_pay')]:
+            pdf.setFont('Helvetica-Bold' if key == 'net_pay' else 'Helvetica', 12)
+            pdf.drawString(70, y, label)
+            pdf.drawRightString(500, y, f'PHP {totals[key]:,.2f}')
+            y -= 28
+        pdf.line(70, y - 20, 260, y - 20)
+        pdf.line(330, y - 20, 500, y - 20)
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(70, y - 35, 'Authorized Person Signature')
+        pdf.drawString(330, y - 35, 'Date')
+        pdf.showPage()
+        pdf.save()
+        buffer.seek(0)
+        return send_file(buffer, as_attachment=True, download_name=f'Monthly_Payslip_{emp.first_name}_{month_start:%Y_%m}.pdf', mimetype='application/pdf')
+
+    return render_template('monthly_payslip.html', emp=emp, month_start=month_start, records=records, totals=totals)
 
 
 @app.route('/payroll/<int:employee_id>/finalize', methods=['POST'])
@@ -2222,6 +2279,48 @@ def payslip(emp_id, payroll_id):
         ot_pay=ot_pay,
         tax=tax
     )
+
+
+@app.route('/payslip/<int:emp_id>/<int:payroll_id>/download')
+@login_required
+def download_payslip(emp_id, payroll_id):
+    employee = Employee.query.get_or_404(emp_id)
+    payroll_record = Payroll.query.filter_by(id=payroll_id, employee_id=emp_id).first_or_404()
+    if current_user.id != emp_id and 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 16)
+    pdf.drawString(50, 780, 'PAYSLIP')
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(50, 750, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
+    pdf.drawString(50, 735, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
+    pdf.drawString(50, 720, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
+    y = 675
+    for label, amount in [
+        ('Gross Income', payroll_record.gross_income),
+        ('SSS', payroll_record.sss),
+        ('PhilHealth', payroll_record.philhealth),
+        ('Pag-IBIG', payroll_record.pagibig),
+        ('Loan Deduction', payroll_record.loan),
+        ('Cash Advance', payroll_record.cash_advance),
+        ('Total Deductions', payroll_record.total_deductions),
+        ('NET PAY', payroll_record.net_pay),
+    ]:
+        pdf.setFont('Helvetica-Bold' if label == 'NET PAY' else 'Helvetica', 12)
+        pdf.drawString(70, y, label)
+        pdf.drawRightString(500, y, f'PHP {float(amount or 0):,.2f}')
+        y -= 26
+    pdf.line(70, y - 20, 260, y - 20)
+    pdf.line(330, y - 20, 500, y - 20)
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(70, y - 35, 'Authorized Person Signature')
+    pdf.drawString(330, y - 35, 'Date')
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f'Payslip_{employee.first_name}_{employee.last_name}_{payroll_record.cutoff_start}.pdf', mimetype='application/pdf')
 
 
 # ------------------ PAYROLL DASHBOARD------------------

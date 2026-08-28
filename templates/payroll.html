@@ -115,7 +115,10 @@
             <td>₱{{ "%.2f"|format(record.gross_income) }}</td>
             <td>₱{{ "%.2f"|format(record.total_deductions) }}</td>
             <td><strong>₱{{ "%.2f"|format(record.net_pay) }}</strong></td>
-            <td><a href="{{ url_for('payslip', emp_id=emp.id, payroll_id=record.id) }}">View</a></td>
+            <td>
+                <a href="{{ url_for('payslip', emp_id=emp.id, payroll_id=record.id) }}">View</a>
+                <a href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=record.id) }}">Download PDF</a>
+            </td>
         </tr>
         {% else %}
         <tr><td colspan="6">No payroll records found.</td></tr>
@@ -125,15 +128,11 @@
 
 <div class="section">
     <h3>Download Payslip</h3>
-    <form method="get" action="{{ url_for('payroll', employee_id=emp.id) }}">
-        <label>Select Cutoff:</label>
-        <select name="cutoff" required>
-            {% for record in history %}
-            <option value="{{ record.id }}">{{ record.cutoff_start }} to {{ record.cutoff_end }}</option>
-            {% endfor %}
-        </select>
-        <input type="hidden" name="download" value="true">
-        <button type="submit" class="btn">📄 Download Payslip</button>
+    <p>Select <strong>Download PDF</strong> beside a finalized cutoff above for the exact 6-day payslip.</p>
+    <form method="get" action="{{ url_for('monthly_payroll', employee_id=emp.id) }}">
+        <label for="monthly-period">Monthly Summary:</label>
+        <input id="monthly-period" type="month" name="month" required>
+        <button type="submit" name="download" value="true" class="btn">📄 Download Monthly Payslip</button>
     </form>
 </div>
 
