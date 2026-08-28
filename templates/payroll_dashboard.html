@@ -86,7 +86,7 @@
                 {% for p in payroll_data %}
                 <tr>
                     <td>{{ p.emp.first_name }} {{ p.emp.last_name }}</td>
-                    <td>{{ p.emp.company_name }}</td>
+                    <td>{{ p.emp.company }}</td>
                     <td>{{ p.worked_days }}</td>
                     <td>{{ "%.2f"|format(p.ot_hours) }}</td>
                     <td>{{ p.ot_statuses|join(', ') if p.ot_statuses else 'None' }}</td>

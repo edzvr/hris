@@ -1971,6 +1971,9 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
 @login_required
 def payroll(employee_id):
     emp = Employee.query.get_or_404(employee_id)
+    history = Payroll.query.filter_by(employee_id=employee_id).order_by(
+        Payroll.cutoff_start.desc()
+    ).all()
 
     # STAFF VIEW
     if current_user.role.lower() == 'staff':
@@ -2072,20 +2075,26 @@ def payroll(employee_id):
     total_deductions = sss + philhealth + pagibig + loan
     net_pay = gross_income - total_deductions
 
-    payroll_record = Payroll(
+    payroll_record = Payroll.query.filter_by(
         employee_id=emp.id,
         cutoff_start=start_cutoff.date(),
-        cutoff_end=end_cutoff.date(),
-        gross_income=gross_income,
-        total_deductions=total_deductions,
-        net_pay=net_pay,
-        sss=sss,
-        philhealth=philhealth,
-        pagibig=pagibig,
-        loan=loan,
-        cash_advance=0.0
-    )
-    db.session.add(payroll_record)
+        cutoff_end=end_cutoff.date()
+    ).first()
+    if payroll_record is None:
+        payroll_record = Payroll(
+            employee_id=emp.id,
+            cutoff_start=start_cutoff.date(),
+            cutoff_end=end_cutoff.date()
+        )
+        db.session.add(payroll_record)
+    payroll_record.gross_income = gross_income
+    payroll_record.total_deductions = total_deductions
+    payroll_record.net_pay = net_pay
+    payroll_record.sss = sss
+    payroll_record.philhealth = philhealth
+    payroll_record.pagibig = pagibig
+    payroll_record.loan = loan
+    payroll_record.cash_advance = 0.0
     db.session.commit()
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
@@ -2204,6 +2213,29 @@ def payroll_dashboard():
     start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
     end_cutoff = start_cutoff + timedelta(days=6)
 
+    if request.method == 'POST':
+        for emp in Employee.query.all():
+            daily_rate = request.form.get(f'daily_rate_{emp.id}')
+            allowance = request.form.get(f'allowance_{emp.id}')
+            incentives = request.form.get(f'incentives_{emp.id}')
+            loan_balance = request.form.get(f'loan_{emp.id}')
+            try:
+                if daily_rate is not None:
+                    emp.daily_rate = max(float(daily_rate), 0)
+                if allowance is not None:
+                    emp.allowance = max(float(allowance), 0)
+                if incentives is not None:
+                    emp.incentives = max(float(incentives), 0)
+                if loan_balance is not None:
+                    emp.loan_balance = max(float(loan_balance), 0)
+            except (TypeError, ValueError):
+                db.session.rollback()
+                flash('Please enter valid non-negative payroll values.', 'danger')
+                return redirect(url_for('payroll_dashboard'))
+        db.session.commit()
+        flash('Payroll rates and allowances updated successfully.', 'success')
+        return redirect(url_for('payroll_dashboard'))
+
     payroll_data = []
     employees = Employee.query.all()
 
@@ -2261,9 +2293,10 @@ def payroll_dashboard():
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + approved_ot_pay
 
-        sss = 193.75
-        philhealth = 96.88
-        pagibig = 50.00
+        deduction_values = compute_weekly_deductions(daily_rate * worked_days_count, weeks=1)
+        sss = deduction_values['sss']
+        philhealth = deduction_values['philhealth']
+        pagibig = deduction_values['pagibig']
         loan_balance = float(emp.loan_balance or 0)
         loan = loan_balance if loan_balance < 500 else 500.00
 
