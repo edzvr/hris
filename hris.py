@@ -186,7 +186,8 @@ from models import (
     MeritDemerit,
     EmployeeDocument,
     PasswordResetToken,
-    OTApplication
+    OTApplication,
+    AuditLog
 )
 
 from utils.helpers import compute_weekly_deductions, compute_merit_demerit, ai_suggestion
@@ -569,6 +570,41 @@ from werkzeug.security import generate_password_hash, check_password_hash
 def load_user(user_id):
     return db.session.get(Employee, int(user_id))
 
+
+def record_audit_action(action, response=None):
+    if not current_user.is_authenticated:
+        return
+    try:
+        db.session.add(AuditLog(
+            employee_id=current_user.id,
+            employee_name=current_user.full_name(),
+            company=current_user.company,
+            action=action,
+            path=request.path,
+            ip_address=request.headers.get('X-Forwarded-For', request.remote_addr),
+            status_code=getattr(response, 'status_code', None)
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception('Could not write audit log for %s', action)
+
+
+@app.after_request
+def audit_authenticated_request(response):
+    if (current_user.is_authenticated
+            and request.endpoint not in {'static', 'service_worker', 'audit_logs'}
+            and not request.path.startswith('/static/')):
+        action = 'Page access'
+        if request.endpoint == 'download_payslip':
+            action = 'Weekly payslip download'
+        elif request.endpoint == 'monthly_payroll' and request.args.get('download') == 'true':
+            action = 'Monthly payslip download'
+        elif response.headers.get('Content-Disposition', '').lower().startswith('attachment'):
+            action = 'File download'
+        record_audit_action(action, response)
+    return response
+
 # ----------------- LOGIN + FORGOT PASSWORD ------------------
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -588,6 +624,7 @@ def login():
             user = Employee.query.filter_by(email=email).first()
             if user and check_password_hash(user.password, password):
                 login_user(user, remember=remember)
+                record_audit_action('Login', None)
 
                 # role check
                 if "admin" in user.role.lower():
@@ -601,6 +638,15 @@ def login():
                 flash("❌ Invalid email or password", "danger")
 
     return render_template("login.html")
+
+
+@app.route('/admin/audit-logs')
+@login_required
+def audit_logs():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(500).all()
+    return render_template('audit_logs.html', logs=logs)
 
 
 @app.route('/forgot_password', methods=['GET', 'POST'])

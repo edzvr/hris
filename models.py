@@ -74,6 +74,20 @@ class PasswordResetToken(db.Model):
 
     employee = db.relationship("Employee", backref="reset_tokens")
 
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, nullable=True)
+    employee_name = db.Column(db.String(120), nullable=False)
+    company = db.Column(db.String(50), nullable=True)
+    action = db.Column(db.String(120), nullable=False)
+    path = db.Column(db.String(255), nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    status_code = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
 # ------------------ ATTENDANCE ------------------
 class Attendance(db.Model):
     __tablename__ = "attendances"
