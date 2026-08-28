@@ -109,7 +109,9 @@
                         <input type="number" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}">
                     </td>
                     <td>
-                        <!-- Download payslip button -->
+                        <form method="POST" action="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}">
+                            <button type="submit">Finalize Payroll</button>
+                        </form>
                         <a href="{{ url_for('payroll', employee_id=p.emp.id, download='true') }}" class="btn">📄 Download Payslip</a>
                     </td>
                 </tr>

@@ -2071,25 +2071,29 @@ def payroll(employee_id):
     sss = deductions["sss"]
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
-    loan = loan_cutoff_deduction(emp.loan_balance)
 
-    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
-    total_deductions = sss + philhealth + pagibig + loan
-    net_pay = gross_income - total_deductions
-
+    finalize = request.args.get("finalize") == "true"
     payroll_record = Payroll.query.filter_by(
         employee_id=emp.id,
         cutoff_start=start_cutoff.date(),
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
-    new_payroll_record = payroll_record is None
+    loan = (
+        float(payroll_record.loan or 0)
+        if payroll_record is not None
+        else loan_cutoff_deduction(emp.loan_balance)
+    )
+
+    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
+    total_deductions = sss + philhealth + pagibig + loan
+    net_pay = gross_income - total_deductions
+
     if payroll_record is None:
         payroll_record = Payroll(
             employee_id=emp.id,
             cutoff_start=start_cutoff.date(),
             cutoff_end=(end_cutoff - timedelta(days=1)).date()
         )
-        db.session.add(payroll_record)
     payroll_record.gross_income = gross_income
     payroll_record.total_deductions = total_deductions
     payroll_record.net_pay = net_pay
@@ -2098,9 +2102,10 @@ def payroll(employee_id):
     payroll_record.pagibig = pagibig
     payroll_record.loan = loan
     payroll_record.cash_advance = 0.0
-    if new_payroll_record:
+    if finalize and payroll_record.id is None:
+        db.session.add(payroll_record)
         emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
-    db.session.commit()
+        db.session.commit()
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
 
@@ -2178,6 +2183,15 @@ def payroll(employee_id):
          payslip=payslip,
          selected_year=None,
          years=[])
+
+
+@app.route('/payroll/<int:employee_id>/finalize', methods=['POST'])
+@login_required
+def finalize_payroll(employee_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    Employee.query.get_or_404(employee_id)
+    return redirect(url_for('payroll', employee_id=employee_id, finalize='true'))
 
 
 @app.route('/payslip/<int:emp_id>/<int:payroll_id>')
