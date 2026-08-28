@@ -868,7 +868,8 @@ def employee_201_pdf(employee_id):
         pdf.drawString(indent, y, str(text)[:115])
         y -= gap
 
-    write_line('EMPLOYEE 201 FILE', bold=True, size=16, gap=24)
+    write_line(payroll_company_name(employee), bold=True, size=16, gap=24)
+    write_line('EMPLOYEE 201 FILE', bold=True, size=14, gap=24)
     write_line(f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', size=9)
     write_line('PERSONAL INFORMATION', bold=True, size=12, gap=20)
     write_line(f'Name: {employee.first_name} {employee.last_name}')
@@ -906,6 +907,11 @@ def employee_201_pdf(employee_id):
     for payroll_record in Payroll.query.filter_by(employee_id=employee.id).order_by(Payroll.cutoff_start.desc()).all():
         write_line(f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end} | Gross: PHP {payroll_record.gross_income or 0:.2f} | Net: PHP {payroll_record.net_pay or 0:.2f}')
 
+    y = max(y - 24, 100)
+    pdf.line(72, y, 260, y)
+    pdf.line(340, y, 528, y)
+    pdf.drawString(72, y - 15, 'Authorized Person Signature')
+    pdf.drawString(340, y - 15, 'Date')
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -1159,9 +1165,7 @@ def attendance(employee_id):
 
         # Header
         pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(180, 780, "AUTO-EXPERT AUTO SUPPLY")
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(180, 760, "TRECE-UNO AUTO SUPPLY")
+        pdf.drawString(180, 780, payroll_company_name(emp))
         pdf.setFont("Helvetica", 12)
         pdf.drawString(200, 740, "Official Attendance Report")
 
@@ -1194,6 +1198,8 @@ def attendance(employee_id):
         pdf.drawString(50, 80, "Certified True and Correct:")
         pdf.line(200, 60, 400, 60)
         pdf.drawString(200, 45, "Authorized Signature")
+        pdf.line(50, 35, 220, 35)
+        pdf.drawString(50, 20, "Authorized Person Signature")
 
         pdf.save()
         output.seek(0)
@@ -1572,9 +1578,10 @@ def incident_report_pdf(emp_id):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 14)
-    pdf.drawString(72, 750, f'Incident Reports for {period_label}')
+    pdf.drawString(72, 750, payroll_company_name(emp))
+    pdf.drawString(72, 732, f'Incident Reports for {period_label}')
     pdf.setFont('Helvetica', 11)
-    pdf.drawString(72, 730, f'Employee: {emp.first_name} {emp.last_name}')
+    pdf.drawString(72, 712, f'Employee: {emp.first_name} {emp.last_name}')
     y = 700
     for report in reports:
         text = f'[{report.status.upper()}] {report.category.title()} - {report.description}'
@@ -1590,6 +1597,10 @@ def incident_report_pdf(emp_id):
             y = 750
     if not reports:
         pdf.drawString(72, y, 'No incident reports found.')
+    pdf.line(72, 75, 260, 75)
+    pdf.line(340, 75, 528, 75)
+    pdf.drawString(72, 60, 'Authorized Person Signature')
+    pdf.drawString(340, 60, 'Date')
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -1635,10 +1646,11 @@ def export_insights_pdf(emp_id):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(72, 750, "AI Insights Report")
+    pdf.drawString(72, 750, payroll_company_name(emp))
+    pdf.drawString(72, 732, "AI Insights Report")
     pdf.setFont("Helvetica", 11)
-    pdf.drawString(72, 730, f"Employee: {emp.first_name} {emp.last_name}")
-    pdf.drawString(72, 712, f"Cut-off: {cutoff_start.strftime('%m-%d-%Y')} ~ {cutoff_end.strftime('%m-%d-%Y')}")
+    pdf.drawString(72, 712, f"Employee: {emp.first_name} {emp.last_name}")
+    pdf.drawString(72, 694, f"Cut-off: {cutoff_start.strftime('%m-%d-%Y')} ~ {cutoff_end.strftime('%m-%d-%Y')}")
 
     y = 675
     for key, value in insights.items():
@@ -1664,6 +1676,10 @@ def export_insights_pdf(emp_id):
             y = 750
 
     pdf.setFont("Helvetica-Oblique", 9)
+    pdf.line(72, 85, 260, 85)
+    pdf.line(340, 85, 528, 85)
+    pdf.drawString(72, 70, "Authorized Person Signature")
+    pdf.drawString(340, 70, "Date")
     pdf.drawString(72, 50, f"Generated on {datetime.now().strftime('%m-%d-%Y %H:%M')}")
     pdf.showPage()
     pdf.save()
@@ -3016,11 +3032,12 @@ def evaluation_results_export(file_format):
     if file_format == 'csv':
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['Date', 'Employee', 'Evaluator', 'Rating', 'Category', 'Remarks'])
+        writer.writerow(['Date', 'Employee', 'Company', 'Evaluator', 'Rating', 'Category', 'Remarks'])
         for evaluation in evaluations:
             writer.writerow([
                 evaluation.date.strftime('%Y-%m-%d %H:%M') if evaluation.date else '',
                 evaluation.employee.full_name() if evaluation.employee else '',
+                evaluation.employee.company if evaluation.employee else '',
                 evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A',
                 evaluation.rating or '',
                 evaluation.category or '',
@@ -3034,12 +3051,15 @@ def evaluation_results_export(file_format):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 14)
-    pdf.drawString(50, 780, payroll_company_name(emp))
+    report_employee = employee if requested_employee_id else None
+    report_company = payroll_company_name(report_employee) if report_employee else 'AUTO-EXPERT AUTO SUPPLY / TRECE-UNO AUTO SUPPLY'
+    pdf.drawString(50, 780, report_company)
     pdf.setFont('Helvetica-Bold', 14)
-    pdf.drawString(50, 760, 'MONTHLY PAYSLIP SUMMARY')
+    pdf.drawString(50, 760, 'EVALUATION RESULTS')
     pdf.setFont('Helvetica', 10)
-    pdf.drawString(50, 730, f'Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})')
-    pdf.drawString(50, 715, f'Month: {month_start.strftime("%B %Y")}')
+    pdf.drawString(50, 730, f'Employee: {employee_label}')
+    pdf.drawString(50, 715, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+    y = 685
     for evaluation in evaluations:
         date_text = evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A'
         employee_text = evaluation.employee.full_name() if evaluation.employee else 'N/A'
@@ -3056,6 +3076,10 @@ def evaluation_results_export(file_format):
             y = 750
     if not evaluations:
         pdf.drawString(72, y, 'No evaluation results found.')
+    pdf.line(72, 75, 260, 75)
+    pdf.line(340, 75, 528, 75)
+    pdf.drawString(72, 60, 'Authorized Person Signature')
+    pdf.drawString(340, 60, 'Date')
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -3578,7 +3602,8 @@ def redeem_points(employee_id):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(200, 750, "Merit Points Redemption Form")
+    c.drawString(100, 750, payroll_company_name(emp))
+    c.drawString(150, 730, "Merit Points Redemption Form")
     c.setFont("Helvetica", 12)
     c.drawString(100, 700, f"Employee: {emp.first_name} {emp.last_name}")
     c.drawString(100, 680, f"Role: {emp.role}")
@@ -3586,7 +3611,10 @@ def redeem_points(employee_id):
     c.drawString(100, 640, f"Merit Points Redeemed: {merit_points}")
     c.drawString(100, 620, f"Cash Equivalent: PHP {cash_value:.2f}")
     c.drawString(100, 600, f"Date Redeemed: {datetime.utcnow().strftime('%Y-%m-%d')}")
-    c.drawString(100, 580, "Signature: __________________________")
+    c.line(100, 540, 300, 540)
+    c.line(380, 540, 550, 540)
+    c.drawString(100, 525, "Authorized Person Signature")
+    c.drawString(380, 525, "Date")
     c.save()
     buffer.seek(0)
 
