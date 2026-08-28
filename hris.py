@@ -675,8 +675,14 @@ from werkzeug.security import generate_password_hash
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
-        company = request.form.get('company', '').strip()
-        if company not in {'Trece-Uno', 'Auto Expert'}:
+        company_input = request.form.get('company', '').strip()
+        company = {
+            'Trece-Uno': 'Trece-Uno',
+            'Trece-Uno Auto Supply': 'Trece-Uno',
+            'Auto Expert': 'Auto Expert',
+            'Auto-Expert Auto Supply': 'Auto Expert',
+        }.get(company_input)
+        if company is None:
             flash('Please select a valid company.', 'danger')
             return redirect(url_for('register'))
 
