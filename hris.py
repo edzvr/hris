@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from sqlalchemy.exc import IntegrityError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename 
@@ -955,6 +956,8 @@ def delete_employee(employee_id):
         IncidentReport.query.filter_by(employee_id=employee_id),
         IncidentReport.query.filter_by(reviewed_by=employee_id),
         EmployeeDocument.query.filter_by(employee_id=employee_id),
+        OTApplication.query.filter_by(employee_id=employee_id),
+        PasswordResetToken.query.filter_by(employee_id=employee_id),
         Evaluation.query.filter(
             db.or_(Evaluation.employee_id == employee_id, Evaluation.evaluator_id == employee_id)
         )
@@ -962,7 +965,13 @@ def delete_employee(employee_id):
     for query in dependent_queries:
         query.delete(synchronize_session=False)
     db.session.delete(employee)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        logger.exception('Could not delete employee %s because related records remain.', employee_id)
+        flash('❌ Employee cannot be deleted because related records are still linked.', 'danger')
+        return redirect(url_for('dashboard_admin'))
     flash(f'✅ Employee {employee.first_name} {employee.last_name} and related records were deleted.', 'success')
     return redirect(url_for('dashboard_admin'))
 
