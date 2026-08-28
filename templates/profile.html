@@ -24,7 +24,7 @@
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
         .form-field { display: flex; flex-direction: column; gap: 5px; }
         .form-field.full { grid-column: 1 / -1; }
-        input { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
+        input, textarea { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #e5e9ed; padding: 9px; text-align: left; }
         th { background: #f7f9fb; }
@@ -72,6 +72,15 @@
             <p><strong>Emergency Address:</strong> {{ emp.emergency_address or 'N/A' }}</p>
         </div>
 
+        <h3>Resume / Bio Data</h3>
+        <div class="details-grid">
+            <p><strong>Professional Summary:</strong><br>{{ emp.resume_summary or 'N/A' }}</p>
+            <p><strong>Education:</strong><br>{{ emp.resume_education or 'N/A' }}</p>
+            <p><strong>Work Experience:</strong><br>{{ emp.resume_experience or 'N/A' }}</p>
+            <p><strong>Skills:</strong><br>{{ emp.resume_skills or 'N/A' }}</p>
+            <p><strong>References:</strong><br>{{ emp.resume_references or 'N/A' }}</p>
+        </div>
+
         {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
         <a class="btn" href="{{ url_for('download_employee_profile', employee_id=emp.id) }}">Download My Information</a>
         <button class="btn" type="button" onclick="toggleEdit()">Edit Profile</button>
@@ -91,6 +100,11 @@
                 <label class="form-field">Emergency Person Name<input type="text" name="emergency_person" value="{{ emp.emergency_person or '' }}"></label>
                 <label class="form-field">Emergency Contact<input type="text" name="emergency_contact" value="{{ emp.emergency_contact or '' }}"></label>
                 <label class="form-field full">Emergency Address<input type="text" name="emergency_address" value="{{ emp.emergency_address or '' }}"></label>
+                <label class="form-field full">Professional Summary<textarea name="resume_summary" rows="3">{{ emp.resume_summary or '' }}</textarea></label>
+                <label class="form-field full">Education<textarea name="resume_education" rows="3">{{ emp.resume_education or '' }}</textarea></label>
+                <label class="form-field full">Work Experience<textarea name="resume_experience" rows="4">{{ emp.resume_experience or '' }}</textarea></label>
+                <label class="form-field full">Skills<textarea name="resume_skills" rows="3">{{ emp.resume_skills or '' }}</textarea></label>
+                <label class="form-field full">References<textarea name="resume_references" rows="3">{{ emp.resume_references or '' }}</textarea></label>
                 <label class="form-field full">Profile Picture<input type="file" name="profile_pic" accept="image/*"></label>
             </div>
             <button type="submit" class="btn">Save Changes</button>
