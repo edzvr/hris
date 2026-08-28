@@ -1752,6 +1752,11 @@ def regular_day_pay(attendance, daily_rate):
     return daily_rate
 
 
+def loan_cutoff_deduction(loan_balance, installment=500.0):
+    """Return the installment due for one cutoff, capped by the balance."""
+    return min(max(float(loan_balance or 0), 0), installment)
+
+
 @app.route('/apply_ot', methods=['GET', 'POST'])
 @login_required
 def apply_ot():
@@ -2066,8 +2071,7 @@ def payroll(employee_id):
     sss = deductions["sss"]
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
-    loan_balance = float(emp.loan_balance or 0)
-    loan = loan_balance if loan_balance < 500 else 500.00
+    loan = loan_cutoff_deduction(emp.loan_balance)
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
     total_deductions = sss + philhealth + pagibig + loan
@@ -2078,6 +2082,7 @@ def payroll(employee_id):
         cutoff_start=start_cutoff.date(),
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
+    new_payroll_record = payroll_record is None
     if payroll_record is None:
         payroll_record = Payroll(
             employee_id=emp.id,
@@ -2093,6 +2098,8 @@ def payroll(employee_id):
     payroll_record.pagibig = pagibig
     payroll_record.loan = loan
     payroll_record.cash_advance = 0.0
+    if new_payroll_record:
+        emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
     db.session.commit()
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
@@ -2298,8 +2305,7 @@ def payroll_dashboard():
         sss = deduction_values['sss']
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
-        loan_balance = float(emp.loan_balance or 0)
-        loan = loan_balance if loan_balance < 500 else 500.00
+        loan = loan_cutoff_deduction(emp.loan_balance)
 
         deductions = sss + philhealth + pagibig + loan
         net_pay = gross_income - deductions
@@ -2311,6 +2317,7 @@ def payroll_dashboard():
             "approved_ot_hours": approved_ot_hours,
             "approved_ot_pay": approved_ot_pay,
             "ot_statuses": sorted({attendance.ot_status or 'Pending' for attendance in ot_records}),
+            "loan_deduction": loan,
             "gross_income": gross_income,
             "deductions": deductions,
             "net_pay": net_pay
