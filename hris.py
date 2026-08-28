@@ -894,6 +894,24 @@ def admin_staff_choices():
     ).all()
 
 
+EMPLOYEE_201_CHECKLIST = {
+    'Personal Information': ['Resume / Bio Data', 'Application Form', 'Government IDs (SSS, PhilHealth, Pag-IBIG, TIN)'],
+    'Employment Records': ['Appointment Letter / Employment Contract', 'Job Description', 'Probationary Evaluation & Confirmation of Regularization'],
+    'HR & Disciplinary Documents': ['Company Policies acknowledgment form', 'Notice to Explain (NTE)', 'Notice of Decision / Disciplinary Actions', 'Clearance forms (if applicable)'],
+    'Attendance & Payroll': ['Daily Time Record (DTR) / Bundy Cards', 'Leave Applications & Approvals', 'Overtime Forms', 'Payslips / Payroll records'],
+    'Government Compliance': ['SSS Form R1A / Employment Report', 'PhilHealth & Pag-IBIG Membership forms', 'BIR Form 1902 / 2316 (tax records)'],
+    'Performance & Recognition': ['Performance Appraisals / Evaluations', 'Certificates of Training / Seminars', 'Commendations / Awards'],
+}
+
+
+def employee_201_checklist(documents):
+    uploaded_types = {document.document_type for document in documents}
+    return [
+        {'category': category, 'items': [{'name': name, 'uploaded': name in uploaded_types} for name in items]}
+        for category, items in EMPLOYEE_201_CHECKLIST.items()
+    ]
+
+
 @app.route('/admin/employee_201')
 @login_required
 def employee_201_selector():
@@ -1022,6 +1040,8 @@ def employee_201_documents(employee_id):
         'employee_201_documents.html',
         employee=employee,
         documents=documents,
+        checklist=employee_201_checklist(documents),
+        employee_201_checklist_catalog=EMPLOYEE_201_CHECKLIST,
         retention_guidance=retention_guidance,
         can_manage_documents=is_admin
     )
