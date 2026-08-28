@@ -910,6 +910,15 @@ def profile(user_id):
     )
 
 
+@app.route('/profile/<int:user_id>/resume')
+@login_required
+def profile_resume(user_id):
+    employee = Employee.query.get_or_404(user_id)
+    if current_user.id != employee.id and 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    return render_template('profile_resume.html', employee=employee)
+
+
 def admin_staff_choices():
     return Employee.query.order_by(
         Employee.company, Employee.first_name, Employee.last_name

@@ -83,6 +83,7 @@
 
         {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
         <a class="btn" href="{{ url_for('download_employee_profile', employee_id=emp.id) }}">Download My Information</a>
+        <a class="btn" href="{{ url_for('profile_resume', user_id=emp.id) }}">View / Print Resume</a>
         <button class="btn" type="button" onclick="toggleEdit()">Edit Profile</button>
         <form method="POST" enctype="multipart/form-data" class="edit-form" id="profile-edit" action="{{ url_for('profile', user_id=emp.id) }}">
             <div class="form-grid">

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ employee.full_name() }} - Resume</title>
+    <style>
+        :root { --ink:#24313a; --muted:#66737b; --accent:#167d8d; --line:#dbe4e7; --paper:#fff; --wash:#edf4f3; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:#dfe8e8; color:var(--ink); font-family:Georgia, 'Times New Roman', serif; }
+        .toolbar { max-width:900px; margin:22px auto 0; display:flex; justify-content:flex-end; gap:10px; }
+        .toolbar a, .toolbar button { border:0; padding:10px 16px; border-radius:4px; background:var(--accent); color:#fff; text-decoration:none; cursor:pointer; font:600 14px Arial, sans-serif; }
+        .resume { max-width:900px; min-height:1120px; margin:12px auto 28px; padding:58px 66px; background:var(--paper); box-shadow:0 8px 24px rgba(33,55,60,.14); }
+        .masthead { display:flex; justify-content:space-between; gap:24px; padding-bottom:26px; border-bottom:5px solid var(--accent); }
+        h1 { margin:0; font:700 42px Arial, sans-serif; letter-spacing:0; color:var(--ink); }
+        .role { margin:8px 0 0; color:var(--accent); font:600 16px Arial, sans-serif; }
+        .contact { max-width:260px; text-align:right; color:var(--muted); font:14px/1.7 Arial, sans-serif; }
+        .layout { display:grid; grid-template-columns:1.65fr 1fr; gap:46px; padding-top:32px; }
+        section { margin-bottom:30px; }
+        h2 { margin:0 0 13px; color:var(--accent); font:700 13px Arial, sans-serif; letter-spacing:1.5px; text-transform:uppercase; }
+        .copy { white-space:pre-line; margin:0; color:#3e4a50; font-size:16px; line-height:1.65; }
+        .side-block { padding:16px 18px; background:var(--wash); border-left:3px solid var(--accent); }
+        .side-block .copy { font-family:Arial, sans-serif; font-size:14px; line-height:1.6; }
+        .empty { color:#8a959a; font-style:italic; }
+        .signature { margin-top:70px; display:grid; grid-template-columns:1fr 1fr; gap:55px; font:13px Arial, sans-serif; color:var(--muted); text-align:center; }
+        .signature div { border-top:1px solid #52636a; padding-top:9px; }
+        @media (max-width:700px) { .toolbar { margin:12px; } .resume { margin:0 12px 20px; padding:34px 26px; } .masthead, .layout { display:block; } .contact { max-width:none; margin-top:18px; text-align:left; } .layout section { margin-bottom:26px; } }
+        @media print { body { background:#fff; } .toolbar { display:none; } .resume { margin:0; max-width:none; min-height:0; box-shadow:none; } }
+    </style>
+</head>
+<body>
+    <nav class="toolbar"><button type="button" onclick="window.print()">Print Resume</button><a href="{{ url_for('profile', user_id=employee.id) }}">Back to Profile</a></nav>
+    <main class="resume">
+        <header class="masthead">
+            <div>
+                <h1>{{ employee.full_name() }}</h1>
+                <p class="role">{{ employee.role or 'Employee' }} | {{ 'Trece-Uno Auto Supply' if employee.company and employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</p>
+            </div>
+            <div class="contact">{{ employee.email or 'Email not provided' }}<br>{{ employee.contact_no or 'Contact not provided' }}<br>{{ employee.address or 'Address not provided' }}</div>
+        </header>
+        <div class="layout">
+            <div>
+                <section><h2>Profile</h2><p class="copy {{ '' if employee.resume_summary else 'empty' }}">{{ employee.resume_summary or 'No professional summary provided.' }}</p></section>
+                <section><h2>Work Experience</h2><p class="copy {{ '' if employee.resume_experience else 'empty' }}">{{ employee.resume_experience or 'No work experience provided.' }}</p></section>
+                <section><h2>Education</h2><p class="copy {{ '' if employee.resume_education else 'empty' }}">{{ employee.resume_education or 'No education details provided.' }}</p></section>
+            </div>
+            <aside>
+                <section class="side-block"><h2>Skills</h2><p class="copy {{ '' if employee.resume_skills else 'empty' }}">{{ employee.resume_skills or 'No skills provided.' }}</p></section>
+                <section class="side-block"><h2>References</h2><p class="copy {{ '' if employee.resume_references else 'empty' }}">{{ employee.resume_references or 'No references provided.' }}</p></section>
+                <section><h2>Details</h2><p class="copy">Date Started: {{ employee.date_started or 'N/A' }}<br>Date of Birth: {{ employee.dob or 'N/A' }}<br>Company: {{ employee.company or 'N/A' }}</p></section>
+            </aside>
+        </div>
+        <div class="signature"><div>Employee Signature</div><div>Authorized Person</div></div>
+    </main>
+</body>
+</html>
