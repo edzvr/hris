@@ -1,5 +1,5 @@
 # ------------------ HRIS MAIN APP ------------------
-import os, random, logging
+import os, random, logging, re
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
@@ -46,6 +46,16 @@ def parse_event_time(value):
 
 def attendance_status(clock_in):
     return "Late" if clock_in.time() > time(8, 10) else "Present"
+
+
+def has_strong_password(password):
+    return (
+        len(password) >= 8
+        and re.search(r"[A-Z]", password)
+        and re.search(r"[a-z]", password)
+        and re.search(r"\d", password)
+        and re.search(r"[^A-Za-z0-9]", password)
+    )
 
 
 def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
@@ -694,8 +704,12 @@ def login():
             password = request.form.get('password')
             remember = 'remember' in request.form
 
-            user = Employee.query.filter(Employee.email.ilike(email)).order_by(Employee.id.desc()).first()
-            if user and check_password_hash(user.password, password):
+            users = Employee.query.filter(Employee.email.ilike(email)).order_by(Employee.id.desc()).all()
+            user = next(
+                (candidate for candidate in users if candidate.password and check_password_hash(candidate.password, password)),
+                None
+            )
+            if user:
                 login_user(user, remember=remember)
                 record_audit_action('Login', None)
 
@@ -821,8 +835,8 @@ def reset_password(token):
         password = request.form.get('password', '')
         password_confirm = request.form.get('password_confirm', '')
 
-        if len(password) < 6:
-            flash("Password must be at least 6 characters.", "danger")
+        if not has_strong_password(password):
+            flash("Password must have at least 8 characters, including uppercase, lowercase, a number, and a special character.", "danger")
             return render_template('reset_password.html', token=token)
         if password != password_confirm:
             flash("Passwords do not match.", "danger")
@@ -872,14 +886,29 @@ def register():
         if '@' not in email or email.startswith('@') or email.endswith('@'):
             flash('Please enter a valid email address.', 'danger')
             return redirect(url_for('register'))
-        if len(required_fields['Password']) < 6:
-            flash('Password must be at least 6 characters.', 'danger')
+        if not has_strong_password(required_fields['Password']):
+            flash('Password must have at least 8 characters, including uppercase, lowercase, a number, and a special character.', 'danger')
             return redirect(url_for('register'))
         if required_fields['Role'] not in {'staff', 'admin'}:
             flash('Please select a valid role.', 'danger')
             return redirect(url_for('register'))
-        if Employee.query.filter(Employee.email.ilike(email)).first():
-            flash('An account with that email already exists. Please login or reset its password.', 'danger')
+        name_parts = (
+            required_fields['First name'].casefold(),
+            request.form.get('middle_name', '').strip().casefold(),
+            required_fields['Last name'].casefold(),
+            request.form.get('suffix_name', '').strip().casefold(),
+        )
+        existing_employees = Employee.query.all()
+        if any(
+            (
+                (employee.first_name or '').strip().casefold(),
+                (employee.middle_name or '').strip().casefold(),
+                (employee.last_name or '').strip().casefold(),
+                (employee.suffix_name or '').strip().casefold(),
+            ) == name_parts
+            for employee in existing_employees
+        ):
+            flash('An employee with the same full name is already registered.', 'danger')
             return redirect(url_for('register'))
 
         company_input = request.form.get('company', '').strip()
