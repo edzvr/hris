@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import MetaData, Table as SQLAlchemyTable, inspect
+from sqlalchemy import MetaData, Table as SQLAlchemyTable, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -541,8 +541,25 @@ def send_lunch_reminder(phase):
 
 # ------------------ EXTENSIONS ------------------
 db.init_app(app)
+
+
+def ensure_employee_resume_columns():
+    employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    for column_name in (
+        "resume_summary",
+        "resume_education",
+        "resume_experience",
+        "resume_skills",
+        "resume_references",
+    ):
+        if column_name not in employee_columns:
+            db.session.execute(text(f"ALTER TABLE employees ADD COLUMN {column_name} TEXT"))
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
+    ensure_employee_resume_columns()
 
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
