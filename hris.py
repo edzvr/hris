@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import MetaData, Table as SQLAlchemyTable, inspect, text
+from sqlalchemy import MetaData, Table as SQLAlchemyTable, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -557,9 +557,44 @@ def ensure_employee_resume_columns():
     db.session.commit()
 
 
+def bootstrap_postgres_from_sqlite():
+    if db.engine.dialect.name != "postgresql":
+        return
+
+    source_path = os.path.join(basedir, "instance", "hris.db")
+    if not os.path.isfile(source_path):
+        logger.warning("SQLite bootstrap source is unavailable: %s", source_path)
+        return
+
+    with db.engine.begin() as target_connection:
+        if target_connection.execute(text("SELECT COUNT(*) FROM employees")).scalar_one() > 0:
+            return
+
+        source_engine = create_engine(f"sqlite:///{source_path}")
+        try:
+            source_metadata = MetaData()
+            source_metadata.reflect(bind=source_engine)
+            target_metadata = MetaData()
+            target_metadata.reflect(bind=target_connection)
+            with source_engine.connect() as source_connection:
+                for source_table in source_metadata.sorted_tables:
+                    if source_table.name == "alembic_version":
+                        continue
+                    target_table = target_metadata.tables.get(source_table.name)
+                    if target_table is None:
+                        logger.warning("SQLite bootstrap skipped missing target table: %s", source_table.name)
+                        continue
+                    rows = source_connection.execute(source_table.select()).mappings().all()
+                    if rows:
+                        target_connection.execute(target_table.insert(), rows)
+        finally:
+            source_engine.dispose()
+
+
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
+    bootstrap_postgres_from_sqlite()
 
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
