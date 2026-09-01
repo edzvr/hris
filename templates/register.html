@@ -50,7 +50,7 @@
 <body>
     <div class="card">
         <h2>Register</h2>
-        <form method="POST" enctype="multipart/form-data" class="row g-3">
+        <form method="POST" enctype="multipart/form-data" class="row g-3" id="registration-form">
             <div class="col-md-6">
                 <label class="form-label">First Name</label>
                 <input type="text" name="first_name" class="form-control form-control-lg" required>
@@ -154,7 +154,7 @@
             </div>
 
             <div class="col-12">
-                <button type="submit" class="btn btn-primary btn-lg w-100">Register</button>
+                <button type="submit" class="btn btn-primary btn-lg w-100" id="register-button">Register</button>
             </div>
         </form>
     </div>
@@ -164,6 +164,13 @@
     <script>
         document.getElementById('show-register-password').addEventListener('change', function () {
             document.getElementById('register-password').type = this.checked ? 'text' : 'password';
+        });
+        document.getElementById('registration-form').addEventListener('submit', function () {
+            if (this.checkValidity()) {
+                const button = document.getElementById('register-button');
+                button.disabled = true;
+                button.textContent = 'Registering...';
+            }
         });
     </script>
 </body>

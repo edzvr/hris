@@ -579,6 +579,17 @@ def ensure_employee_resume_columns():
     db.session.commit()
 
 
+def ensure_employee_registration_name_key():
+    employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    if "registration_name_key" not in employee_columns:
+        db.session.execute(text("ALTER TABLE employees ADD COLUMN registration_name_key VARCHAR(240)"))
+    db.session.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_registration_name_key "
+        "ON employees (registration_name_key) WHERE registration_name_key IS NOT NULL"
+    ))
+    db.session.commit()
+
+
 def ensure_evaluation_tracking_columns():
     inspector = inspect(db.engine)
     evaluation_columns = {column["name"] for column in inspector.get_columns("evaluations")}
@@ -649,6 +660,7 @@ def bootstrap_postgres_from_sqlite():
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
+    ensure_employee_registration_name_key()
     ensure_evaluation_tracking_columns()
     bootstrap_postgres_from_sqlite()
 
@@ -944,6 +956,7 @@ def register():
             required_fields['Last name'].casefold(),
             request.form.get('suffix_name', '').strip().casefold(),
         )
+        registration_name_key = "|".join(name_parts)
         existing_employees = Employee.query.all()
         if any(
             (
@@ -994,6 +1007,7 @@ def register():
             middle_name=request.form.get('middle_name', '').strip() or None,
             last_name=required_fields['Last name'],
             suffix_name=request.form.get('suffix_name', '').strip() or None,
+            registration_name_key=registration_name_key,
             dob=dob_val,
             role=required_fields['Role'],
             company=company,
@@ -1019,7 +1033,7 @@ def register():
         except SQLAlchemyError:
             db.session.rollback()
             logger.exception('Could not register employee with email %s', email)
-            flash('Registration could not be completed. Please try again.', 'danger')
+            flash('An employee with the same full name is already registered.', 'danger')
             return redirect(url_for('register'))
         flash("🎉 Congratulations! You are now registered.", "success")
         return redirect(url_for('login'))
