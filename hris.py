@@ -596,7 +596,22 @@ def bootstrap_postgres_from_sqlite():
                         continue
                     rows = source_connection.execute(source_table.select()).mappings().all()
                     if rows:
-                        target_connection.execute(target_table.insert(), rows)
+                        normalized_rows = []
+                        for row in rows:
+                            normalized_row = {}
+                            for column_name, value in row.items():
+                                target_column = target_table.columns.get(column_name)
+                                if target_column is None:
+                                    continue
+                                if value == "":
+                                    try:
+                                        if target_column.type.python_type is not str:
+                                            value = None
+                                    except NotImplementedError:
+                                        pass
+                                normalized_row[column_name] = value
+                            normalized_rows.append(normalized_row)
+                        target_connection.execute(target_table.insert(), normalized_rows)
         finally:
             source_engine.dispose()
 
