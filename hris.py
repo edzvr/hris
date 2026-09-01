@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import inspect
+from sqlalchemy import MetaData, Table as SQLAlchemyTable, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1116,36 +1116,30 @@ def delete_employee(employee_id):
         flash('❌ You cannot delete your own admin account.', 'danger')
         return redirect(url_for('dashboard_admin'))
 
-    employee = Employee.query.get_or_404(employee_id)
-    incident_report_columns = {
-        column["name"] for column in inspect(db.engine).get_columns("incident_reports")
-    }
-    dependent_queries = [
-        Attendance.query.filter_by(employee_id=employee_id),
-        LeaveRequest.query.filter_by(employee_id=employee_id),
-        LeaveHistory.query.filter_by(employee_id=employee_id),
-        Loan.query.filter_by(employee_id=employee_id),
-        LoanHistory.query.filter_by(employee_id=employee_id),
-        Payroll.query.filter_by(employee_id=employee_id),
-        QuizResult.query.filter_by(employee_id=employee_id),
-        MeritDemerit.query.filter_by(employee_id=employee_id),
-        RedemptionHistory.query.filter_by(employee_id=employee_id),
-        IncidentReport.query.filter_by(employee_id=employee_id),
-        EmployeeDocument.query.filter_by(employee_id=employee_id),
-        OTApplication.query.filter_by(employee_id=employee_id),
-        PasswordResetToken.query.filter_by(employee_id=employee_id),
-        Evaluation.query.filter(
-            db.or_(Evaluation.employee_id == employee_id, Evaluation.evaluator_id == employee_id)
-        )
-    ]
-    if "reported_employee_id" in incident_report_columns:
-        dependent_queries.append(IncidentReport.query.filter_by(reported_employee_id=employee_id))
-    if "reviewed_by" in incident_report_columns:
-        dependent_queries.append(IncidentReport.query.filter_by(reviewed_by=employee_id))
-    for query in dependent_queries:
-        query.delete(synchronize_session=False)
-    db.session.delete(employee)
     try:
+        employee = db.session.execute(
+            db.select(Employee.id, Employee.first_name, Employee.last_name).where(Employee.id == employee_id)
+        ).one_or_none()
+        if employee is None:
+            abort(404)
+
+        inspector = inspect(db.engine)
+        metadata = MetaData()
+        for table_name in inspector.get_table_names():
+            foreign_keys = inspector.get_foreign_keys(table_name)
+            employee_columns = [
+                column
+                for foreign_key in foreign_keys
+                if foreign_key.get("referred_table") == "employees"
+                for column in foreign_key.get("constrained_columns", [])
+            ]
+            if not employee_columns:
+                continue
+            table = SQLAlchemyTable(table_name, metadata, autoload_with=db.engine)
+            for column_name in employee_columns:
+                db.session.execute(table.delete().where(table.c[column_name] == employee_id))
+
+        db.session.execute(Employee.__table__.delete().where(Employee.id == employee_id))
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
