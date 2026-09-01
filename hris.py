@@ -1591,7 +1591,13 @@ def dashboard_admin():
     trece_leaves = LeaveRequest.query.join(Employee).filter(Employee.company.in_(["Trece-Uno", "Trece"])).all()
     auto_leaves = LeaveRequest.query.join(Employee).filter(Employee.company=="Auto Expert").all()
     unread_count = Bulletin.query.count()
-    total_employees = Employee.query.count()
+    total_employees = Employee.query.filter(
+        Employee.role.ilike('%staff%'),
+        Employee.first_name.isnot(None),
+        Employee.first_name != '',
+        Employee.last_name.isnot(None),
+        Employee.last_name != ''
+    ).count()
 
     today = datetime.today()
     start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
@@ -1618,7 +1624,7 @@ def dashboard_admin():
         if payroll_company in company_payroll:
             company_payroll[payroll_company] += net_pay
 
-    pending_ot = Attendance.query.filter_by(ot_status="Pending").count()
+    pending_ot = OTApplication.query.filter_by(status="Pending").count()
     pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
     pending_loans = Loan.query.filter_by(status="Pending").count()
     pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
