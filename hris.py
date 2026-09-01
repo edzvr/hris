@@ -957,7 +957,11 @@ def register():
             request.form.get('suffix_name', '').strip().casefold(),
         )
         registration_name_key = "|".join(name_parts)
-        existing_employees = Employee.query.all()
+        existing_employees = Employee.query.filter(
+            Employee.role.in_(['staff', 'admin']),
+            Employee.company.isnot(None),
+            Employee.company != ''
+        ).all()
         if any(
             (
                 (employee.first_name or '').strip().casefold(),
