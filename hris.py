@@ -911,7 +911,7 @@ def reset_password(token):
 # ------------------ GLOBAL AUTH CHECK ------------------
 @app.before_request
 def check_authentication():
-    exempt_routes = ['login', 'register', 'static', 'service_worker', 'forgot_password', 'reset_password']
+    exempt_routes = ['home', 'login', 'register', 'static', 'service_worker', 'forgot_password', 'reset_password']
     if not current_user.is_authenticated and request.endpoint not in exempt_routes:
         return redirect(url_for('login'))
 
