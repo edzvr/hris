@@ -46,8 +46,15 @@ def parse_event_time(value):
 def attendance_status(clock_in):
     return "Late" if clock_in.time() > time(8, 10) else "Present"
 
+
+def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
+    if value is None:
+        return "N/A"
+    return value.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Manila")).strftime(format_string)
+
 # ------------------ APP CONFIG ------------------
 app = Flask(__name__)
+app.add_template_filter(manila_datetime, "manila_datetime")
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -129,6 +136,19 @@ def notify_admins(subject, body):
         employee.email for employee in Employee.query.filter(Employee.role.ilike('%admin%')).all()
     ]
     return send_notification_email(admin_emails, subject, body)
+
+
+def notify_attendance_event(employee, event_type, event_time):
+    event_label = "Clock in" if event_type == "clockin" else "Clock out"
+    timestamp = event_time.strftime("%Y-%m-%d %I:%M %p")
+    record_audit_action(event_label)
+    notify_admins(
+        f"HRIS {event_label}: {employee.full_name()}",
+        (
+            f"{employee.full_name()} ({employee.company or 'No company'}) {event_label.lower()} "
+            f"on {timestamp}."
+        )
+    )
 
 
 def send_leave_email(employee, leave, decision):
@@ -614,14 +634,14 @@ def login():
     action = request.form.get('action')
 
     if request.method == 'POST':
-        email = request.form.get('email')
+        email = request.form.get('email', '').strip().lower()
 
         # --- LOGIN FLOW ---
         if action == "login":
             password = request.form.get('password')
             remember = 'remember' in request.form
 
-            user = Employee.query.filter_by(email=email).first()
+            user = Employee.query.filter(Employee.email.ilike(email)).order_by(Employee.id.desc()).first()
             if user and check_password_hash(user.password, password):
                 login_user(user, remember=remember)
                 record_audit_action('Login', None)
@@ -777,6 +797,11 @@ from werkzeug.security import generate_password_hash
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        if Employee.query.filter(Employee.email.ilike(email)).first():
+            flash('An account with that email already exists. Please login or reset its password.', 'danger')
+            return redirect(url_for('register'))
+
         company_input = request.form.get('company', '').strip()
         company = {
             'Trece-Uno': 'Trece-Uno',
@@ -813,7 +838,7 @@ def register():
             dob=dob_val,
             role=request.form['role'],
             company=company,
-            email=request.form['email'],
+            email=email,
             password=generate_password_hash(request.form['password']),
             contact_no=request.form.get('contact_no'),
             registered_at=datetime.utcnow(),
@@ -1102,6 +1127,7 @@ def delete_employee(employee_id):
         MeritDemerit.query.filter_by(employee_id=employee_id),
         RedemptionHistory.query.filter_by(employee_id=employee_id),
         IncidentReport.query.filter_by(employee_id=employee_id),
+        IncidentReport.query.filter_by(reported_employee_id=employee_id),
         IncidentReport.query.filter_by(reviewed_by=employee_id),
         EmployeeDocument.query.filter_by(employee_id=employee_id),
         OTApplication.query.filter_by(employee_id=employee_id),
@@ -1420,6 +1446,9 @@ def dashboard_admin():
     pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
     pending_loans_list = Loan.query.filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
     bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).all()
+    attendance_events = AuditLog.query.filter(
+        AuditLog.action.in_(["Clock in", "Clock out"])
+    ).order_by(AuditLog.created_at.desc()).limit(10).all()
 
     from sqlalchemy import func
     trend_records = (
@@ -1455,6 +1484,7 @@ def dashboard_admin():
         pending_leaves_list=pending_leaves_list,
         pending_loans_list=pending_loans_list,
         bulletins=bulletins,
+        attendance_events=attendance_events,
         company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,
@@ -2022,6 +2052,7 @@ def attendance_action(employee_id):
                          employee_id=employee_id)
         db.session.add(log)
         db.session.commit()
+        notify_attendance_event(emp, "clockin", event_now)
         flash("🟢 Clocked in successfully!", "success")
 
     elif "clockout" in request.form:
@@ -2035,6 +2066,7 @@ def attendance_action(employee_id):
             log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
             apply_overtime_details(log)
             db.session.commit()
+            notify_attendance_event(emp, "clockout", event_now)
             flash("🔴 Clocked out successfully!", "success")
         else:
             flash("⚠️ No active clock-in found.", "warning")
@@ -2067,6 +2099,7 @@ def attendance_api(employee_id):
                              employee_id=employee_id)
             db.session.add(log)
             db.session.commit()
+            notify_attendance_event(emp, "clockin", event_now)
             worked_hours = max(
                 (datetime.now() - log.clock_in).total_seconds() / 3600,
                 0.0
@@ -2085,6 +2118,7 @@ def attendance_api(employee_id):
                 log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
                 apply_overtime_details(log)
                 db.session.commit()
+                notify_attendance_event(emp, "clockout", event_now)
                 return jsonify(status="success", message="🔴 Clocked out successfully!",
                                clocked_in=False, clock_in="", worked_hours=log.hours)
             else:

@@ -260,6 +260,23 @@
     <button onclick="showTab('leaves')">Leaves</button>
     <button onclick="showTab('loans')">Loans</button>
     <button onclick="showTab('bulletins')">Bulletins</button>
+
+  <div class="card">
+    <h2>Recent Clock Activity</h2>
+    <table>
+      <tr><th>Employee</th><th>Company</th><th>Activity</th><th>Time</th></tr>
+      {% for event in attendance_events %}
+      <tr>
+        <td>{{ event.employee_name }}</td>
+        <td>{{ event.company or 'N/A' }}</td>
+        <td>{{ event.action }}</td>
+        <td>{{ event.created_at | manila_datetime }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No clock-in or clock-out activity yet.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
     <button onclick="showTab('payroll')">Payroll & OT</button>
     <button onclick="showTab('evaluation')">Evaluation</button>
     <button onclick="showTab('analytics')">Analytics</button>
@@ -276,7 +293,7 @@
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
-          <td>{{ emp.registered_at.strftime('%Y-%m-%d %I:%M %p') if emp.registered_at else 'N/A' }}</td>
+          <td>{{ emp.registered_at | manila_datetime }}</td>
           <td>{{ emp.daily_rate }}</td>
           <td>{{ emp.allowance }}</td>
           <td>{{ emp.incentives }}</td>
@@ -296,7 +313,7 @@
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
-          <td>{{ emp.registered_at.strftime('%Y-%m-%d %I:%M %p') if emp.registered_at else 'N/A' }}</td>
+          <td>{{ emp.registered_at | manila_datetime }}</td>
           <td>{{ emp.daily_rate }}</td>
           <td>{{ emp.allowance }}</td>
           <td>{{ emp.incentives }}</td>
