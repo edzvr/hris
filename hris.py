@@ -850,7 +850,34 @@ from werkzeug.security import generate_password_hash
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
+        required_fields = {
+            'First name': request.form.get('first_name', '').strip(),
+            'Last name': request.form.get('last_name', '').strip(),
+            'Date of birth': request.form.get('dob', '').strip(),
+            'Role': request.form.get('role', '').strip().lower(),
+            'Company': request.form.get('company', '').strip(),
+            'Email': request.form.get('email', '').strip(),
+            'Password': request.form.get('password', ''),
+            'Contact number': request.form.get('contact_no', '').strip(),
+            'Date started': request.form.get('date_started', '').strip(),
+            'Emergency person': request.form.get('emergency_person', '').strip(),
+            'Emergency contact': request.form.get('emergency_contact', '').strip(),
+        }
+        missing_fields = [label for label, value in required_fields.items() if not value]
+        if missing_fields:
+            flash(f"Please complete all required fields: {', '.join(missing_fields)}.", 'danger')
+            return redirect(url_for('register'))
+
         email = request.form.get('email', '').strip().lower()
+        if '@' not in email or email.startswith('@') or email.endswith('@'):
+            flash('Please enter a valid email address.', 'danger')
+            return redirect(url_for('register'))
+        if len(required_fields['Password']) < 6:
+            flash('Password must be at least 6 characters.', 'danger')
+            return redirect(url_for('register'))
+        if required_fields['Role'] not in {'staff', 'admin'}:
+            flash('Please select a valid role.', 'danger')
+            return redirect(url_for('register'))
         if Employee.query.filter(Employee.email.ilike(email)).first():
             flash('An account with that email already exists. Please login or reset its password.', 'danger')
             return redirect(url_for('register'))
@@ -872,11 +899,15 @@ def register():
             filename = secure_filename(file.filename)
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-        date_started_str = request.form.get('date_started')
-        date_started_val = datetime.strptime(date_started_str, '%Y-%m-%d').date() if date_started_str else None
-        
-        dob_str = request.form.get('dob')
-        dob_val = datetime.strptime(dob_str, '%Y-%m-%d').date() if dob_str else None
+        try:
+            date_started_val = datetime.strptime(required_fields['Date started'], '%Y-%m-%d').date()
+            dob_val = datetime.strptime(required_fields['Date of birth'], '%Y-%m-%d').date()
+        except ValueError:
+            flash('Please enter valid dates.', 'danger')
+            return redirect(url_for('register'))
+        if dob_val >= date.today() or date_started_val > date.today():
+            flash('Please enter valid past dates for date of birth and date started.', 'danger')
+            return redirect(url_for('register'))
 
         emp_address = request.form.get('address')
         emergency_address = request.form.get('emergency_address')
@@ -884,31 +915,37 @@ def register():
             emergency_address = emp_address
 
         emp = Employee(
-            first_name=request.form['first_name'],
-            middle_name=request.form.get('middle_name'),
-            last_name=request.form['last_name'],
-            suffix_name=request.form.get('suffix_name'),
+            first_name=required_fields['First name'],
+            middle_name=request.form.get('middle_name', '').strip() or None,
+            last_name=required_fields['Last name'],
+            suffix_name=request.form.get('suffix_name', '').strip() or None,
             dob=dob_val,
-            role=request.form['role'],
+            role=required_fields['Role'],
             company=company,
             email=email,
-            password=generate_password_hash(request.form['password']),
-            contact_no=request.form.get('contact_no'),
+            password=generate_password_hash(required_fields['Password']),
+            contact_no=required_fields['Contact number'],
             registered_at=datetime.utcnow(),
             date_started=date_started_val,
             sss=request.form.get('sss'),
             philhealth=request.form.get('philhealth'),
             tin=request.form.get('tin'),
             pagibig=request.form.get('pagibig'),
-            emergency_person=request.form.get('emergency_person'),
-            emergency_contact=request.form.get('emergency_contact'),
+            emergency_person=required_fields['Emergency person'],
+            emergency_contact=required_fields['Emergency contact'],
             emergency_address=emergency_address,
             profile_pic=filename,
             address=emp_address
         )
         
-        db.session.add(emp)
-        db.session.commit()
+        try:
+            db.session.add(emp)
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception('Could not register employee with email %s', email)
+            flash('Registration could not be completed. Please try again.', 'danger')
+            return redirect(url_for('register'))
         flash("🎉 Congratulations! You are now registered.", "success")
         return redirect(url_for('login'))
 
