@@ -50,6 +50,13 @@
 <body>
     <div class="card">
         <h2>Register</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert {% if category == 'success' %}alert-success{% else %}alert-danger{% endif %}" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endwith %}
         <form method="POST" enctype="multipart/form-data" class="row g-3" id="registration-form">
             <div class="col-md-6">
                 <label class="form-label">First Name</label>
@@ -138,11 +145,11 @@
 
             <div class="col-md-6">
                 <label class="form-label">Emergency Person Name</label>
-                <input type="text" name="emergency_person" class="form-control form-control-lg">
+                <input type="text" name="emergency_person" class="form-control form-control-lg" required>
             </div>
             <div class="col-md-6">
                 <label class="form-label">Emergency Contact Number</label>
-                <input type="text" name="emergency_contact" class="form-control form-control-lg">
+                <input type="text" name="emergency_contact" class="form-control form-control-lg" required>
             </div>
             <div class="col-md-6">
                 <label class="form-label">Emergency Address</label>
