@@ -3,7 +3,7 @@ import os, random, logging, re
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
+from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import MetaData, Table as SQLAlchemyTable, create_engine, inspect, text
@@ -56,6 +56,18 @@ def has_strong_password(password):
         and re.search(r"\d", password)
         and re.search(r"[^A-Za-z0-9]", password)
     )
+
+
+def evaluation_points(average_rating):
+    if average_rating >= 4.5:
+        return 2, 0
+    if average_rating >= 3.5:
+        return 1, 0
+    if average_rating < 1.5:
+        return 0, 2
+    if average_rating < 2.5:
+        return 0, 1
+    return 0, 0
 
 
 def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
@@ -567,6 +579,24 @@ def ensure_employee_resume_columns():
     db.session.commit()
 
 
+def ensure_evaluation_tracking_columns():
+    inspector = inspect(db.engine)
+    evaluation_columns = {column["name"] for column in inspector.get_columns("evaluations")}
+    merit_columns = {column["name"] for column in inspector.get_columns("merit_demerit")}
+    statements = []
+    if "approval_status" not in evaluation_columns:
+        statements.append("ALTER TABLE evaluations ADD COLUMN approval_status VARCHAR(20) NOT NULL DEFAULT 'Pending'")
+    if "points_applied" not in evaluation_columns:
+        statements.append("ALTER TABLE evaluations ADD COLUMN points_applied BOOLEAN NOT NULL DEFAULT FALSE")
+    if "source" not in merit_columns:
+        statements.append("ALTER TABLE merit_demerit ADD COLUMN source VARCHAR(50)")
+    if "reference" not in merit_columns:
+        statements.append("ALTER TABLE merit_demerit ADD COLUMN reference VARCHAR(255)")
+    for statement in statements:
+        db.session.execute(text(statement))
+    db.session.commit()
+
+
 def bootstrap_postgres_from_sqlite():
     if db.engine.dialect.name != "postgresql":
         return
@@ -619,6 +649,7 @@ def bootstrap_postgres_from_sqlite():
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
+    ensure_evaluation_tracking_columns()
     bootstrap_postgres_from_sqlite()
 
 migrate = Migrate(app, db)
@@ -1997,6 +2028,7 @@ def peer_evaluation():
                 rating=rating,
                 remarks=f"{question.text}: {remarks}" if remarks else question.text,
                 category=f"peer_{question.id}",
+                approval_status="Pending",
                 date=datetime.now()
             ))
         db.session.commit()
@@ -3249,16 +3281,81 @@ def evaluation_dashboard():
         peer_status.append({"employee": emp, "submitted": submitted})
 
     if request.method == 'POST':
+        action = request.form.get('action')
+        if action in {'approve', 'reject'}:
+            employee_id = request.form.get('employee_id', type=int)
+            evaluator_id = request.form.get('evaluator_id', type=int)
+            evaluation_type = request.form.get('evaluation_type')
+            if evaluation_type not in {'peer', 'admin'}:
+                flash('❌ Invalid evaluation type.', 'danger')
+                return redirect(url_for('evaluation_dashboard'))
+            evaluations_to_review = Evaluation.query.filter(
+                Evaluation.employee_id == employee_id,
+                Evaluation.evaluator_id == evaluator_id,
+                Evaluation.date >= month_start_dt,
+                Evaluation.category.like(f'{evaluation_type}_%'),
+                Evaluation.approval_status == 'Pending'
+            ).all()
+            if not evaluations_to_review:
+                flash('❌ No pending evaluation found.', 'danger')
+                return redirect(url_for('evaluation_dashboard'))
+            if action == 'reject':
+                for evaluation in evaluations_to_review:
+                    evaluation.approval_status = 'Rejected'
+                db.session.commit()
+                flash('Evaluation rejected. No merit or demerit points were applied.', 'success')
+                return redirect(url_for('evaluation_dashboard'))
+
+            average_rating = sum(evaluation.rating for evaluation in evaluations_to_review) / len(evaluations_to_review)
+            merit_points, demerit_points = evaluation_points(average_rating)
+            employee = db.session.get(Employee, employee_id)
+            if employee is None:
+                flash('❌ Employee not found.', 'danger')
+                return redirect(url_for('evaluation_dashboard'))
+            employee.merit_points = (employee.merit_points or 0) + merit_points
+            employee.demerit_points = (employee.demerit_points or 0) + demerit_points
+            db.session.add(MeritDemerit(
+                employee_id=employee.id,
+                merit_points=merit_points,
+                demerit_points=demerit_points,
+                source='evaluation',
+                reference=f'{evaluation_type.title()} evaluation average: {average_rating:.2f}'
+            ))
+            for evaluation in evaluations_to_review:
+                evaluation.approval_status = 'Approved'
+                evaluation.points_applied = True
+            db.session.commit()
+            flash(f'Evaluation approved. Average: {average_rating:.2f}; merit: {merit_points}, demerit: {demerit_points}.', 'success')
+            return redirect(url_for('evaluation_dashboard'))
+
         for emp in employees:
             remarks = request.form.get(f'remarks_{emp.id}')
-            for q in questions:
-                rating_value = request.form.get(f'q{q.id}_{emp.id}')
-                if rating_value:
+            rating_values = [request.form.get(f'q{question.id}_{emp.id}') for question in questions]
+            if any(rating_values) and not all(rating_values):
+                flash(f'❌ Complete every rating for {emp.full_name()} or leave the row blank.', 'danger')
+                return redirect(url_for('evaluation_dashboard'))
+            if all(rating_values):
+                already_submitted = Evaluation.query.filter(
+                    Evaluation.employee_id == emp.id,
+                    Evaluation.evaluator_id == current_user.id,
+                    Evaluation.date >= month_start_dt,
+                    Evaluation.category.like('admin_%')
+                ).first()
+                if already_submitted:
+                    flash(f'⚠️ You already evaluated {emp.full_name()} this month.', 'warning')
+                    return redirect(url_for('evaluation_dashboard'))
+                for question, rating_value in zip(questions, rating_values):
+                    rating = int(rating_value)
+                    if rating not in range(1, 6):
+                        flash(f'❌ Ratings for {emp.full_name()} must be from 1 to 5.', 'danger')
+                        return redirect(url_for('evaluation_dashboard'))
                     eval = Evaluation(
                         employee_id=emp.id,
                         evaluator_id=current_user.id,
-                        rating=int(rating_value),
-                        remarks=f"{q.text}: {remarks}" if remarks else q.text,
+                        rating=rating,
+                        remarks=f"{question.text}: {remarks}" if remarks else question.text,
+                        category=f'admin_{question.id}',
+                        approval_status='Pending',
                         date=datetime.today()
                     )
                     db.session.add(eval)
@@ -3267,10 +3364,31 @@ def evaluation_dashboard():
         return redirect(url_for('evaluation_dashboard'))
 
     evaluations = Evaluation.query.order_by(Evaluation.date.desc()).all()
+    pending_evaluations = {}
+    for evaluation in Evaluation.query.filter(
+        Evaluation.date >= month_start_dt,
+        Evaluation.approval_status == 'Pending'
+    ).order_by(Evaluation.date.desc()).all():
+        evaluation_type = 'peer' if evaluation.category.startswith('peer_') else 'admin' if evaluation.category.startswith('admin_') else None
+        if evaluation_type is None:
+            continue
+        key = (evaluation.employee_id, evaluation.evaluator_id, evaluation_type)
+        pending_evaluations.setdefault(key, []).append(evaluation)
+    pending_reviews = [
+        {
+            'employee': rows[0].employee,
+            'evaluator': rows[0].evaluator,
+            'evaluation_type': evaluation_type,
+            'average_rating': sum(row.rating for row in rows) / len(rows),
+            'question_count': len(rows)
+        }
+        for (_, _, evaluation_type), rows in pending_evaluations.items()
+    ]
     return render_template("evaluation_dashboard.html",
                            employees=employees,
                            questions=questions,
                            evaluations=evaluations,
+                           pending_reviews=pending_reviews,
                            peer_status=peer_status,
                            month_start=month_start)
 

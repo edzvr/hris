@@ -208,6 +208,8 @@ class Evaluation(db.Model):
     remarks = db.Column(db.String(255))
     date = db.Column(db.DateTime, default=datetime.utcnow)
     category = db.Column(db.String(50), default="core")  # halimbawa: core, attitude, etc.
+    approval_status = db.Column(db.String(20), nullable=False, default="Pending")
+    points_applied = db.Column(db.Boolean, nullable=False, default=False)
     employee = db.relationship(
         "Employee",
         foreign_keys=[employee_id],
@@ -298,12 +300,13 @@ class Payroll(db.Model):
 # ------------------ MERIT / DEMERIT ------------------
 class MeritDemerit(db.Model):
     __tablename__ = 'merit_demerit'
-    pass
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'))
     date = db.Column(db.Date, default=datetime.utcnow)
     merit_points = db.Column(db.Integer, default=0)
     demerit_points = db.Column(db.Integer, default=0)
+    source = db.Column(db.String(50), nullable=True)
+    reference = db.Column(db.String(255), nullable=True)
 
     employee = db.relationship("Employee", backref="merit_demerit_records")
 

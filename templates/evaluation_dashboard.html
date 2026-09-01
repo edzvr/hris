@@ -105,6 +105,40 @@
         </form>
     </div>
 
+    <div class="card">
+        <h2>Pending Evaluation Reviews</h2>
+        <table>
+            <tr><th>Employee</th><th>Evaluator</th><th>Type</th><th>Average</th><th>Questions</th><th>Decision</th></tr>
+            {% for review in pending_reviews %}
+            <tr>
+                <td>{{ review.employee.full_name() }}</td>
+                <td>{{ review.evaluator.full_name() if review.evaluator else 'N/A' }}</td>
+                <td>{{ review.evaluation_type.title() }}</td>
+                <td>{{ '%.2f'|format(review.average_rating) }}</td>
+                <td>{{ review.question_count }}</td>
+                <td>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="action" value="approve">
+                        <input type="hidden" name="employee_id" value="{{ review.employee.id }}">
+                        <input type="hidden" name="evaluator_id" value="{{ review.evaluator.id if review.evaluator else '' }}">
+                        <input type="hidden" name="evaluation_type" value="{{ review.evaluation_type }}">
+                        <button type="submit" class="btn">Approve</button>
+                    </form>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="action" value="reject">
+                        <input type="hidden" name="employee_id" value="{{ review.employee.id }}">
+                        <input type="hidden" name="evaluator_id" value="{{ review.evaluator.id if review.evaluator else '' }}">
+                        <input type="hidden" name="evaluation_type" value="{{ review.evaluation_type }}">
+                        <button type="submit" class="btn btn-danger">Reject</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No pending evaluations this month.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
     <!-- Recent Evaluations -->
     <div class="card">
         <h2>Recent Evaluations</h2>
@@ -115,6 +149,7 @@
                     <th>Employee</th>
                     <th>Evaluator</th>
                     <th>Rating</th>
+                    <th>Status</th>
                     <th>Remarks</th>
                 </tr>
                 {% for e in evaluations %}
@@ -123,6 +158,7 @@
                     <td>{{ e.employee.first_name }} {{ e.employee.last_name }}</td>
                     <td>{{ e.evaluator.first_name }} {{ e.evaluator.last_name if e.evaluator else 'N/A' }}</td>
                     <td>{{ e.rating }}</td>
+                    <td>{{ e.approval_status }}</td>
                     <td>{{ e.remarks or 'No remarks' }}</td>
                 </tr>
                 {% endfor %}
