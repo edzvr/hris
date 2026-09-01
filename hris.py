@@ -579,14 +579,15 @@ def ensure_employee_resume_columns():
     db.session.commit()
 
 
-def ensure_employee_registration_name_key():
+def remove_employee_registration_name_key_constraint():
     employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
     if "registration_name_key" not in employee_columns:
         db.session.execute(text("ALTER TABLE employees ADD COLUMN registration_name_key VARCHAR(240)"))
-    db.session.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_registration_name_key "
-        "ON employees (registration_name_key) WHERE registration_name_key IS NOT NULL"
-    ))
+    if db.engine.dialect.name == "postgresql":
+        db.session.execute(text(
+            "ALTER TABLE employees DROP CONSTRAINT IF EXISTS employees_registration_name_key_key"
+        ))
+    db.session.execute(text("DROP INDEX IF EXISTS uq_employees_registration_name_key"))
     db.session.commit()
 
 
@@ -660,7 +661,7 @@ def bootstrap_postgres_from_sqlite():
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
-    ensure_employee_registration_name_key()
+    remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
     bootstrap_postgres_from_sqlite()
 
@@ -950,30 +951,6 @@ def register():
         if required_fields['Role'] not in {'staff', 'admin'}:
             flash('Please select a valid role.', 'danger')
             return redirect(url_for('register'))
-        name_parts = (
-            required_fields['First name'].casefold(),
-            request.form.get('middle_name', '').strip().casefold(),
-            required_fields['Last name'].casefold(),
-            request.form.get('suffix_name', '').strip().casefold(),
-        )
-        registration_name_key = "|".join(name_parts)
-        existing_employees = Employee.query.filter(
-            Employee.role.in_(['staff', 'admin']),
-            Employee.company.isnot(None),
-            Employee.company != ''
-        ).all()
-        if any(
-            (
-                (employee.first_name or '').strip().casefold(),
-                (employee.middle_name or '').strip().casefold(),
-                (employee.last_name or '').strip().casefold(),
-                (employee.suffix_name or '').strip().casefold(),
-            ) == name_parts
-            for employee in existing_employees
-        ):
-            flash('An employee with the same full name is already registered.', 'danger')
-            return redirect(url_for('register'))
-
         company_input = request.form.get('company', '').strip()
         company = {
             'Trece-Uno': 'Trece-Uno',
@@ -1011,7 +988,6 @@ def register():
             middle_name=request.form.get('middle_name', '').strip() or None,
             last_name=required_fields['Last name'],
             suffix_name=request.form.get('suffix_name', '').strip() or None,
-            registration_name_key=registration_name_key,
             dob=dob_val,
             role=required_fields['Role'],
             company=company,
@@ -1037,7 +1013,7 @@ def register():
         except SQLAlchemyError:
             db.session.rollback()
             logger.exception('Could not register employee with email %s', email)
-            flash('An employee with the same full name is already registered.', 'danger')
+            flash('Registration could not be completed. Please try again.', 'danger')
             return redirect(url_for('register'))
         flash("🎉 Congratulations! You are now registered.", "success")
         return redirect(url_for('login'))

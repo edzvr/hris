@@ -14,7 +14,7 @@ class Employee(db.Model, UserMixin):
     middle_name = db.Column(db.String(50))
     last_name = db.Column(db.String(50))
     suffix_name = db.Column(db.String(20))
-    registration_name_key = db.Column(db.String(240), unique=True, nullable=True)
+    registration_name_key = db.Column(db.String(240), nullable=True)
     dob = db.Column(db.Date, nullable=True)
     role = db.Column(db.String(20))          # Staff/Admin/Employee
     company = db.Column(db.String(50))       # Trece-Uno / Auto Expert
