@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename 
@@ -1116,6 +1117,9 @@ def delete_employee(employee_id):
         return redirect(url_for('dashboard_admin'))
 
     employee = Employee.query.get_or_404(employee_id)
+    incident_report_columns = {
+        column["name"] for column in inspect(db.engine).get_columns("incident_reports")
+    }
     dependent_queries = [
         Attendance.query.filter_by(employee_id=employee_id),
         LeaveRequest.query.filter_by(employee_id=employee_id),
@@ -1127,8 +1131,6 @@ def delete_employee(employee_id):
         MeritDemerit.query.filter_by(employee_id=employee_id),
         RedemptionHistory.query.filter_by(employee_id=employee_id),
         IncidentReport.query.filter_by(employee_id=employee_id),
-        IncidentReport.query.filter_by(reported_employee_id=employee_id),
-        IncidentReport.query.filter_by(reviewed_by=employee_id),
         EmployeeDocument.query.filter_by(employee_id=employee_id),
         OTApplication.query.filter_by(employee_id=employee_id),
         PasswordResetToken.query.filter_by(employee_id=employee_id),
@@ -1136,12 +1138,16 @@ def delete_employee(employee_id):
             db.or_(Evaluation.employee_id == employee_id, Evaluation.evaluator_id == employee_id)
         )
     ]
+    if "reported_employee_id" in incident_report_columns:
+        dependent_queries.append(IncidentReport.query.filter_by(reported_employee_id=employee_id))
+    if "reviewed_by" in incident_report_columns:
+        dependent_queries.append(IncidentReport.query.filter_by(reviewed_by=employee_id))
     for query in dependent_queries:
         query.delete(synchronize_session=False)
     db.session.delete(employee)
     try:
         db.session.commit()
-    except IntegrityError:
+    except SQLAlchemyError:
         db.session.rollback()
         logger.exception('Could not delete employee %s because related records remain.', employee_id)
         flash('❌ Employee cannot be deleted because related records are still linked.', 'danger')
