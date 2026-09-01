@@ -15,16 +15,17 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "holidays",
-        sa.Column(
-            "holiday_type",
-            sa.String(length=40),
-            nullable=False,
-            server_default="Special Non-Working Holiday"
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("holidays")}
+    if "holiday_type" not in columns:
+        op.add_column(
+            "holidays",
+            sa.Column(
+                "holiday_type",
+                sa.String(length=40),
+                nullable=False,
+                server_default="Special Non-Working Holiday"
+            )
         )
-    )
-    op.alter_column("holidays", "holiday_type", server_default=None)
 
 
 def downgrade():

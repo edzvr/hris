@@ -15,11 +15,12 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "payrolls",
-        sa.Column("withholding_tax", sa.Float(), nullable=True, server_default="0")
-    )
-    op.alter_column("payrolls", "withholding_tax", server_default=None)
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("payrolls")}
+    if "withholding_tax" not in columns:
+        op.add_column(
+            "payrolls",
+            sa.Column("withholding_tax", sa.Float(), nullable=True, server_default="0")
+        )
 
 
 def downgrade():

@@ -15,8 +15,10 @@ depends_on = None
 
 
 def upgrade():
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("employees")}
     for name in ('resume_summary', 'resume_education', 'resume_experience', 'resume_skills', 'resume_references'):
-        op.add_column('employees', sa.Column(name, sa.Text(), nullable=True))
+        if name not in columns:
+            op.add_column('employees', sa.Column(name, sa.Text(), nullable=True))
 
 
 def downgrade():

@@ -15,20 +15,24 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        "audit_logs",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("employee_id", sa.Integer(), nullable=True),
-        sa.Column("employee_name", sa.String(length=120), nullable=False),
-        sa.Column("company", sa.String(length=50), nullable=True),
-        sa.Column("action", sa.String(length=120), nullable=False),
-        sa.Column("path", sa.String(length=255), nullable=True),
-        sa.Column("ip_address", sa.String(length=64), nullable=True),
-        sa.Column("status_code", sa.Integer(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id")
-    )
-    op.create_index("ix_audit_logs_created_at", "audit_logs", ["created_at"])
+    inspector = sa.inspect(op.get_bind())
+    if "audit_logs" not in inspector.get_table_names():
+        op.create_table(
+            "audit_logs",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("employee_id", sa.Integer(), nullable=True),
+            sa.Column("employee_name", sa.String(length=120), nullable=False),
+            sa.Column("company", sa.String(length=50), nullable=True),
+            sa.Column("action", sa.String(length=120), nullable=False),
+            sa.Column("path", sa.String(length=255), nullable=True),
+            sa.Column("ip_address", sa.String(length=64), nullable=True),
+            sa.Column("status_code", sa.Integer(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("id")
+        )
+    indexes = {index["name"] for index in inspector.get_indexes("audit_logs")}
+    if "ix_audit_logs_created_at" not in indexes:
+        op.create_index("ix_audit_logs_created_at", "audit_logs", ["created_at"])
 
 
 def downgrade():
