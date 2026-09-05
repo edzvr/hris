@@ -129,7 +129,7 @@ except ImportError:
     logger.warning("Flask-Mail not installed — email features disabled")
 
 
-def send_notification_email(recipients, subject, body):
+def send_notification_email(recipients, subject, body, attachments=None):
     """Send an email only when the optional mail service is configured."""
     recipients = [email for email in recipients if email]
     if not mail:
@@ -142,12 +142,15 @@ def send_notification_email(recipients, subject, body):
         logger.warning("Email send skipped: no recipients provided.")
         return False
     try:
-        mail.send(Message(
+        message = Message(
             subject=subject,
             sender=app.config.get('MAIL_DEFAULT_SENDER'),
             recipients=recipients,
             body=body
-        ))
+        )
+        for filename, content, mimetype in attachments or []:
+            message.attach(filename, mimetype, content)
+        mail.send(message)
         return True
     except Exception:
         logger.exception("Notification email could not be sent")
@@ -2148,6 +2151,166 @@ def payroll_company_name(employee):
     if str(employee.company or '').lower().startswith('trece'):
         return 'TRECE-UNO AUTO SUPPLY'
     return 'AUTO-EXPERT AUTO SUPPLY'
+
+
+def company_employee_filter(company):
+    if company == 'Trece-Uno':
+        return Employee.company.in_(['Trece', 'Trece-Uno'])
+    return Employee.company == 'Auto Expert'
+
+
+def build_company_payroll_summary(company, cutoff_start, cutoff_end):
+    employees = Employee.query.filter(company_employee_filter(company)).order_by(
+        Employee.last_name, Employee.first_name
+    ).all()
+    rows = []
+    for emp in employees:
+        attendance = Attendance.query.filter(
+            Attendance.employee_id == emp.id,
+            Attendance.clock_out != None,
+            Attendance.clock_in >= datetime.combine(cutoff_start, time.min),
+            Attendance.clock_in < datetime.combine(cutoff_end, time.min)
+        ).all()
+        daily_rate = float(emp.daily_rate or 0)
+        basic_pay = sum(regular_day_pay(record, daily_rate) for record in attendance)
+        overtime_pay = sum(
+            (daily_rate / 8) * holiday_multiplier(record) * float(record.overtime_hours or 0)
+            for record in attendance
+            if record.ot_status == 'Approved'
+        )
+        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + overtime_pay
+        deductions = (
+            compute_weekly_deductions(basic_pay, weeks=1)
+            if basic_pay > 0
+            else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+        )
+        payroll_record = Payroll.query.filter_by(
+            employee_id=emp.id,
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1)
+        ).first()
+        loan = float(payroll_record.loan or 0) if payroll_record else 0.0
+        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan
+        rows.append({
+            'employee': emp,
+            'worked_days': len(attendance),
+            'gross_income': gross_income,
+            'sss': deductions['sss'],
+            'philhealth': deductions['philhealth'],
+            'pagibig': deductions['pagibig'],
+            'loan': loan,
+            'total_deductions': total_deductions,
+            'net_pay': gross_income - total_deductions,
+            'payroll_record': payroll_record,
+        })
+    return rows
+
+
+def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
+    pdf.setFont('Helvetica-Bold', 15)
+    pdf.drawString(30, 560, f'{company.upper()} PAYROLL SUMMARY')
+    pdf.setFont('Helvetica', 9)
+    pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
+    headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Loan', 'Deductions', 'Net Pay', 'Status']
+    x_positions = [30, 205, 245, 315, 365, 430, 495, 550, 625, 700]
+    pdf.setFont('Helvetica-Bold', 8)
+    for x, header in zip(x_positions, headers):
+        pdf.drawString(x, 520, header)
+    y = 503
+    pdf.setFont('Helvetica', 8)
+    for row in rows:
+        values = [
+            row['employee'].full_name()[:28], str(row['worked_days']),
+            f"{row['gross_income']:,.2f}", f"{row['sss']:,.2f}",
+            f"{row['philhealth']:,.2f}", f"{row['pagibig']:,.2f}",
+            f"{row['loan']:,.2f}", f"{row['total_deductions']:,.2f}",
+            f"{row['net_pay']:,.2f}", 'PAID' if row['payroll_record'] and row['payroll_record'].is_paid else 'UNPAID'
+        ]
+        for x, value in zip(x_positions, values):
+            pdf.drawString(x, y, value)
+        y -= 18
+        if y < 45:
+            break
+    pdf.line(30, y - 5, 760, y - 5)
+    pdf.setFont('Helvetica-Bold', 9)
+    pdf.drawString(30, y - 22, 'Total Net Pay')
+    pdf.drawRightString(760, y - 22, f"PHP {sum(row['net_pay'] for row in rows):,.2f}")
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+@app.route('/payroll/summary')
+@login_required
+def payroll_summary():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    company = request.args.get('company', 'Trece-Uno')
+    if company not in {'Trece-Uno', 'Auto Expert'}:
+        abort(400)
+    cutoff_start, cutoff_end = completed_cutoff()
+    rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
+    pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
+    return send_file(
+        io.BytesIO(pdf_data), as_attachment=True,
+        download_name=f'Payroll_Summary_{company}_{cutoff_start}.pdf',
+        mimetype='application/pdf'
+    )
+
+
+@app.route('/payroll/summary/email', methods=['POST'])
+@login_required
+def email_payroll_summary():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    company = request.form.get('company', 'Trece-Uno')
+    recipient = request.form.get('email', '').strip()
+    if company not in {'Trece-Uno', 'Auto Expert'} or not recipient:
+        flash('Please select a company and enter an email address.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
+    cutoff_start, cutoff_end = completed_cutoff()
+    rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
+    pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
+    sent = send_notification_email(
+        [recipient], f'{company} Payroll Summary - {cutoff_start}',
+        f'Attached is the payroll summary for {company}, cutoff {cutoff_start} to {cutoff_end - timedelta(days=1)}.',
+        attachments=[(f'Payroll_Summary_{company}_{cutoff_start}.pdf', pdf_data, 'application/pdf')]
+    )
+    flash('Payroll summary emailed successfully.' if sent else 'Email was not sent. Check MAIL_SERVER settings.', 'success' if sent else 'danger')
+    return redirect(url_for('payroll_dashboard'))
+
+
+@app.route('/payroll/summary/mark-paid', methods=['POST'])
+@login_required
+def mark_payroll_summary_paid():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    company = request.form.get('company', 'Trece-Uno')
+    if company not in {'Trece-Uno', 'Auto Expert'}:
+        abort(400)
+    cutoff_start, cutoff_end = completed_cutoff()
+    for row in build_company_payroll_summary(company, cutoff_start, cutoff_end):
+        record = row['payroll_record'] or Payroll(
+            employee_id=row['employee'].id,
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1)
+        )
+        record.gross_income = row['gross_income']
+        record.sss = row['sss']
+        record.philhealth = row['philhealth']
+        record.pagibig = row['pagibig']
+        record.loan = row['loan']
+        record.total_deductions = row['total_deductions']
+        record.net_pay = row['net_pay']
+        record.is_paid = True
+        if record.id is None:
+            db.session.add(record)
+    db.session.commit()
+    flash(f'{company} payroll marked as paid.', 'success')
+    return redirect(url_for('payroll_dashboard'))
 
 
 @app.route('/apply_ot', methods=['GET', 'POST'])
