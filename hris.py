@@ -1590,10 +1590,14 @@ def dashboard_admin():
             Attendance.employee_id == emp.id,
             Attendance.clock_out != None,
             Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in <= end_cutoff
+            Attendance.clock_in < end_cutoff
         ).count()
-        loan_balance = float(emp.loan_balance or 0)
-        deduction = 500.0 if loan_balance >= 500 else loan_balance
+        current_payroll = Payroll.query.filter_by(
+            employee_id=emp.id,
+            cutoff_start=start_cutoff.date(),
+            cutoff_end=(end_cutoff - timedelta(days=1)).date()
+        ).first()
+        deduction = float(current_payroll.loan or 0) if current_payroll else 0.0
         basic_pay = (emp.daily_rate or 0) * worked_days_count
         gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
         deductions = 193.75 + 96.88 + 50.00 + deduction
@@ -2125,9 +2129,21 @@ def regular_day_pay(attendance, daily_rate):
     return daily_rate
 
 
-def loan_cutoff_deduction(loan_balance, installment=500.0):
-    """Return the installment due for one cutoff, capped by the balance."""
-    return min(max(float(loan_balance or 0), 0), installment)
+def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
+    """Return the requested cutoff deduction, capped by the outstanding balance."""
+    balance = max(float(loan_balance or 0), 0)
+    requested = max(float(requested_deduction or 0), 0)
+    return min(balance, requested)
+
+
+def completed_cutoff(today=None):
+    """Return the latest completed Saturday-through-Friday cutoff."""
+    today = today or datetime.today().date()
+    current_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    start = current_start - timedelta(days=7)
+    return start, start + timedelta(days=7)
+
+
 def payroll_company_name(employee):
     if str(employee.company or '').lower().startswith('trece'):
         return 'TRECE-UNO AUTO SUPPLY'
@@ -2316,7 +2332,6 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     sss_loan = float(payroll_record.loan or 0)
     hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
-    withholding_tax = 0.0
     adjustment = 0.0
     night_differential = 0.0
     regular_overtime = float(overtime_pay or 0)
@@ -2390,10 +2405,9 @@ def payroll(employee_id):
 
     # ADMIN VIEW
     today = datetime.today().date()
-    start_cutoff = datetime.combine(
-        today - timedelta(days=(today.weekday() + 2) % 7),
-        time.min
-    )
+    cutoff_start, cutoff_end = completed_cutoff(today)
+    start_cutoff = datetime.combine(cutoff_start, time.min)
+    end_cutoff = datetime.combine(cutoff_end, time.min)
     end_cutoff = start_cutoff + timedelta(days=7)
 
     if request.method == 'POST':
@@ -2406,6 +2420,24 @@ def payroll(employee_id):
         loan_input = request.form.get('loan_balance')
         if loan_input is not None and loan_input.strip() != "":
             emp.loan_balance = float(loan_input)
+
+        loan_deduction_input = request.form.get('loan_deduction')
+        if loan_deduction_input is not None and loan_deduction_input.strip() != "":
+            payroll_record = Payroll.query.filter_by(
+                employee_id=emp.id,
+                cutoff_start=start_cutoff.date(),
+                cutoff_end=(end_cutoff - timedelta(days=1)).date()
+            ).first()
+            if payroll_record is None:
+                payroll_record = Payroll(
+                    employee_id=emp.id,
+                    cutoff_start=start_cutoff.date(),
+                    cutoff_end=(end_cutoff - timedelta(days=1)).date()
+                )
+                db.session.add(payroll_record)
+            payroll_record.loan = loan_cutoff_deduction(
+                emp.loan_balance, float(loan_deduction_input)
+            )
 
         sil_eligible_input = request.form.get('sil_eligible')
         if sil_eligible_input is not None:
@@ -2420,16 +2452,9 @@ def payroll(employee_id):
         Attendance.employee_id == employee_id,
         Attendance.clock_out != None,
         Attendance.clock_in >= start_cutoff,
-        Attendance.clock_in <= end_cutoff
+        Attendance.clock_in < end_cutoff
     ).all()
     worked_days_count = len(paid_attendance)
-
-    worked_days_in_month = Attendance.query.filter(
-        Attendance.employee_id == employee_id,
-        Attendance.clock_out != None,
-        extract('year', Attendance.clock_in) == today.year,
-        extract('month', Attendance.clock_in) == today.month
-    ).count()
 
     approved_overtime_hours = db.session.query(
         db.func.coalesce(db.func.sum(Attendance.overtime_hours), 0)
@@ -2438,7 +2463,7 @@ def payroll(employee_id):
         Attendance.clock_out != None,
         Attendance.ot_status == 'Approved',
         Attendance.clock_in >= start_cutoff,
-        Attendance.clock_in <= end_cutoff
+        Attendance.clock_in < end_cutoff
     ).scalar()
 
     daily_rate = emp.daily_rate or 0
@@ -2449,8 +2474,14 @@ def payroll(employee_id):
         if attendance.ot_status == 'Approved'
     )
 
-    monthly_salary = daily_rate * worked_days_in_month
-    deductions = compute_weekly_deductions(monthly_salary, weeks=4)
+    cutoff_salary = sum(
+        regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
+    )
+    deductions = (
+        compute_weekly_deductions(cutoff_salary, weeks=1)
+        if cutoff_salary > 0
+        else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+    )
     sss = deductions["sss"]
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
@@ -2461,11 +2492,7 @@ def payroll(employee_id):
         cutoff_start=start_cutoff.date(),
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
-    loan = (
-        float(payroll_record.loan or 0)
-        if payroll_record is not None
-        else loan_cutoff_deduction(emp.loan_balance)
-    )
+    loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
     total_deductions = sss + philhealth + pagibig + loan
@@ -2486,9 +2513,11 @@ def payroll(employee_id):
     payroll_record.withholding_tax = 0.0
     payroll_record.loan = loan
     payroll_record.cash_advance = 0.0
-    if finalize and payroll_record.id is None:
-        db.session.add(payroll_record)
+    if finalize and not payroll_record.is_paid:
+        if payroll_record.id is None:
+            db.session.add(payroll_record)
         emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
+        payroll_record.is_paid = True
         db.session.commit()
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
@@ -2570,6 +2599,7 @@ def payroll(employee_id):
          emp=emp,
          history=history,
          payslip=payslip,
+            loan_deduction=loan,
          selected_year=None,
          years=[])
 
@@ -2653,7 +2683,7 @@ def payslip(emp_id, payroll_id):
     gross_income = float(payroll_record.gross_income or 0)
     basic_pay = max(gross_income - allowance - incentives, 0)
     ot_pay = 0.0
-    tax = 0.0
+    tax = float(payroll_record.withholding_tax or 0)
 
     return render_template(
         "payslip.html",
@@ -2714,11 +2744,9 @@ def download_payslip(emp_id, payroll_id):
 @login_required
 def payroll_dashboard():
     today = datetime.today().date()
-    start_cutoff = datetime.combine(
-        today - timedelta(days=(today.weekday() + 2) % 7),
-        time.min
-    )
-    end_cutoff = start_cutoff + timedelta(days=7)
+    cutoff_start, cutoff_end = completed_cutoff(today)
+    start_cutoff = datetime.combine(cutoff_start, time.min)
+    end_cutoff = datetime.combine(cutoff_end, time.min)
 
     if request.method == 'POST':
         for emp in Employee.query.all():
@@ -2726,6 +2754,7 @@ def payroll_dashboard():
             allowance = request.form.get(f'allowance_{emp.id}')
             incentives = request.form.get(f'incentives_{emp.id}')
             loan_balance = request.form.get(f'loan_{emp.id}')
+            loan_deduction = request.form.get(f'loan_deduction_{emp.id}')
             try:
                 if daily_rate is not None:
                     emp.daily_rate = max(float(daily_rate), 0)
@@ -2735,6 +2764,23 @@ def payroll_dashboard():
                     emp.incentives = max(float(incentives), 0)
                 if loan_balance is not None:
                     emp.loan_balance = max(float(loan_balance), 0)
+                if loan_deduction is not None:
+                    requested_deduction = max(float(loan_deduction), 0)
+                    payroll_record = Payroll.query.filter_by(
+                        employee_id=emp.id,
+                        cutoff_start=start_cutoff.date(),
+                        cutoff_end=(end_cutoff - timedelta(days=1)).date()
+                    ).first()
+                    if payroll_record is None:
+                        payroll_record = Payroll(
+                            employee_id=emp.id,
+                            cutoff_start=start_cutoff.date(),
+                            cutoff_end=(end_cutoff - timedelta(days=1)).date()
+                        )
+                        db.session.add(payroll_record)
+                    payroll_record.loan = loan_cutoff_deduction(
+                        emp.loan_balance, requested_deduction
+                    )
             except (TypeError, ValueError):
                 db.session.rollback()
                 flash('Please enter valid non-negative payroll values.', 'danger')
@@ -2751,7 +2797,7 @@ def payroll_dashboard():
             Attendance.employee_id == emp.id,
             Attendance.clock_out != None,
             Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in <= end_cutoff
+            Attendance.clock_in < end_cutoff
         ).all()
         worked_days_count = len(paid_attendance)
 
@@ -2762,7 +2808,7 @@ def payroll_dashboard():
                 Attendance.employee_id == emp.id,
                 Attendance.clock_out != None,
                 Attendance.clock_in >= start_cutoff,
-                Attendance.clock_in <= end_cutoff
+                Attendance.clock_in < end_cutoff
             ).all()
             if (
                 attendance.is_weekday_ot or attendance.is_restday_ot or attendance.is_holiday_ot
@@ -2800,11 +2846,27 @@ def payroll_dashboard():
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + approved_ot_pay
 
-        deduction_values = compute_weekly_deductions(daily_rate * worked_days_count, weeks=1)
+        cutoff_salary = sum(
+            regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
+        )
+        deduction_values = (
+            compute_weekly_deductions(cutoff_salary, weeks=1)
+            if cutoff_salary > 0
+            else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+        )
         sss = deduction_values['sss']
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
-        loan = loan_cutoff_deduction(emp.loan_balance)
+        payroll_record = Payroll.query.filter_by(
+            employee_id=emp.id,
+            cutoff_start=start_cutoff.date(),
+            cutoff_end=(end_cutoff - timedelta(days=1)).date()
+        ).first()
+        loan = (
+            float(payroll_record.loan or 0)
+            if payroll_record is not None
+            else 0.0
+        )
 
         deductions = sss + philhealth + pagibig + loan
         net_pay = gross_income - deductions

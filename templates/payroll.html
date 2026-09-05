@@ -93,6 +93,12 @@
             Eligible for Service Incentive Leave (SIL)
         </label>
         <p>Remaining SIL credits: <strong>{{ emp.sil_credits or 0 }} day(s)</strong></p>
+        <label>
+            Loan deduction this cutoff:
+            <input type="number" name="loan_deduction" min="0" step="0.01"
+                     value="{{ "%.2f"|format(loan_deduction or 0) }}">
+        </label>
+        <p>Outstanding loan balance: <strong>₱{{ "%.2f"|format(emp.loan_balance or 0) }}</strong></p>
         <button type="submit" class="btn">Save SIL Eligibility</button>
     </form>
     {% else %}
