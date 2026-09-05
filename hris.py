@@ -1633,11 +1633,15 @@ def dashboard_admin():
             'employee': employee,
             'record': today_log,
             'status': (
-                'Clocked In' if today_log and today_log.clock_in and not today_log.clock_out
+                today_log.status if today_log and today_log.status
+                else 'Clocked In' if today_log and today_log.clock_in and not today_log.clock_out
                 else 'Completed' if today_log and today_log.clock_out
                 else 'No Record'
             )
         })
+    staff_attendance_by_employee = {
+        item['employee'].id: item for item in staff_attendance
+    }
 
     from sqlalchemy import func
     trend_records = (
@@ -1675,6 +1679,7 @@ def dashboard_admin():
         bulletins=bulletins,
         attendance_events=attendance_events,
         staff_attendance=staff_attendance,
+        staff_attendance_by_employee=staff_attendance_by_employee,
         company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,

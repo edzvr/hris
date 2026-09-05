@@ -22,7 +22,7 @@
 </head>
 <body>
     <main class="card">
-        <h1>Employee 201 File</h1>
+        <h1>{% if can_manage_documents %}Manage Employee 201 File{% else %}My 201 File{% endif %}</h1>
         <p><strong>{{ employee.first_name }} {{ employee.last_name }}</strong> | {{ employee.company }} | ID {{ employee.id }}</p>
         {% if can_manage_documents %}
         <form method="POST" enctype="multipart/form-data">
@@ -51,7 +51,9 @@
         {% for document in documents %}<tr><td>{{ document.phase }}</td><td>{{ document.document_type }}</td><td>{{ document.original_filename }}</td><td>{{ document.retention_years or 'N/A' }} years</td><td>{{ document.uploaded_at.strftime('%Y-%m-%d') if document.uploaded_at else 'N/A' }}</td><td><a class="btn" href="{{ url_for('download_employee_document', document_id=document.id) }}">Download</a></td></tr>
         {% else %}<tr><td colspan="6">No 201 documents uploaded yet.</td></tr>{% endfor %}
         </tbody></table>
+        {% if can_manage_documents %}
         <div class="guidance"><strong>Retention guidance</strong>{% for label, years in retention_guidance.items() %}<div>{{ label.title() }}: {{ years }}</div>{% endfor %}</div>
+        {% endif %}
     </section>
 </body>
 </html>

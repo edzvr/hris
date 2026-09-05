@@ -309,15 +309,17 @@
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Profile</th><th>Action</th></tr>
         {% for emp in trece_employees %}
+        {% set attendance_item = staff_attendance_by_employee.get(emp.id) %}
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
           <td>{{ emp.registered_at | manila_datetime }}</td>
+          <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
+          <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
+          <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
-          <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
-          <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
           <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
@@ -326,15 +328,17 @@
     <div class="card">
       <h2>Employees - Auto Expert</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Profile</th><th>Action</th></tr>
         {% for emp in auto_employees %}
+        {% set attendance_item = staff_attendance_by_employee.get(emp.id) %}
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
           <td>{{ emp.registered_at | manila_datetime }}</td>
+          <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
+          <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
+          <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
-          <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
-          <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
           <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
