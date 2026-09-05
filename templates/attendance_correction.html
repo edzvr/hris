@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Attendance Correction</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; padding: 20px; color: #263238; }
+        .card { max-width: 900px; margin: 0 auto 20px; background: #fff; padding: 22px; border-radius: 8px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        label { display: flex; flex-direction: column; gap: 5px; font-weight: 700; }
+        input, textarea, button { padding: 10px; font: inherit; }
+        textarea { min-height: 90px; }
+        button { background: #1976d2; color: #fff; border: 0; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border: 1px solid #d8e0dc; padding: 9px; text-align: left; }
+        th { background: #789fc7; color: #fff; }
+        @media (max-width: 650px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Request Attendance Correction</h1>
+        <p>Submit a correction only for a missed clock-in/out or a verified system issue.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}<p>{{ message }}</p>{% endfor %}
+        {% endwith %}
+        <form method="POST">
+            <div class="grid">
+                <label>Date<input type="date" name="correction_date" required></label>
+                <label>Requested Clock In<input type="datetime-local" name="requested_clock_in" required></label>
+                <label>Requested Clock Out<input type="datetime-local" name="requested_clock_out"></label>
+            </div>
+            <label style="margin-top:12px;">Reason<textarea name="reason" required placeholder="Explain why the attendance needs correction"></textarea></label>
+            <button type="submit" style="margin-top:12px;">Submit for Admin Review</button>
+        </form>
+    </main>
+    <section class="card">
+        <h2>My Correction Requests</h2>
+        <table>
+            <tr><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Status</th><th>Admin Note</th></tr>
+            {% for item in correction_requests %}
+            <tr>
+                <td>{{ item.correction_date }}</td>
+                <td>{{ item.requested_clock_in or 'N/A' }}</td>
+                <td>{{ item.requested_clock_out or 'N/A' }}</td>
+                <td>{{ item.reason }}</td>
+                <td>{{ item.status }}</td>
+                <td>{{ item.admin_note or 'N/A' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No correction requests yet.</td></tr>
+            {% endfor %}
+        </table>
+        <p><a href="{{ url_for('dashboard_staff') }}">Back to Staff Dashboard</a></p>
+    </section>
+</body>
+</html>

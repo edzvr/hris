@@ -216,6 +216,7 @@ from models import (
     db,
     Employee,
     Attendance,
+    AttendanceCorrection,
     Holiday,
     LeaveRequest,
     LeaveHistory,
@@ -1642,6 +1643,9 @@ def dashboard_admin():
     staff_attendance_by_employee = {
         item['employee'].id: item for item in staff_attendance
     }
+    pending_attendance_corrections = AttendanceCorrection.query.filter_by(
+        status='Pending'
+    ).order_by(AttendanceCorrection.created_at.asc()).all()
 
     from sqlalchemy import func
     trend_records = (
@@ -1680,6 +1684,7 @@ def dashboard_admin():
         attendance_events=attendance_events,
         staff_attendance=staff_attendance,
         staff_attendance_by_employee=staff_attendance_by_employee,
+        pending_attendance_corrections=pending_attendance_corrections,
         company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,
@@ -2510,6 +2515,81 @@ def attendance_api(employee_id):
         return jsonify(status="error", message="Internal server error"), 500
 
 
+@app.route('/attendance/correction', methods=['GET', 'POST'])
+@login_required
+def attendance_correction():
+    if 'staff' not in current_user.role.lower():
+        return redirect(url_for('dashboard_admin'))
+    if request.method == 'POST':
+        try:
+            correction_date = datetime.strptime(request.form['correction_date'], '%Y-%m-%d').date()
+            clock_in_value = request.form.get('requested_clock_in')
+            clock_out_value = request.form.get('requested_clock_out')
+            requested_clock_in = datetime.fromisoformat(clock_in_value) if clock_in_value else None
+            requested_clock_out = datetime.fromisoformat(clock_out_value) if clock_out_value else None
+            reason = request.form.get('reason', '').strip()
+            if not reason or not requested_clock_in:
+                raise ValueError
+            db.session.add(AttendanceCorrection(
+                employee_id=current_user.id,
+                correction_date=correction_date,
+                requested_clock_in=requested_clock_in,
+                requested_clock_out=requested_clock_out,
+                reason=reason
+            ))
+            db.session.commit()
+            flash('Attendance correction submitted for admin review.', 'success')
+        except (TypeError, ValueError, KeyError):
+            db.session.rollback()
+            flash('Enter a date, clock-in time, and reason.', 'danger')
+        return redirect(url_for('attendance_correction'))
+    requests = AttendanceCorrection.query.filter_by(
+        employee_id=current_user.id
+    ).order_by(AttendanceCorrection.created_at.desc()).all()
+    return render_template('attendance_correction.html', correction_requests=requests)
+
+
+@app.route('/admin/attendance-correction/<int:correction_id>/<action>', methods=['POST'])
+@login_required
+def review_attendance_correction(correction_id, action):
+    if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
+        return 'Access denied', 403
+    correction = AttendanceCorrection.query.get_or_404(correction_id)
+    if correction.status != 'Pending':
+        flash('This correction request was already reviewed.', 'warning')
+        return redirect(url_for('dashboard_admin'))
+    correction.status = 'Approved' if action == 'approve' else 'Rejected'
+    correction.reviewed_by = current_user.id
+    correction.reviewed_at = datetime.utcnow()
+    if action == 'approve':
+        attendance_record = Attendance.query.filter_by(
+            employee_id=correction.employee_id,
+            date=correction.correction_date
+        ).order_by(Attendance.clock_in.desc()).first()
+        if attendance_record is None:
+            employee = db.session.get(Employee, correction.employee_id)
+            attendance_record = Attendance(
+                employee_id=correction.employee_id,
+                date=correction.correction_date,
+                company=employee.company if employee else None,
+                status='Present'
+            )
+            db.session.add(attendance_record)
+        attendance_record.clock_in = correction.requested_clock_in
+        attendance_record.clock_out = correction.requested_clock_out
+        attendance_record.status = attendance_status(correction.requested_clock_in)
+        attendance_record.hours = (
+            round((attendance_record.clock_out - attendance_record.clock_in).total_seconds() / 3600, 2)
+            if attendance_record.clock_out else None
+        )
+        correction.attendance = attendance_record
+        flash('Attendance correction approved. Recalculate the employee payroll.', 'success')
+    else:
+        flash('Attendance correction rejected.', 'info')
+    db.session.commit()
+    return redirect(url_for('dashboard_admin'))
+
+
 # ------------------ PAYROLL + PAYSLIP ------------------
 from flask import send_file
 from reportlab.lib.pagesizes import letter
@@ -2898,6 +2978,25 @@ def finalize_payroll(employee_id):
         flash('Please enter valid non-negative payroll values.', 'danger')
         return redirect(url_for('payroll_dashboard'))
     return redirect(url_for('payroll', employee_id=employee_id, finalize='true'))
+@app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
+@login_required
+def reopen_payroll(employee_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    Employee.query.get_or_404(employee_id)
+    cutoff_start, cutoff_end = completed_cutoff()
+    payroll_record = Payroll.query.filter_by(
+        employee_id=employee_id,
+        cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1)
+    ).first()
+    if payroll_record:
+        payroll_record.is_paid = False
+        db.session.commit()
+        flash('Payroll reopened. Open the payroll page to recalculate it.', 'success')
+    else:
+        flash('No payroll record found for the current cutoff.', 'warning')
+    return redirect(url_for('payroll', employee_id=employee_id))
 
 
 @app.route('/payslip/<int:emp_id>/<int:payroll_id>')
@@ -3116,7 +3215,8 @@ def payroll_dashboard():
             "loan_deduction": loan,
             "gross_income": gross_income,
             "deductions": deductions,
-            "net_pay": net_pay
+            "net_pay": net_pay,
+            "is_paid": bool(payroll_record and payroll_record.is_paid)
         })
 
     return render_template("payroll_dashboard.html",

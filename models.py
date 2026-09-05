@@ -119,6 +119,27 @@ class Attendance(db.Model):
         return f"<Attendance {self.date} - {self.status}>"
 
 
+class AttendanceCorrection(db.Model):
+    __tablename__ = "attendance_corrections"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    attendance_id = db.Column(db.Integer, db.ForeignKey("attendances.id"), nullable=True)
+    correction_date = db.Column(db.Date, nullable=False)
+    requested_clock_in = db.Column(db.DateTime, nullable=True)
+    requested_clock_out = db.Column(db.DateTime, nullable=True)
+    reason = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="Pending")
+    admin_note = db.Column(db.String(500), nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    employee = db.relationship("Employee", foreign_keys=[employee_id], backref="attendance_corrections")
+    attendance = db.relationship("Attendance", backref="corrections")
+    reviewer = db.relationship("Employee", foreign_keys=[reviewed_by])
+
+
 class OTApplication(db.Model):
     __tablename__ = "ot_applications"
 

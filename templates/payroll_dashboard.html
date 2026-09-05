@@ -121,6 +121,11 @@
                         <button type="submit"
                                 formaction="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}"
                                 formmethod="POST">Finalize Payroll</button>
+                        {% if p.is_paid %}
+                        <button type="submit"
+                            formaction="{{ url_for('reopen_payroll', employee_id=p.emp.id) }}"
+                            formmethod="POST">Reopen / Recalculate</button>
+                        {% endif %}
                         <a href="{{ url_for('payroll', employee_id=p.emp.id, download='true') }}" class="btn">📄 Download Payslip</a>
                     </td>
                 </tr>

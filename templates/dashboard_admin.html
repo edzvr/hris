@@ -298,6 +298,27 @@
       {% endfor %}
     </table>
   </div>
+  <div class="card">
+    <h2>Pending Attendance Corrections</h2>
+    <table>
+      <tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
+      {% for item in pending_attendance_corrections %}
+      <tr>
+        <td>{{ item.employee.full_name() }}</td>
+        <td>{{ item.correction_date }}</td>
+        <td>{{ item.requested_clock_in or 'N/A' }}</td>
+        <td>{{ item.requested_clock_out or 'N/A' }}</td>
+        <td>{{ item.reason }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='approve') }}" style="display:inline;"><button class="btn" type="submit">Approve</button></form>
+          <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='reject') }}" style="display:inline;"><button class="btn btn-danger" type="submit">Reject</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No pending attendance corrections.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
     <button onclick="showTab('payroll')">Payroll & OT</button>
     <button onclick="showTab('evaluation')">Evaluation</button>
     <button onclick="showTab('analytics')">Analytics</button>

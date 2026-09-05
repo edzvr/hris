@@ -155,6 +155,7 @@
       </div>
         <div class="dashboard-links">
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+            <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Request Attendance Correction</a>
             <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
             <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
             <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
