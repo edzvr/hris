@@ -4448,13 +4448,22 @@ COMPANY_FILE_FOLDERS = {
 
 
 def company_file_directory(company):
-    normalized_company = 'Trece' if str(company or '').lower().startswith('trece') else company
+    normalized_company = normalize_company_name(company)
     folder = COMPANY_FILE_FOLDERS.get(normalized_company)
     if not folder:
         return None
     directory = os.path.join(app.config['FILES_FOLDER'], folder)
     os.makedirs(directory, exist_ok=True)
     return directory
+
+
+def normalize_company_name(company):
+    value = ' '.join(str(company or '').strip().lower().replace('-', ' ').split())
+    if value.startswith('trece'):
+        return 'Trece'
+    if value.startswith('auto expert') or value.startswith('auto-expert'):
+        return 'Auto Expert'
+    return str(company or '').strip()
 
 
 @app.route('/admin/files', methods=['GET', 'POST'])
@@ -4489,7 +4498,7 @@ def admin_files():
 @app.route('/files')
 @login_required
 def company_files():
-    company = 'Trece' if str(current_user.company or '').lower().startswith('trece') else current_user.company
+    company = normalize_company_name(current_user.company)
     directory = company_file_directory(company)
     files = sorted(os.listdir(directory)) if directory and os.path.isdir(directory) else []
     return render_template('company_files.html', files=files, company=company)
@@ -4498,10 +4507,11 @@ def company_files():
 @app.route('/download/<string:company>/<string:filename>')
 @login_required
 def download_file(company, filename):
-    normalized_user_company = 'Trece' if str(current_user.company or '').lower().startswith('trece') else current_user.company
-    if company != normalized_user_company and 'admin' not in current_user.role.lower():
+    normalized_company = normalize_company_name(company)
+    normalized_user_company = normalize_company_name(current_user.company)
+    if normalized_company != normalized_user_company and 'admin' not in current_user.role.lower():
         return 'Access denied', 403
-    directory = company_file_directory(company)
+    directory = company_file_directory(normalized_company)
     safe_filename = secure_filename(filename)
     if not directory or not safe_filename or safe_filename != filename:
         return 'File not found', 404
