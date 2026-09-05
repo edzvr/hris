@@ -64,27 +64,9 @@
 
     <section style="border:1px solid #ccc; padding:12px; margin:12px 0;">
         <h2>Company Payroll Summary</h2>
-        <p>Download the one-page summary to share through Viber, or email it as a PDF attachment.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            <label for="summary-company">Company:</label>
-            <select id="summary-company" name="summary-company">
-                <option value="Trece-Uno">Trece-Uno</option>
-                <option value="Auto Expert">Auto Expert</option>
-            </select>
-            <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno') }}"
-               onclick="this.href='{{ url_for('payroll_summary') }}?company=' + encodeURIComponent(document.getElementById('summary-company').value)">
-                Download PDF
-            </a>
-            <form method="POST" action="{{ url_for('email_payroll_summary') }}" style="display:flex; gap:6px; align-items:center;">
-                <input type="hidden" name="company" value="Trece-Uno" id="email-company">
-                <input type="email" name="email" placeholder="Recipient email" required>
-                <button type="submit" onclick="document.getElementById('email-company').value=document.getElementById('summary-company').value">Email PDF</button>
-            </form>
-            <form method="POST" action="{{ url_for('mark_payroll_summary_paid') }}" style="display:flex; gap:6px; align-items:center;">
-                <input type="hidden" name="company" value="Trece-Uno" id="paid-company">
-                <button type="submit" onclick="document.getElementById('paid-company').value=document.getElementById('summary-company').value">Mark All as Paid</button>
-            </form>
-        </div>
+        <p>Download the one-page salary summary for sharing or printing.</p>
+        <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno') }}">Download Trece-Uno Summary</a>
+        <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert') }}">Download Auto Expert Summary</a>
     </section>
 
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
