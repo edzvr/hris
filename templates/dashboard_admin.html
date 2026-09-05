@@ -340,7 +340,6 @@
           <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
           <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
           <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
-          <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
           <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
@@ -359,7 +358,6 @@
           <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
           <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
           <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
-          <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
           <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
