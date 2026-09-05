@@ -330,7 +330,7 @@
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Profile</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Action</th></tr>
         {% for emp in trece_employees %}
         {% set attendance_item = staff_attendance_by_employee.get(emp.id) %}
         <tr>
@@ -348,7 +348,7 @@
     <div class="card">
       <h2>Employees - Auto Expert</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Profile</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Action</th></tr>
         {% for emp in auto_employees %}
         {% set attendance_item = staff_attendance_by_employee.get(emp.id) %}
         <tr>
