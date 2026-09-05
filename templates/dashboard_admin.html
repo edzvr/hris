@@ -277,6 +277,27 @@
       {% endfor %}
     </table>
   </div>
+  <div class="card">
+    <h2>Today's Staff Attendance</h2>
+    <p>Monitor who has clocked in, clocked out, or has no attendance record today.</p>
+    <input id="staffAttendanceSearch" type="search" placeholder="Search employee or company" style="max-width:360px; padding:10px;">
+    <table id="staffAttendanceTable">
+      <tr><th>Employee</th><th>Company</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>Actions</th></tr>
+      {% for item in staff_attendance %}
+      <tr>
+        <td>{{ item.employee.full_name() }}</td>
+        <td>{{ item.employee.company or 'N/A' }}</td>
+        <td>{{ item.record.clock_in.strftime('%I:%M %p') if item.record and item.record.clock_in else '—' }}</td>
+        <td>{{ item.record.clock_out.strftime('%I:%M %p') if item.record and item.record.clock_out else '—' }}</td>
+        <td>{{ '%.2f'|format(item.record.hours or 0) if item.record else '0.00' }}</td>
+        <td>{{ item.status }}</td>
+        <td><a class="btn" href="{{ url_for('attendance', employee_id=item.employee.id) }}">Attendance</a> <a class="btn" href="{{ url_for('payroll', employee_id=item.employee.id) }}">Payroll</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No staff records found.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
     <button onclick="showTab('payroll')">Payroll & OT</button>
     <button onclick="showTab('evaluation')">Evaluation</button>
     <button onclick="showTab('analytics')">Analytics</button>
@@ -288,15 +309,12 @@
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
         {% for emp in trece_employees %}
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
           <td>{{ emp.registered_at | manila_datetime }}</td>
-          <td>{{ emp.daily_rate }}</td>
-          <td>{{ emp.allowance }}</td>
-          <td>{{ emp.incentives }}</td>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
           <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
           <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
@@ -308,15 +326,12 @@
     <div class="card">
       <h2>Employees - Auto Expert</h2>
       <table>
-        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Daily Rate</th><th>Allowance</th><th>Incentives</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Role</th><th>Registered</th><th>Profile</th><th>201 File</th><th>Manage 201</th><th>Action</th></tr>
         {% for emp in auto_employees %}
         <tr>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}">{{ emp.first_name }} {{ emp.last_name }}</a></td>
           <td>{{ emp.role or 'N/A' }}</td>
           <td>{{ emp.registered_at | manila_datetime }}</td>
-          <td>{{ emp.daily_rate }}</td>
-          <td>{{ emp.allowance }}</td>
-          <td>{{ emp.incentives }}</td>
           <td><a href="{{ url_for('profile', user_id=emp.id) }}" class="btn">View Profile</a></td>
           <td><a href="{{ url_for('employee_201_pdf', employee_id=emp.id) }}" class="btn">Download 201</a></td>
           <td><a href="{{ url_for('employee_201_documents', employee_id=emp.id) }}" class="btn">Manage 201</a></td>
@@ -485,6 +500,17 @@
         }
       }
     });
+
+    const staffAttendanceSearch = document.getElementById('staffAttendanceSearch');
+    if (staffAttendanceSearch) {
+      staffAttendanceSearch.addEventListener('input', function () {
+        const query = this.value.toLowerCase().trim();
+        document.querySelectorAll('#staffAttendanceTable tr').forEach((row, index) => {
+          if (index === 0) return;
+          row.style.display = row.textContent.toLowerCase().includes(query) ? '' : 'none';
+        });
+      });
+    }
 
     function saveSettings() {
       const settings = {

@@ -1620,6 +1620,24 @@ def dashboard_admin():
     attendance_events = AuditLog.query.filter(
         AuditLog.action.in_(["Clock in", "Clock out"])
     ).order_by(AuditLog.created_at.desc()).limit(10).all()
+    today_date = datetime.now(ZoneInfo('Asia/Manila')).date()
+    staff_attendance = []
+    for employee in Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+        Employee.company, Employee.last_name, Employee.first_name
+    ).all():
+        today_log = Attendance.query.filter_by(
+            employee_id=employee.id,
+            date=today_date
+        ).order_by(Attendance.clock_in.desc()).first()
+        staff_attendance.append({
+            'employee': employee,
+            'record': today_log,
+            'status': (
+                'Clocked In' if today_log and today_log.clock_in and not today_log.clock_out
+                else 'Completed' if today_log and today_log.clock_out
+                else 'No Record'
+            )
+        })
 
     from sqlalchemy import func
     trend_records = (
@@ -1656,6 +1674,7 @@ def dashboard_admin():
         pending_loans_list=pending_loans_list,
         bulletins=bulletins,
         attendance_events=attendance_events,
+        staff_attendance=staff_attendance,
         company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,
@@ -2836,7 +2855,43 @@ def monthly_payroll(employee_id):
 def finalize_payroll(employee_id):
     if 'admin' not in current_user.role.lower():
         return 'Access denied', 403
-    Employee.query.get_or_404(employee_id)
+    employee = Employee.query.get_or_404(employee_id)
+    cutoff_start, cutoff_end = completed_cutoff()
+    field_values = {
+        'daily_rate': request.form.get(f'daily_rate_{employee_id}'),
+        'allowance': request.form.get(f'allowance_{employee_id}'),
+        'incentives': request.form.get(f'incentives_{employee_id}'),
+        'loan_balance': request.form.get(f'loan_{employee_id}'),
+    }
+    try:
+        for field_name, value in field_values.items():
+            if value is not None and value.strip() != '':
+                if field_name == 'loan_balance':
+                    employee.loan_balance = max(float(value), 0)
+                else:
+                    setattr(employee, field_name, max(float(value), 0))
+        loan_deduction = request.form.get(f'loan_deduction_{employee_id}')
+        if loan_deduction is not None and loan_deduction.strip() != '':
+            payroll_record = Payroll.query.filter_by(
+                employee_id=employee_id,
+                cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1)
+            ).first()
+            if payroll_record is None:
+                payroll_record = Payroll(
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start,
+                    cutoff_end=cutoff_end - timedelta(days=1)
+                )
+                db.session.add(payroll_record)
+            payroll_record.loan = loan_cutoff_deduction(
+                employee.loan_balance, float(loan_deduction)
+            )
+        db.session.commit()
+    except (TypeError, ValueError):
+        db.session.rollback()
+        flash('Please enter valid non-negative payroll values.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
     return redirect(url_for('payroll', employee_id=employee_id, finalize='true'))
 
 
