@@ -146,6 +146,13 @@
 
     <div class="container card dashboard-section">
         <h2>Quick Actions</h2>
+      <div style="margin-bottom:14px; padding:12px; border-left:4px solid #1f7fdf; background:#eef6ff;">
+            <strong>Payslip reminder:</strong> Download your finalized 6-day Saturday-to-Friday payslip
+            after it is published by Admin for Saturday salary release.
+        {% if latest_payslip %}
+        <br><a href="{{ url_for('download_payslip', emp_id=current_user.id, payroll_id=latest_payslip.id) }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Download Latest Payslip</a>
+        {% endif %}
+      </div>
         <div class="dashboard-links">
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
             <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>

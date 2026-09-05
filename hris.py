@@ -1733,6 +1733,10 @@ def dashboard_staff():
         Evaluation.date >= datetime.combine(month_start, datetime.min.time()),
         Evaluation.category.like("peer_%")
     ).first()
+    latest_payslip = Payroll.query.filter_by(
+        employee_id=current_user.id,
+        is_paid=True
+    ).order_by(Payroll.cutoff_start.desc()).first()
 
     # ✅ Render staff dashboard template
     return render_template("dashboard_staff.html",
@@ -1746,7 +1750,8 @@ def dashboard_staff():
         clock_in_iso=clock_in_iso,
         worked_hours=worked_hours,
         insights=insights,
-        peer_evaluation_pending=peer_evaluation_pending
+        peer_evaluation_pending=peer_evaluation_pending,
+        latest_payslip=latest_payslip
     )
 
 
@@ -2140,10 +2145,17 @@ def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
 
 
 def completed_cutoff(today=None):
-    """Return the latest completed Saturday-through-Friday cutoff."""
-    today = today or datetime.today().date()
-    current_start = today - timedelta(days=(today.weekday() + 2) % 7)
-    start = current_start - timedelta(days=7)
+    """Return the available Saturday-through-Friday payroll cutoff."""
+    current_time = (
+        datetime.now(ZoneInfo('Asia/Manila'))
+        if today is None else datetime.combine(today, time.min)
+    )
+    current_start = current_time.date() - timedelta(days=(current_time.weekday() + 2) % 7)
+    start = (
+        current_start
+        if current_time.weekday() == 4 and current_time.time() >= time(22, 0)
+        else current_start - timedelta(days=7)
+    )
     return start, start + timedelta(days=7)
 
 
@@ -2568,7 +2580,7 @@ def payroll(employee_id):
 
     # ADMIN VIEW
     today = datetime.today().date()
-    cutoff_start, cutoff_end = completed_cutoff(today)
+    cutoff_start, cutoff_end = completed_cutoff()
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
     end_cutoff = start_cutoff + timedelta(days=7)
@@ -2907,7 +2919,7 @@ def download_payslip(emp_id, payroll_id):
 @login_required
 def payroll_dashboard():
     today = datetime.today().date()
-    cutoff_start, cutoff_end = completed_cutoff(today)
+    cutoff_start, cutoff_end = completed_cutoff()
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
 
