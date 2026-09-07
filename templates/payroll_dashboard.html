@@ -4,37 +4,43 @@
     <meta charset="UTF-8">
     <title>Payroll Dashboard</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
+        body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 24px; background: #f1f5f3; color: #1d2b36; font-size: 16px; }
+        h1 { font-size: 28px; }
+        h2 { font-size: 20px; }
+        .page-shell { max-width: 1600px; margin: 0 auto; }
+        .table-wrap { overflow-x: auto; border: 1px solid #cbd7d1; background: #fff; }
         h1 {
             color: #2c3e50;
         }
         table {
             border-collapse: collapse;
             width: 100%;
-            margin-top: 15px;
+            min-width: 1380px;
+            margin: 0;
         }
         th, td {
             border: 1px solid #ccc;
-            padding: 8px 12px;
+            padding: 11px 10px;
             text-align: center;
+            font-size: 14px;
         }
         th {
-            background-color: #3498db;
+            background-color: #2879ad;
             color: white;
+            font-size: 13px;
+            white-space: nowrap;
         }
         tr:nth-child(even) {
             background-color: #f9f9f9;
         }
         input[type="number"] {
-            width: 80px;
-            padding: 4px;
+            width: 92px;
+            padding: 7px;
+            font-size: 14px;
         }
         .btn {
             display: inline-block;
-            padding: 6px 12px;
+            padding: 9px 12px;
             margin: 2px;
             background-color: #2ecc71;
             color: white;
@@ -45,8 +51,8 @@
             background-color: #27ae60;
         }
         button {
-            margin-top: 15px;
-            padding: 8px 16px;
+            margin-top: 10px;
+            padding: 9px 14px;
             background-color: #e67e22;
             color: white;
             border: none;
@@ -56,9 +62,13 @@
         button:hover {
             background-color: #d35400;
         }
+        .accounting { border-left: 5px solid #8a5c19; background: #fff8e7; }
+        .admin-row td { background: #f7f0fa; }
+        .section-label td { background: #e6edf2; text-align: left; font-weight: 700; font-size: 15px; }
     </style>
 </head>
 <body>
+<main class="page-shell">
     <h1>Payroll Dashboard</h1>
     <p>Cutoff: {{ start_cutoff }} to {{ end_cutoff }}</p>
 
@@ -76,8 +86,19 @@
         <a class="btn" href="{{ url_for('tax_reports') }}">Tax Reports</a>
     </section>
 
+    <section class="accounting" style="padding:14px; margin:12px 0;">
+        <h2>Accounting Overview</h2>
+        <p>Confidential admin-only totals for the selected cutoff. Company payroll summaries contain staff payroll only.</p>
+        <strong>Staff Payroll: ₱{{ "%.2f"|format(accounting_totals.staff_net_pay) }}</strong>
+        &nbsp; | &nbsp;
+        <strong>Admin Payroll: ₱{{ "%.2f"|format(accounting_totals.admin_net_pay) }}</strong>
+        &nbsp; | &nbsp;
+        <strong>Total Cash Requirement: ₱{{ "%.2f"|format(accounting_totals.total_net_pay) }}</strong>
+    </section>
+
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
         <input type="hidden" name="cutoff_start" value="{{ start_cutoff }}">
+        <div class="table-wrap">
         <table>
             <thead>
                 <tr>
@@ -101,7 +122,10 @@
             </thead>
             <tbody>
                 {% for p in payroll_data %}
-                <tr>
+                {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
+                <tr class="section-label"><td colspan="16">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                {% endif %}
+                <tr class="{{ 'admin-row' if p.is_admin else '' }}">
                     <td>{{ p.emp.first_name }} {{ p.emp.last_name }}</td>
                     <td>{{ p.emp.company }}</td>
                     <td>{{ p.worked_days }}</td>
@@ -142,8 +166,10 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         <button type="submit">💾 Save All Updates</button>
     </form>
     <p><a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">Back to Dashboard</a></p>
+</main>
 </body>
 </html>

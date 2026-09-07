@@ -2279,8 +2279,8 @@ def payroll_company_name(employee):
 
 def company_employee_filter(company):
     if company == 'Trece-Uno':
-        return Employee.company.in_(['Trece', 'Trece-Uno'])
-    return Employee.company == 'Auto Expert'
+        return Employee.company.in_(['Trece', 'Trece-Uno']) & ~Employee.role.ilike('%admin%')
+    return (Employee.company == 'Auto Expert') & ~Employee.role.ilike('%admin%')
 
 
 def employer_tax_details(company):
@@ -3333,7 +3333,9 @@ def payroll_dashboard():
     end_cutoff = datetime.combine(cutoff_end, time.min)
 
     if request.method == 'POST':
-        for emp in Employee.query.all():
+        for emp in Employee.query.order_by(
+            Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
+        ).all():
             daily_rate = request.form.get(f'daily_rate_{emp.id}')
             allowance = request.form.get(f'allowance_{emp.id}')
             incentives = request.form.get(f'incentives_{emp.id}')
@@ -3374,7 +3376,14 @@ def payroll_dashboard():
         return redirect(url_for('payroll_dashboard'))
 
     payroll_data = []
-    employees = Employee.query.all()
+    employees = Employee.query.order_by(
+        Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
+    ).all()
+    accounting_totals = {
+        'staff_net_pay': 0.0,
+        'admin_net_pay': 0.0,
+        'total_net_pay': 0.0,
+    }
 
     for emp in employees:
         paid_attendance = Attendance.query.filter(
@@ -3456,9 +3465,13 @@ def payroll_dashboard():
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
         deductions = sss + philhealth + pagibig + loan + withholding_tax
         net_pay = gross_income - deductions
+        is_admin = 'admin' in str(emp.role or '').lower()
+        accounting_totals['total_net_pay'] += net_pay
+        accounting_totals['admin_net_pay' if is_admin else 'staff_net_pay'] += net_pay
 
         payroll_data.append({
             "emp": emp,
+            "is_admin": is_admin,
             "worked_days": worked_days_count,
             "ot_hours": ot_hours,
             "approved_ot_hours": approved_ot_hours,
@@ -3474,6 +3487,7 @@ def payroll_dashboard():
 
     return render_template("payroll_dashboard.html",
                            payroll_data=payroll_data,
+                           accounting_totals=accounting_totals,
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=(end_cutoff - timedelta(days=1)).date())
 
