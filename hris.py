@@ -613,6 +613,18 @@ def ensure_evaluation_tracking_columns():
     db.session.commit()
 
 
+def ensure_payroll_columns():
+    payroll_columns = {column["name"] for column in inspect(db.engine).get_columns("payrolls")}
+    statements = []
+    if "withholding_tax" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN withholding_tax FLOAT DEFAULT 0")
+    if "loan_deduction_applied" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN loan_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
+    for statement in statements:
+        db.session.execute(text(statement))
+    db.session.commit()
+
+
 def bootstrap_postgres_from_sqlite():
     if db.engine.dialect.name != "postgresql":
         return
@@ -667,6 +679,7 @@ with app.app_context():
     ensure_employee_resume_columns()
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
+    ensure_payroll_columns()
     bootstrap_postgres_from_sqlite()
 
 migrate = Migrate(app, db)
