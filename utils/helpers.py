@@ -103,6 +103,24 @@ def compute_pagibig(monthly_salary: float) -> float:
     return 100.0
 
 
+def compute_withholding_tax(monthly_taxable_income: float) -> float:
+    """Compute monthly withholding tax from TRAIN Law tax brackets."""
+    income = max(float(monthly_taxable_income or 0), 0)
+    if income <= 20833:
+        tax = 0.0
+    elif income <= 33333:
+        tax = (income - 20833) * 0.20
+    elif income <= 66667:
+        tax = 2500 + (income - 33333) * 0.25
+    elif income <= 166667:
+        tax = 10833 + (income - 66667) * 0.30
+    elif income <= 666667:
+        tax = 40833 + (income - 166667) * 0.32
+    else:
+        tax = 200833 + (income - 666667) * 0.35
+    return round(tax, 2)
+
+
 def compute_deductions(monthly_salary: float) -> dict:
     """Return statutory deductions based on attendance-adjusted salary."""
     sss = compute_sss(monthly_salary)

@@ -237,7 +237,7 @@ from models import (
     AuditLog
 )
 
-from utils.helpers import compute_weekly_deductions, compute_merit_demerit, ai_suggestion
+from utils.helpers import compute_weekly_deductions, compute_withholding_tax, compute_merit_demerit, ai_suggestion
 
 
 @app.route('/assessment', endpoint='assessment', methods=['GET', 'POST'])
@@ -1030,10 +1030,14 @@ def register():
 @login_required
 def profile(user_id):
     emp = Employee.query.get_or_404(user_id)
+    is_admin = 'admin' in current_user.role.lower()
+    if current_user.id != emp.id and not is_admin:
+        flash("❌ You can only view your own profile.", "danger")
+        return redirect(url_for('dashboard_staff'))
 
     # --- Update only if self or admin ---
     if request.method == 'POST':
-        if current_user.id == emp.id or current_user.role.lower() == "admin":
+        if current_user.id == emp.id or is_admin:
             emp.first_name = request.form.get('first_name')
             emp.last_name = request.form.get('last_name')
             emp.email = request.form.get('email')
@@ -1389,6 +1393,9 @@ def download_employee_profile(employee_id):
 @login_required
 def attendance(employee_id):
     emp = Employee.query.get_or_404(employee_id)
+    if current_user.id != emp.id and 'admin' not in current_user.role.lower():
+        flash("❌ You can only view your own attendance record.", "danger")
+        return redirect(url_for('dashboard_staff'))
     history = Attendance.query.filter_by(employee_id=employee_id).order_by(Attendance.date.desc()).all()
 
     # --- Summary metrics ---
@@ -2241,7 +2248,9 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             cutoff_end=cutoff_end - timedelta(days=1)
         ).first()
         loan = float(payroll_record.loan or 0) if payroll_record else 0.0
-        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan
+        monthly_taxable_income = (gross_income * 4) - ((deductions['sss'] + deductions['philhealth'] + deductions['pagibig']) * 4)
+        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + withholding_tax
         rows.append({
             'employee': emp,
             'worked_days': len(attendance),
@@ -2250,6 +2259,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             'philhealth': deductions['philhealth'],
             'pagibig': deductions['pagibig'],
             'loan': loan,
+            'withholding_tax': withholding_tax,
             'total_deductions': total_deductions,
             'net_pay': gross_income - total_deductions,
             'payroll_record': payroll_record,
@@ -2264,8 +2274,8 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     pdf.drawString(30, 560, f'{company.upper()} PAYROLL SUMMARY')
     pdf.setFont('Helvetica', 9)
     pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
-    headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Loan', 'Deductions', 'Net Pay', 'Status']
-    x_positions = [30, 205, 245, 315, 365, 430, 495, 550, 625, 700]
+    headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Deductions', 'Net Pay', 'Status']
+    x_positions = [25, 175, 212, 270, 322, 382, 442, 492, 542, 620, 694]
     pdf.setFont('Helvetica-Bold', 8)
     for x, header in zip(x_positions, headers):
         pdf.drawString(x, 520, header)
@@ -2276,7 +2286,7 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
             row['employee'].full_name()[:28], str(row['worked_days']),
             f"{row['gross_income']:,.2f}", f"{row['sss']:,.2f}",
             f"{row['philhealth']:,.2f}", f"{row['pagibig']:,.2f}",
-            f"{row['loan']:,.2f}", f"{row['total_deductions']:,.2f}",
+            f"{row['withholding_tax']:,.2f}", f"{row['loan']:,.2f}", f"{row['total_deductions']:,.2f}",
             f"{row['net_pay']:,.2f}", 'PAID' if row['payroll_record'] and row['payroll_record'].is_paid else 'UNPAID'
         ]
         for x, value in zip(x_positions, values):
@@ -2353,6 +2363,7 @@ def mark_payroll_summary_paid():
         record.sss = row['sss']
         record.philhealth = row['philhealth']
         record.pagibig = row['pagibig']
+        record.withholding_tax = row['withholding_tax']
         record.loan = row['loan']
         record.total_deductions = row['total_deductions']
         record.net_pay = row['net_pay']
@@ -2784,7 +2795,9 @@ def payroll(employee_id):
     loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
-    total_deductions = sss + philhealth + pagibig + loan
+    monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
+    withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+    total_deductions = sss + philhealth + pagibig + loan + withholding_tax
     net_pay = gross_income - total_deductions
 
     if payroll_record is None:
@@ -2799,13 +2812,15 @@ def payroll(employee_id):
     payroll_record.sss = sss
     payroll_record.philhealth = philhealth
     payroll_record.pagibig = pagibig
-    payroll_record.withholding_tax = 0.0
+    payroll_record.withholding_tax = withholding_tax
     payroll_record.loan = loan
     payroll_record.cash_advance = 0.0
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
             db.session.add(payroll_record)
-        emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
+        if not payroll_record.loan_deduction_applied:
+            emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
+            payroll_record.loan_deduction_applied = True
         payroll_record.is_paid = True
         db.session.commit()
 
@@ -3001,9 +3016,13 @@ def reopen_payroll(employee_id):
         cutoff_end=cutoff_end - timedelta(days=1)
     ).first()
     if payroll_record:
+        if payroll_record.loan_deduction_applied:
+            employee = db.session.get(Employee, employee_id)
+            employee.loan_balance = float(employee.loan_balance or 0) + float(payroll_record.loan or 0)
+            payroll_record.loan_deduction_applied = False
         payroll_record.is_paid = False
         db.session.commit()
-        flash('Payroll reopened. Open the payroll page to recalculate it.', 'success')
+        flash('Payroll reopened and its loan deduction was reversed. Open the payroll page to recalculate it.', 'success')
     else:
         flash('No payroll record found for the current cutoff.', 'warning')
     return redirect(url_for('payroll', employee_id=employee_id))
@@ -3212,7 +3231,9 @@ def payroll_dashboard():
             else 0.0
         )
 
-        deductions = sss + philhealth + pagibig + loan
+        monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
+        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+        deductions = sss + philhealth + pagibig + loan + withholding_tax
         net_pay = gross_income - deductions
 
         payroll_data.append({
@@ -3223,6 +3244,7 @@ def payroll_dashboard():
             "approved_ot_pay": approved_ot_pay,
             "ot_statuses": sorted({attendance.ot_status or 'Pending' for attendance in ot_records}),
             "loan_deduction": loan,
+            "withholding_tax": withholding_tax,
             "gross_income": gross_income,
             "deductions": deductions,
             "net_pay": net_pay,

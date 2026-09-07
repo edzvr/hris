@@ -83,6 +83,7 @@
                     <th>Allowance</th>
                     <th>Incentives</th>
                     <th>Gross Income</th>
+                    <th>Withholding Tax</th>
                     <th>Deductions</th>
                     <th>Net Pay</th>
                     <th>Loan Deduction This Cutoff</th>
@@ -109,6 +110,7 @@
                         <input type="number" step="0.01" name="incentives_{{ p.emp.id }}" value="{{ p.emp.incentives or 0 }}">
                     </td>
                     <td>₱{{ "%.2f"|format(p.gross_income) }}</td>
+                    <td>₱{{ "%.2f"|format(p.withholding_tax) }}</td>
                     <td>₱{{ "%.2f"|format(p.deductions) }}</td>
                     <td><strong>₱{{ "%.2f"|format(p.net_pay) }}</strong></td>
                     <td>

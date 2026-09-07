@@ -318,6 +318,7 @@ class Payroll(db.Model):
     cash_advance = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_paid = db.Column(db.Boolean, default=False)
+    loan_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
 
 # ------------------ MERIT / DEMERIT ------------------
 class MeritDemerit(db.Model):
