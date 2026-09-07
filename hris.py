@@ -2261,6 +2261,15 @@ def completed_cutoff(today=None):
     )
     return start, start + timedelta(days=7)
 
+def payroll_cutoff_from_request(value=None):
+    """Return a selected Saturday-to-Friday cutoff or the latest available one."""
+    if value:
+        selected_start = datetime.strptime(value, '%Y-%m-%d').date()
+        if selected_start.weekday() != 5:
+            raise ValueError('Cutoff start date must be a Saturday.')
+        return selected_start, selected_start + timedelta(days=7)
+    return completed_cutoff()
+
 
 def payroll_company_name(employee):
     if str(employee.company or '').lower().startswith('trece'):
@@ -2900,8 +2909,11 @@ def payroll(employee_id):
                                latest_finalized_payslip=latest_finalized_payslip)
 
     # ADMIN VIEW
-    today = datetime.today().date()
-    cutoff_start, cutoff_end = completed_cutoff()
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.values.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
     end_cutoff = start_cutoff + timedelta(days=7)
@@ -3162,7 +3174,11 @@ def finalize_payroll(employee_id):
     if 'admin' not in current_user.role.lower():
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
-    cutoff_start, cutoff_end = completed_cutoff()
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.form.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
     field_values = {
         'daily_rate': request.form.get(f'daily_rate_{employee_id}'),
         'allowance': request.form.get(f'allowance_{employee_id}'),
@@ -3198,7 +3214,9 @@ def finalize_payroll(employee_id):
         db.session.rollback()
         flash('Please enter valid non-negative payroll values.', 'danger')
         return redirect(url_for('payroll_dashboard'))
-    return redirect(url_for('payroll', employee_id=employee_id, finalize='true'))
+    return redirect(url_for(
+        'payroll', employee_id=employee_id, finalize='true', cutoff_start=cutoff_start
+    ))
 @app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
 @login_required
 def reopen_payroll(employee_id):
@@ -3303,7 +3321,11 @@ def download_payslip(emp_id, payroll_id):
 @login_required
 def payroll_dashboard():
     today = datetime.today().date()
-    cutoff_start, cutoff_end = completed_cutoff()
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.values.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
 
