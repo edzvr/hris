@@ -8,14 +8,13 @@
         h1 { font-size: 28px; }
         h2 { font-size: 20px; }
         .page-shell { max-width: 1600px; margin: 0 auto; }
-        .table-wrap { overflow-x: auto; border: 1px solid #cbd7d1; background: #fff; }
+        .table-wrap { border: 1px solid #cbd7d1; background: #fff; }
         h1 {
             color: #2c3e50;
         }
         table {
             border-collapse: collapse;
             width: 100%;
-            min-width: 1380px;
             margin: 0;
         }
         th, td {
@@ -34,7 +33,7 @@
             background-color: #f9f9f9;
         }
         input[type="number"] {
-            width: 92px;
+            width: 88px;
             padding: 7px;
             font-size: 14px;
         }
@@ -89,11 +88,11 @@
     <section class="accounting" style="padding:14px; margin:12px 0;">
         <h2>Accounting Overview</h2>
         <p>Confidential admin-only totals for the selected cutoff. Company payroll summaries contain staff payroll only.</p>
-        <strong>Staff Payroll: ₱{{ "%.2f"|format(accounting_totals.staff_net_pay) }}</strong>
+        <strong>Staff Payroll: ₱{{ accounting_totals.staff_net_pay|currency }}</strong>
         &nbsp; | &nbsp;
-        <strong>Admin Payroll: ₱{{ "%.2f"|format(accounting_totals.admin_net_pay) }}</strong>
+        <strong>Admin Payroll: ₱{{ accounting_totals.admin_net_pay|currency }}</strong>
         &nbsp; | &nbsp;
-        <strong>Total Cash Requirement: ₱{{ "%.2f"|format(accounting_totals.total_net_pay) }}</strong>
+        <strong>Total Cash Requirement: ₱{{ accounting_totals.total_net_pay|currency }}</strong>
     </section>
 
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
@@ -105,51 +104,31 @@
                     <th>Employee</th>
                     <th>Company</th>
                     <th>Worked Days</th>
-                    <th>OT Hours</th>
-                    <th>OT Status</th>
                     <th>Approved OT Pay</th>
-                    <th>Daily Rate</th>
-                    <th>Allowance</th>
-                    <th>Incentives</th>
                     <th>Gross Income</th>
                     <th>Withholding Tax</th>
                     <th>Deductions</th>
                     <th>Net Pay</th>
                     <th>Loan Deduction This Cutoff</th>
-                    <th>Loan Balance</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="16">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label"><td colspan="10">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="{{ 'admin-row' if p.is_admin else '' }}">
                     <td>{{ p.emp.first_name }} {{ p.emp.last_name }}</td>
                     <td>{{ p.emp.company }}</td>
                     <td>{{ p.worked_days }}</td>
-                    <td>{{ "%.2f"|format(p.ot_hours) }}</td>
-                    <td>{{ p.ot_statuses|join(', ') if p.ot_statuses else 'None' }}</td>
-                    <td>₱{{ "%.2f"|format(p.approved_ot_pay) }}</td>
-                    <td>
-                        <input type="number" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
-                    </td>
-                    <td>
-                        <input type="number" step="0.01" name="allowance_{{ p.emp.id }}" value="{{ p.emp.allowance or 0 }}">
-                    </td>
-                    <td>
-                        <input type="number" step="0.01" name="incentives_{{ p.emp.id }}" value="{{ p.emp.incentives or 0 }}">
-                    </td>
-                    <td>₱{{ "%.2f"|format(p.gross_income) }}</td>
-                    <td>₱{{ "%.2f"|format(p.withholding_tax) }}</td>
-                    <td>₱{{ "%.2f"|format(p.deductions) }}</td>
-                    <td><strong>₱{{ "%.2f"|format(p.net_pay) }}</strong></td>
+                    <td>₱{{ p.approved_ot_pay|currency }}</td>
+                    <td>₱{{ p.gross_income|currency }}</td>
+                    <td>₱{{ p.withholding_tax|currency }}</td>
+                    <td>₱{{ p.deductions|currency }}</td>
+                    <td><strong>₱{{ p.net_pay|currency }}</strong></td>
                     <td>
                         <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}">
-                    </td>
-                    <td>
-                        <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}">
                     </td>
                     <td>
                         <button type="submit"

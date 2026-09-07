@@ -84,9 +84,14 @@ def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
         return "N/A"
     return value.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Manila")).strftime(format_string)
 
+
+def format_currency(value):
+    return f"{float(value or 0):,.2f}"
+
 # ------------------ APP CONFIG ------------------
 app = Flask(__name__)
 app.add_template_filter(manila_datetime, "manila_datetime")
+app.add_template_filter(format_currency, "currency")
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 

@@ -45,23 +45,23 @@
             </tr>
             <tr>
                 <td>
-                    <p>Basic Pay: ₱{{ '%.2f'|format(basic_pay) }}</p>
-                    <p>OT Pay: ₱{{ '%.2f'|format(ot_pay) }}</p>
-                    <p><strong>Gross Income: ₱{{ '%.2f'|format(payroll.gross_income or 0) }}</strong></p>
+                    <p>Basic Pay: ₱{{ basic_pay|currency }}</p>
+                    <p>OT Pay: ₱{{ ot_pay|currency }}</p>
+                    <p><strong>Gross Income: ₱{{ (payroll.gross_income or 0)|currency }}</strong></p>
                 </td>
                 <td>
-                    <p>SSS: ₱{{ '%.2f'|format(payroll.sss or 0) }}</p>
-                    <p>PhilHealth: ₱{{ '%.2f'|format(payroll.philhealth or 0) }}</p>
-                    <p>Pag-IBIG: ₱{{ '%.2f'|format(payroll.pagibig or 0) }}</p>
-                    <p>Tax: ₱{{ '%.2f'|format(tax) }}</p>
-                    <p>Loan: ₱{{ '%.2f'|format(payroll.loan or 0) }}</p>
-                    <p>Cash Advance: ₱{{ '%.2f'|format(payroll.cash_advance or 0) }}</p>
-                    <p><strong>Total Deductions: ₱{{ '%.2f'|format(payroll.total_deductions or 0) }}</strong></p>
+                    <p>SSS: ₱{{ (payroll.sss or 0)|currency }}</p>
+                    <p>PhilHealth: ₱{{ (payroll.philhealth or 0)|currency }}</p>
+                    <p>Pag-IBIG: ₱{{ (payroll.pagibig or 0)|currency }}</p>
+                    <p>Tax: ₱{{ tax|currency }}</p>
+                    <p>Loan: ₱{{ (payroll.loan or 0)|currency }}</p>
+                    <p>Cash Advance: ₱{{ (payroll.cash_advance or 0)|currency }}</p>
+                    <p><strong>Total Deductions: ₱{{ (payroll.total_deductions or 0)|currency }}</strong></p>
                 </td>
             </tr>
         </table>
 
-        <p class="net-pay"><strong>Net Pay: ₱{{ '%.2f'|format(payroll.net_pay or 0) }}</strong></p>
+        <p class="net-pay"><strong>Net Pay: ₱{{ (payroll.net_pay or 0)|currency }}</strong></p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:55px;text-align:center;">
             <div style="border-top:1px solid #333;padding-top:8px;">Authorized Person Signature</div>
             <div style="border-top:1px solid #333;padding-top:8px;">Date</div>
