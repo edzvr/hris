@@ -2699,6 +2699,10 @@ def payroll(employee_id):
 
         history = Payroll.query.filter_by(employee_id=current_user.id)\
                                .order_by(Payroll.cutoff_start.desc()).all()
+        latest_finalized_payslip = Payroll.query.filter_by(
+            employee_id=current_user.id,
+            is_paid=True
+        ).order_by(Payroll.cutoff_start.desc()).first()
 
         cutoff_options = [f"{p.cutoff_start.strftime('%b %d, %Y')} - {p.cutoff_end.strftime('%b %d, %Y')}" for p in history]
         years = sorted({p.cutoff_start.year for p in history}, reverse=True)
@@ -2714,7 +2718,8 @@ def payroll(employee_id):
                                history=history,
                                cutoff_options=cutoff_options,
                                years=years,
-                               selected_year=selected_year)
+                               selected_year=selected_year,
+                               latest_finalized_payslip=latest_finalized_payslip)
 
     # ADMIN VIEW
     today = datetime.today().date()

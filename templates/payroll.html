@@ -109,7 +109,14 @@
 </div>
 
 <div class="section">
-    <h3>Salary History {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
+    <h3>6-Day Payslips {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
+    {% if current_user.role.lower() == 'staff' and latest_finalized_payslip %}
+    <p>
+        <strong>Latest finalized cutoff:</strong>
+        {{ latest_finalized_payslip.cutoff_start }} to {{ latest_finalized_payslip.cutoff_end }}
+        <a class="btn" href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=latest_finalized_payslip.id) }}">Download Latest 6-Day Payslip</a>
+    </p>
+    {% endif %}
     <table>
         <tr>
             <th>Cutoff Start</th><th>Cutoff End</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th><th>Payslip</th>
@@ -122,8 +129,12 @@
             <td>₱{{ "%.2f"|format(record.total_deductions) }}</td>
             <td><strong>₱{{ "%.2f"|format(record.net_pay) }}</strong></td>
             <td>
+                {% if current_user.role.lower() == 'admin' or record.is_paid %}
                 <a href="{{ url_for('payslip', emp_id=emp.id, payroll_id=record.id) }}">View</a>
-                <a href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=record.id) }}">Download PDF</a>
+                <a href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=record.id) }}">Download 6-Day PDF</a>
+                {% else %}
+                Awaiting Admin finalization
+                {% endif %}
             </td>
         </tr>
         {% else %}
@@ -133,8 +144,8 @@
 </div>
 
 <div class="section">
-    <h3>Download Payslip</h3>
-    <p>Select <strong>Download PDF</strong> beside a finalized cutoff above for the exact 6-day payslip.</p>
+    <h3>Monthly Payslip Summary</h3>
+    <p>This is optional and separate from the 6-day cutoff payslip above.</p>
     <form method="get" action="{{ url_for('monthly_payroll', employee_id=emp.id) }}">
         <label for="monthly-period">Monthly Summary:</label>
         <input id="monthly-period" type="month" name="month" required>
