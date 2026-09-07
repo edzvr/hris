@@ -58,6 +58,15 @@ def has_strong_password(password):
     )
 
 
+def format_person_name(value):
+    return " ".join(part.capitalize() for part in str(value or "").strip().split())
+
+
+def format_suffix_name(value):
+    suffix = str(value or "").strip().upper().replace(".", "")
+    return {"JR": "Jr.", "SR": "Sr.", "II": "II", "III": "III", "IV": "IV"}.get(suffix, format_person_name(value))
+
+
 def evaluation_points(average_rating):
     if average_rating >= 4.5:
         return 2, 0
@@ -1001,10 +1010,10 @@ def register():
             emergency_address = emp_address
 
         emp = Employee(
-            first_name=required_fields['First name'],
-            middle_name=request.form.get('middle_name', '').strip() or None,
-            last_name=required_fields['Last name'],
-            suffix_name=request.form.get('suffix_name', '').strip() or None,
+            first_name=format_person_name(required_fields['First name']),
+            middle_name=format_person_name(request.form.get('middle_name')) or None,
+            last_name=format_person_name(required_fields['Last name']),
+            suffix_name=format_suffix_name(request.form.get('suffix_name')) or None,
             dob=dob_val,
             role=required_fields['Role'],
             company=company,
@@ -1051,8 +1060,8 @@ def profile(user_id):
     # --- Update only if self or admin ---
     if request.method == 'POST':
         if current_user.id == emp.id or is_admin:
-            emp.first_name = request.form.get('first_name')
-            emp.last_name = request.form.get('last_name')
+            emp.first_name = format_person_name(request.form.get('first_name'))
+            emp.last_name = format_person_name(request.form.get('last_name'))
             emp.email = request.form.get('email')
             emp.contact_no = request.form.get('contact_no')
             emp.address = request.form.get('address')
@@ -1556,8 +1565,8 @@ def dashboard_admin():
 
     # Profile update
     if request.method == 'POST' and 'first_name' in request.form:
-        current_user.first_name = request.form['first_name']
-        current_user.last_name = request.form['last_name']
+        current_user.first_name = format_person_name(request.form['first_name'])
+        current_user.last_name = format_person_name(request.form['last_name'])
         current_user.email = request.form['email']
         current_user.address = request.form.get('address')
         current_user.sss = request.form.get('sss')
