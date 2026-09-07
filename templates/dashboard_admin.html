@@ -268,22 +268,6 @@
   </div>
 
   <div class="card">
-    <h2>Recent Clock Activity</h2>
-    <table>
-      <tr><th>Employee</th><th>Company</th><th>Activity</th><th>Time</th></tr>
-      {% for event in attendance_events %}
-      <tr>
-        <td>{{ event.employee_name }}</td>
-        <td>{{ event.company or 'N/A' }}</td>
-        <td>{{ event.action }}</td>
-        <td>{{ event.created_at | manila_datetime }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4">No clock-in or clock-out activity yet.</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  <div class="card">
     <h2>Today's Staff Attendance</h2>
     <p>Monitor who has clocked in, clocked out, or has no attendance record today.</p>
     <input id="staffAttendanceSearch" type="search" placeholder="Search employee or company" style="max-width:360px; padding:10px;">
