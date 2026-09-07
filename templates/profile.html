@@ -57,6 +57,9 @@
             {% endif %}
             <h2>{{ emp.first_name }} {{ emp.last_name }} - Profile</h2>
             <p>{{ emp.role or 'N/A' }} - {{ emp.company or 'N/A' }}</p>
+            {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
+            <button class="btn" type="button" onclick="showTab('resume')">Fill Up Resume / Bio Data</button>
+            {% endif %}
         </div>
 
         <div class="details-grid" id="profile-view">
@@ -64,6 +67,13 @@
             <p><strong>Email:</strong> {{ emp.email or 'N/A' }}</p>
             <p><strong>Address:</strong> {{ emp.address or 'N/A' }}</p>
             <p><strong>Date Started:</strong> {{ emp.date_started or 'N/A' }}</p>
+            <p><strong>Employment Status:</strong> {{ emp.employment_status or 'N/A' }}</p>
+            <p><strong>Probation End Date:</strong> {{ emp.probation_end_date or 'N/A' }}</p>
+            <p><strong>Regularization Date:</strong> {{ emp.regularization_date or 'N/A' }}</p>
+            <p><strong>Gender:</strong> {{ emp.gender or 'N/A' }}</p>
+            <p><strong>Civil Status:</strong> {{ emp.civil_status or 'N/A' }}</p>
+            <p><strong>Immediate Supervisor:</strong> {{ emp.immediate_supervisor or 'N/A' }}</p>
+            <p><strong>Work Location:</strong> {{ emp.work_location or 'N/A' }}</p>
             <p><strong>SSS:</strong> {{ emp.sss or 'N/A' }}</p>
             <p><strong>PhilHealth:</strong> {{ emp.philhealth or 'N/A' }}</p>
             <p><strong>Pag-IBIG:</strong> {{ emp.pagibig or 'N/A' }}</p>
@@ -71,6 +81,9 @@
             <p><strong>Emergency Person:</strong> {{ emp.emergency_person or 'N/A' }}</p>
             <p><strong>Emergency Contact:</strong> {{ emp.emergency_contact or 'N/A' }}</p>
             <p><strong>Emergency Address:</strong> {{ emp.emergency_address or 'N/A' }}</p>
+            <p><strong>Bank:</strong> {{ emp.bank_name or 'N/A' }}</p>
+            <p><strong>Bank Account Name:</strong> {{ emp.bank_account_name or 'N/A' }}</p>
+            <p><strong>Bank Account Number:</strong> {{ emp.bank_account_number or 'N/A' }}</p>
         </div>
 
         <h3>Resume / Bio Data</h3>
@@ -95,6 +108,18 @@
                 <label class="form-field full">Address<input type="text" name="address" value="{{ emp.address or '' }}"></label>
                 <label class="form-field">Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
                 <label class="form-field">Date of Birth<input type="date" name="dob" value="{{ emp.dob or '' }}"></label>
+                {% if viewer.role.lower() == 'admin' %}
+                <label class="form-field">Employment Status<input type="text" name="employment_status" value="{{ emp.employment_status or '' }}" placeholder="Probationary or Regular"></label>
+                <label class="form-field">Probation End Date<input type="date" name="probation_end_date" value="{{ emp.probation_end_date or '' }}"></label>
+                <label class="form-field">Regularization Date<input type="date" name="regularization_date" value="{{ emp.regularization_date or '' }}"></label>
+                <label class="form-field">Gender<input type="text" name="gender" value="{{ emp.gender or '' }}"></label>
+                <label class="form-field">Civil Status<input type="text" name="civil_status" value="{{ emp.civil_status or '' }}"></label>
+                <label class="form-field">Immediate Supervisor<input type="text" name="immediate_supervisor" value="{{ emp.immediate_supervisor or '' }}"></label>
+                <label class="form-field">Work Location<input type="text" name="work_location" value="{{ emp.work_location or '' }}"></label>
+                <label class="form-field">Bank Name<input type="text" name="bank_name" value="{{ emp.bank_name or '' }}"></label>
+                <label class="form-field">Bank Account Name<input type="text" name="bank_account_name" value="{{ emp.bank_account_name or '' }}"></label>
+                <label class="form-field">Bank Account Number<input type="text" name="bank_account_number" value="{{ emp.bank_account_number or '' }}"></label>
+                {% endif %}
                 <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>
                 <label class="form-field">TIN<input type="text" name="tin" value="{{ emp.tin or '' }}"></label>

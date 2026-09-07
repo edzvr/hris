@@ -635,6 +635,26 @@ def ensure_payroll_columns():
     db.session.commit()
 
 
+def ensure_employee_hr_columns():
+    employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    columns = {
+        "employment_status": "VARCHAR(30)",
+        "probation_end_date": "DATE",
+        "regularization_date": "DATE",
+        "gender": "VARCHAR(20)",
+        "civil_status": "VARCHAR(30)",
+        "immediate_supervisor": "VARCHAR(120)",
+        "work_location": "VARCHAR(100)",
+        "bank_name": "VARCHAR(100)",
+        "bank_account_name": "VARCHAR(150)",
+        "bank_account_number": "VARCHAR(100)",
+    }
+    for column_name, column_type in columns.items():
+        if column_name not in employee_columns:
+            db.session.execute(text(f"ALTER TABLE employees ADD COLUMN {column_name} {column_type}"))
+    db.session.commit()
+
+
 def bootstrap_postgres_from_sqlite():
     if db.engine.dialect.name != "postgresql":
         return
@@ -690,6 +710,7 @@ with app.app_context():
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
+    ensure_employee_hr_columns()
     bootstrap_postgres_from_sqlite()
 
 migrate = Migrate(app, db)
@@ -1073,6 +1094,19 @@ def profile(user_id):
             emp.emergency_person = request.form.get('emergency_person')
             emp.emergency_contact = request.form.get('emergency_contact')
             emp.emergency_address = request.form.get('emergency_address')
+            if is_admin:
+                emp.employment_status = request.form.get('employment_status') or None
+                emp.gender = request.form.get('gender') or None
+                emp.civil_status = request.form.get('civil_status') or None
+                emp.immediate_supervisor = request.form.get('immediate_supervisor') or None
+                emp.work_location = request.form.get('work_location') or None
+                emp.bank_name = request.form.get('bank_name') or None
+                emp.bank_account_name = request.form.get('bank_account_name') or None
+                emp.bank_account_number = request.form.get('bank_account_number') or None
+                probation_end_date = request.form.get('probation_end_date')
+                regularization_date = request.form.get('regularization_date')
+                emp.probation_end_date = datetime.strptime(probation_end_date, '%Y-%m-%d').date() if probation_end_date else None
+                emp.regularization_date = datetime.strptime(regularization_date, '%Y-%m-%d').date() if regularization_date else None
             if 'resume_summary' in request.form:
                 emp.resume_summary = request.form.get('resume_summary')
                 emp.resume_education = request.form.get('resume_education')
