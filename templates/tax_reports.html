@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tax Reports</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 24px; color: #263238; }
+        main { max-width: 1000px; margin: 0 auto; }
+        .panel { background: #fff; border: 1px solid #d8e0dc; border-radius: 8px; padding: 20px; margin-bottom: 18px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        label { display: flex; flex-direction: column; gap: 5px; font-weight: 700; }
+        input, textarea, button { padding: 10px; font: inherit; }
+        textarea { min-height: 70px; resize: vertical; }
+        .btn { display: inline-block; padding: 10px 14px; border: 0; border-radius: 6px; background: #1976d2; color: #fff; text-decoration: none; cursor: pointer; margin: 8px 8px 0 0; }
+        @media (max-width: 650px) { body { padding: 14px; } .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Tax Reports</h1>
+    <p>Manage employer tax details and download internal withholding tax reports. Validate reports against the current BIR-prescribed form before filing.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<p>{{ message }}</p>{% endfor %}
+    {% endwith %}
+    {% for company, profile in profiles.items() %}
+    <section class="panel">
+        <h2>{{ company }}</h2>
+        <form method="POST">
+            <input type="hidden" name="company" value="{{ company }}">
+            <div class="grid">
+                <label>Legal Employer Entity<input name="legal_employer_entity" value="{{ profile.legal_entity }}" placeholder="Legal employer entity"></label>
+                <label>Registered Company Name<input name="registered_company_name" value="{{ profile.name }}" placeholder="Registered company name"></label>
+                <label>Employer TIN<input name="employer_tin" value="{{ profile.tin }}" placeholder="000-000-000-000"></label>
+                <label>Tax Year<input name="tax_year" type="number" min="2020" max="2100" value="{{ profile.tax_year or current_year }}"></label>
+                <label>Authorized Signatory Name<input name="authorized_signatory_name" value="{{ profile.signatory }}" placeholder="Authorized signatory"></label>
+                <label>Authorized Signatory Position<input name="authorized_signatory_position" value="{{ profile.position }}" placeholder="Position"></label>
+                <label style="grid-column:1 / -1;">Registered Business Address<textarea name="registered_business_address" placeholder="Registered business address">{{ profile.address }}</textarea></label>
+            </div>
+            <button class="btn" type="submit">Save {{ company }} Details</button>
+        </form>
+        <div>
+            <label style="display:inline-flex; margin-top:12px;">Monthly Report
+                <input type="month" id="month-{{ loop.index }}" value="{{ current_year }}-01" style="margin-left:8px;">
+            </label>
+            <a class="btn" href="{{ url_for('download_monthly_tax_summary', company=company, month=current_year ~ '-01') }}" onclick="this.href='{{ url_for('download_monthly_tax_summary', company=company, month='0000-00') }}'.replace('0000-00', document.getElementById('month-{{ loop.index }}').value)">Download Monthly Tax Summary</a>
+            <a class="btn" href="{{ url_for('download_annual_tax_summary', company=company, year=current_year) }}">Download Annual Tax Summary</a>
+        </div>
+    </section>
+    {% endfor %}
+    <a class="btn" href="{{ url_for('payroll_dashboard') }}">Back to Payroll Dashboard</a>
+</main>
+</body>
+</html>

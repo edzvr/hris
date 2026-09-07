@@ -67,6 +67,7 @@
         <p>Download the one-page salary summary for sharing or printing.</p>
         <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno') }}">Download Trece-Uno Summary</a>
         <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert') }}">Download Auto Expert Summary</a>
+        <a class="btn" href="{{ url_for('tax_reports') }}">Tax Reports</a>
     </section>
 
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">

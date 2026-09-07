@@ -320,6 +320,20 @@ class Payroll(db.Model):
     is_paid = db.Column(db.Boolean, default=False)
     loan_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
 
+
+class EmployerTaxProfile(db.Model):
+    __tablename__ = "employer_tax_profiles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    company = db.Column(db.String(50), nullable=False, unique=True)
+    legal_employer_entity = db.Column(db.String(150), nullable=True)
+    registered_company_name = db.Column(db.String(150), nullable=True)
+    employer_tin = db.Column(db.String(50), nullable=True)
+    registered_business_address = db.Column(db.String(255), nullable=True)
+    authorized_signatory_name = db.Column(db.String(150), nullable=True)
+    authorized_signatory_position = db.Column(db.String(100), nullable=True)
+    tax_year = db.Column(db.Integer, nullable=True)
+
 # ------------------ MERIT / DEMERIT ------------------
 class MeritDemerit(db.Model):
     __tablename__ = 'merit_demerit'

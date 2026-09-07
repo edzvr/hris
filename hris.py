@@ -237,6 +237,7 @@ from models import (
     QuizResult,
     Bulletin,
     Payroll,
+    EmployerTaxProfile,
     RedemptionHistory,
     IncidentReport,
     MeritDemerit,
@@ -2237,6 +2238,140 @@ def company_employee_filter(company):
     if company == 'Trece-Uno':
         return Employee.company.in_(['Trece', 'Trece-Uno'])
     return Employee.company == 'Auto Expert'
+
+
+def employer_tax_details(company):
+    profile = EmployerTaxProfile.query.filter_by(company=company).first()
+    if profile:
+        return {
+            'name': profile.registered_company_name or '',
+            'tin': profile.employer_tin or '',
+            'address': profile.registered_business_address or '',
+            'signatory': profile.authorized_signatory_name or '',
+            'position': profile.authorized_signatory_position or '',
+            'legal_entity': profile.legal_employer_entity or '',
+            'tax_year': profile.tax_year or datetime.now().year,
+        }
+    prefix = 'TRECE' if company == 'Trece-Uno' else 'AUTO_EXPERT'
+    return {
+        'name': os.environ.get(f'{prefix}_EMPLOYER_NAME', ''),
+        'tin': os.environ.get(f'{prefix}_EMPLOYER_TIN', ''),
+        'address': os.environ.get(f'{prefix}_EMPLOYER_ADDRESS', ''),
+        'signatory': os.environ.get(f'{prefix}_AUTHORIZED_SIGNATORY', ''),
+        'position': '',
+        'legal_entity': '',
+        'tax_year': datetime.now().year,
+    }
+
+
+def company_tax_records(company, year, month=None):
+    query = Payroll.query.join(Employee).filter(
+        company_employee_filter(company),
+        extract('year', Payroll.cutoff_start) == year
+    )
+    if month is not None:
+        query = query.filter(extract('month', Payroll.cutoff_start) == month)
+    return query.order_by(Employee.last_name, Employee.first_name, Payroll.cutoff_start).all()
+
+
+def tax_summary_pdf(title, company, period, records):
+    employer = employer_tax_details(company)
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(50, 770, title)
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(50, 750, f'Company: {employer["name"] or company}')
+    pdf.drawString(50, 735, f'Legal Employer Entity: {employer["legal_entity"] or "Not configured"}')
+    pdf.drawString(50, 720, f'Employer TIN: {employer["tin"] or "Not configured"}')
+    pdf.drawString(50, 705, f'Address: {employer["address"] or "Not configured"}')
+    pdf.drawString(50, 690, f'Period: {period}')
+    pdf.setFont('Helvetica-Bold', 9)
+    headers = ['Employee', 'Cutoff', 'Gross Income', 'Withholding Tax']
+    positions = [50, 210, 330, 450]
+    for position, header in zip(positions, headers):
+        pdf.drawString(position, 660, header)
+    y = 643
+    pdf.setFont('Helvetica', 9)
+    for record in records:
+        values = [
+            record.employee.full_name()[:28],
+            f'{record.cutoff_start} to {record.cutoff_end}',
+            f'PHP {float(record.gross_income or 0):,.2f}',
+            f'PHP {float(record.withholding_tax or 0):,.2f}',
+        ]
+        for position, value in zip(positions, values):
+            pdf.drawString(position, y, value)
+        y -= 16
+        if y < 110:
+            pdf.showPage()
+            y = 750
+    total_compensation = sum(float(record.gross_income or 0) for record in records)
+    total_tax = sum(float(record.withholding_tax or 0) for record in records)
+    pdf.setFont('Helvetica-Bold', 10)
+    pdf.drawString(50, y - 15, f'Total Compensation: PHP {total_compensation:,.2f}')
+    pdf.drawString(50, y - 32, f'Total Tax Withheld: PHP {total_tax:,.2f}')
+    pdf.drawString(50, y - 49, f'Authorized Signatory: {employer["signatory"] or "Not configured"}')
+    pdf.drawString(50, y - 64, f'Position: {employer["position"] or "Not configured"}')
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(50, 55, 'Internal payroll tax report. Validate against the current BIR-prescribed form before filing.')
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
+@app.route('/admin/tax-reports', methods=['GET', 'POST'])
+@login_required
+def tax_reports():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    companies = ('Trece-Uno', 'Auto Expert')
+    if request.method == 'POST':
+        company = request.form.get('company')
+        if company not in companies:
+            abort(400)
+        profile = EmployerTaxProfile.query.filter_by(company=company).first()
+        if profile is None:
+            profile = EmployerTaxProfile(company=company)
+            db.session.add(profile)
+        profile.legal_employer_entity = request.form.get('legal_employer_entity', '').strip() or None
+        profile.registered_company_name = request.form.get('registered_company_name', '').strip() or None
+        profile.employer_tin = request.form.get('employer_tin', '').strip() or None
+        profile.registered_business_address = request.form.get('registered_business_address', '').strip() or None
+        profile.authorized_signatory_name = request.form.get('authorized_signatory_name', '').strip() or None
+        profile.authorized_signatory_position = request.form.get('authorized_signatory_position', '').strip() or None
+        profile.tax_year = request.form.get('tax_year', type=int) or datetime.now().year
+        db.session.commit()
+        flash(f'{company} employer tax details saved.', 'success')
+        return redirect(url_for('tax_reports'))
+    profiles = {company: employer_tax_details(company) for company in companies}
+    return render_template('tax_reports.html', current_year=datetime.now().year, profiles=profiles)
+
+
+@app.route('/admin/tax-reports/<string:company>/monthly/<string:month>')
+@login_required
+def download_monthly_tax_summary(company, month):
+    if 'admin' not in current_user.role.lower() or company not in {'Trece-Uno', 'Auto Expert'}:
+        return 'Access denied', 403
+    try:
+        year, month_number = map(int, month.split('-'))
+        if not 1 <= month_number <= 12:
+            raise ValueError
+    except ValueError:
+        abort(400)
+    records = company_tax_records(company, year, month_number)
+    return send_file(tax_summary_pdf('Monthly Withholding Tax Summary', company, month, records), as_attachment=True,
+                     download_name=f'Monthly_Tax_Summary_{company}_{month}.pdf', mimetype='application/pdf')
+
+
+@app.route('/admin/tax-reports/<string:company>/annual/<int:year>')
+@login_required
+def download_annual_tax_summary(company, year):
+    if 'admin' not in current_user.role.lower() or company not in {'Trece-Uno', 'Auto Expert'}:
+        return 'Access denied', 403
+    records = company_tax_records(company, year)
+    return send_file(tax_summary_pdf('Annual Withholding Tax Summary', company, str(year), records), as_attachment=True,
+                     download_name=f'Annual_Tax_Summary_{company}_{year}.pdf', mimetype='application/pdf')
 
 
 def build_company_payroll_summary(company, cutoff_start, cutoff_end):
