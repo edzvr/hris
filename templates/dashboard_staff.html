@@ -147,14 +147,17 @@
     <div class="container card dashboard-section">
         <h2>Quick Actions</h2>
       <div style="margin-bottom:14px; padding:12px; border-left:4px solid #1f7fdf; background:#eef6ff;">
-            <strong>Payslip reminder:</strong> Download your finalized 6-day Saturday-to-Friday payslip
-            after it is published by Admin for Saturday salary release.
+            <strong>Paperless records reminder:</strong> The company keeps payroll and attendance records online.
+            Download and keep your finalized 6-day Saturday-to-Friday payslip and attendance record for your personal file.
         {% if latest_payslip %}
         <br><a href="{{ url_for('download_payslip', emp_id=current_user.id, payroll_id=latest_payslip.id) }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Download Latest Payslip</a>
         {% endif %}
+          <a href="{{ url_for('attendance', employee_id=current_user.id, format='pdf') }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Download Attendance Record</a>
+        <a href="{{ url_for('staff_guide') }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Open Staff Guide</a>
       </div>
         <div class="dashboard-links">
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+            <a href="{{ url_for('staff_guide') }}" class="btn btn-primary">📘 Staff Guide</a>
             <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Request Attendance Correction</a>
             <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
             <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>

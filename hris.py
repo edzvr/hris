@@ -1615,6 +1615,7 @@ def dashboard_admin():
     pending_ot = OTApplication.query.filter_by(status="Pending").count()
     pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
     pending_loans = Loan.query.filter_by(status="Pending").count()
+    pending_evaluations = Evaluation.query.filter_by(approval_status='Pending').count()
     pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
     pending_loans_list = Loan.query.filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
     bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).all()
@@ -1678,6 +1679,7 @@ def dashboard_admin():
         pending_ot=pending_ot,
         pending_leaves=pending_leaves,
         pending_loans=pending_loans,
+        pending_evaluations=pending_evaluations,
         pending_leaves_list=pending_leaves_list,
         pending_loans_list=pending_loans_list,
         bulletins=bulletins,
@@ -1782,6 +1784,14 @@ def dashboard_staff():
         peer_evaluation_pending=peer_evaluation_pending,
         latest_payslip=latest_payslip
     )
+
+
+@app.route('/staff-guide')
+@login_required
+def staff_guide():
+    if 'staff' not in current_user.role.lower():
+        return redirect(url_for('dashboard_admin'))
+    return render_template('staff_guide.html')
 
 
 @app.route('/incident_report', methods=['GET', 'POST'])

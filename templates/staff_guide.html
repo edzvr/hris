@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Staff Guide</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { margin: 0; padding: 24px; background: #eef3f1; color: #263238; font-family: Arial, sans-serif; }
+        main { max-width: 900px; margin: 0 auto; }
+        h1 { margin: 0 0 6px; color: #1f5f8b; }
+        .intro { margin: 0 0 20px; }
+        .guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        section { background: #fff; border: 1px solid #d8e0dc; border-radius: 8px; padding: 18px; }
+        h2 { margin: 0 0 10px; color: #1f5f8b; font-size: 20px; }
+        p, li { line-height: 1.5; }
+        ul { padding-left: 20px; margin: 8px 0; }
+        .reminder { border-left: 4px solid #238b63; background: #edf8f2; }
+        .btn { display: inline-block; margin-top: 10px; padding: 10px 14px; border-radius: 6px; background: #1f7fdf; color: #fff; text-decoration: none; }
+        @media (max-width: 650px) { body { padding: 14px; } .guide-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Staff Guide</h1>
+    <p class="intro">Use this page as a quick guide for your daily work, records, quiz, and evaluation tasks.</p>
+
+    <div class="guide-grid">
+        <section>
+            <h2>Daily Attendance</h2>
+            <ul>
+                <li>Clock in when you start work and clock out when you finish.</li>
+                <li>8:00 AM to 8:10 AM is Present. 8:11 AM onwards is Late.</li>
+                <li>Check My Attendance to review your recorded time and hours.</li>
+                <li>If there is a missed or wrong time, submit an Attendance Correction request with the correct time and reason.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('attendance', employee_id=current_user.id) }}">Open My Attendance</a>
+            <a class="btn" href="{{ url_for('attendance_correction') }}">Request Correction</a>
+        </section>
+
+        <section class="reminder">
+            <h2>Records To Download</h2>
+            <ul>
+                <li>Download your Attendance Record regularly for your personal copy.</li>
+                <li>Download your Payslip after Admin finalizes it for the Saturday salary release.</li>
+                <li>The company keeps records online to reduce paper use. Keep your downloaded copies secure.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('attendance', employee_id=current_user.id, format='pdf') }}">Download Attendance PDF</a>
+            <a class="btn" href="{{ url_for('payroll', employee_id=current_user.id) }}">Open My Payslips</a>
+        </section>
+
+        <section>
+            <h2>Quiz And Assessment</h2>
+            <ul>
+                <li>Open Take Quiz when a quiz is available.</li>
+                <li>Review the question and submit your answer before leaving the page.</li>
+                <li>A score of 75% or higher earns merit points. A lower score adds demerit points under the current system rules.</li>
+                <li>Use Assessments to check available assessment activities and results.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Take Quiz</a>
+            <a class="btn" href="{{ url_for('assessment', action='menu') }}">Open Assessments</a>
+        </section>
+
+        <section>
+            <h2>Monthly Peer Evaluation</h2>
+            <ul>
+                <li>Complete a fair peer evaluation for each coworker once every calendar month.</li>
+                <li>Give ratings based on actual work performance, teamwork, and conduct.</li>
+                <li>Submit before the end of the month so the evaluation is included in the monthly review.</li>
+                <li>Do not evaluate yourself.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('peer_evaluation') }}">Open Peer Evaluation</a>
+        </section>
+
+        <section>
+            <h2>Merit And Demerit</h2>
+            <ul>
+                <li>Merit points recognize good attendance, passing quiz scores, and evaluation results.</li>
+                <li>Perfect recorded attendance for the month gives 10 merit points.</li>
+                <li>Each Late record adds 2 demerit points; each Absent record adds 5 demerit points.</li>
+                <li>Use the page to review your current points and understand the result.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('merit_demerit', employee_id=current_user.id) }}">View Merit / Demerit</a>
+        </section>
+
+        <section>
+            <h2>Other Pages</h2>
+            <ul>
+                <li>My Payroll: view finalized payslips and salary records.</li>
+                <li>Apply Leave and Apply Loan: submit requests for Admin review.</li>
+                <li>Company Files: download documents shared with your company.</li>
+                <li>My Profile: keep your contact and personal information updated.</li>
+            </ul>
+            <a class="btn" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a>
+        </section>
+    </div>
+</main>
+</body>
+</html>

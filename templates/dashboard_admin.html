@@ -183,6 +183,19 @@
     <a href="{{ url_for('backup') }}" class="btn">💾 Backup Database / App</a>
   </div>
 
+  <div class="card" style="border-left:4px solid #238b63;">
+    <h2>Admin Reminders</h2>
+    <p>Review these items regularly so attendance, payroll, and employee requests stay updated.</p>
+    <div class="admin-actions-grid">
+      <a href="#attendance-corrections" class="btn">Attendance corrections: {{ pending_attendance_corrections|length }} pending</a>
+      <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">Overtime requests: {{ pending_ot }} pending</a>
+      <a href="{{ url_for('leave') }}" class="btn">Leave requests: {{ pending_leaves }} pending</a>
+      <a href="{{ url_for('loan') }}" class="btn">Loan requests: {{ pending_loans }} pending</a>
+      <a href="{{ url_for('evaluation_dashboard') }}" class="btn">Evaluation review: {{ pending_evaluations }} pending</a>
+      <a href="{{ url_for('payroll_dashboard') }}" class="btn">Friday 10 PM: review 6-day payroll and approved OT</a>
+    </div>
+  </div>
+
   <!-- Quick Stats -->
   <div class="stats">
     <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
@@ -288,7 +301,7 @@
       {% endfor %}
     </table>
   </div>
-  <div class="card">
+  <div class="card" id="attendance-corrections">
     <h2>Pending Attendance Corrections</h2>
     <table>
       <tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
