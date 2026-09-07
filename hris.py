@@ -1376,7 +1376,7 @@ def delete_employee(employee_id):
 import io, csv
 from flask import Response, make_response, request, render_template
 from datetime import datetime
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
 
 
@@ -2512,7 +2512,10 @@ def payroll_summary():
     company = request.args.get('company', 'Trece-Uno')
     if company not in {'Trece-Uno', 'Auto Expert'}:
         abort(400)
-    cutoff_start, cutoff_end = completed_cutoff()
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
+    except ValueError:
+        abort(400)
     rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
     pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
     return send_file(
