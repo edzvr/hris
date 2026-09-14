@@ -5704,11 +5704,11 @@ def quiz(employee_id):
             'quiz_ids': [question.id for question in quizzes],
             'started_at': datetime.utcnow().isoformat(),
         }
-        return redirect(url_for('quiz', employee_id=employee_id))
+        return redirect(url_for('quiz', employee_id=employee_id, category=category))
     elif attempt and attempt.get('category') == category:
         try:
             attempt_started = datetime.fromisoformat(attempt['started_at'])
-            if (datetime.utcnow() - attempt_started).total_seconds() > 60:
+            if (datetime.utcnow() - attempt_started).total_seconds() > 300:
                 session.pop(attempt_key, None)
                 quizzes = []
             else:
