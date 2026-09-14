@@ -24,7 +24,7 @@
 {% if view == 'evaluation' %}
     <section class="card">
         <h1>My Evaluation Results</h1>
-        <p>Your evaluation records are consolidated here.</p>
+        <p>Your approved evaluation feedback is shown anonymously. Evaluator identities are visible only to Admin.</p>
         <div class="summary">
             <div><span>Total Results</span><strong>{{ evaluations|length }}</strong></div>
             <div><span>Average Rating</span><strong>{{ average_rating }}</strong></div>
@@ -37,12 +37,12 @@
     <section class="card">
         <h2>Evaluation History</h2>
         <table>
-            <thead><tr><th>Date</th><th>Evaluator</th><th>Rating</th><th>Category</th><th>Remarks</th></tr></thead>
+            <thead><tr><th>Date</th><th>Feedback</th><th>Rating</th><th>Category</th><th>Remarks</th></tr></thead>
             <tbody>
             {% for evaluation in evaluations %}
                 <tr>
                     <td>{{ evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A' }}</td>
-                    <td>{{ evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A' }}</td>
+                    <td>Anonymous</td>
                     <td>{{ evaluation.rating or 'N/A' }}</td>
                     <td>{{ evaluation.category or 'General' }}</td>
                     <td>{{ evaluation.remarks or 'No remarks' }}</td>

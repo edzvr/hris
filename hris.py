@@ -322,7 +322,10 @@ def assessment():
         return render_template("assessment.html", results=results, view="quiz_leaderboard")
 
     if action == "evaluation":
-        evaluations = Evaluation.query.filter_by(employee_id=current_user.id).order_by(Evaluation.date.desc()).all()
+        evaluations = Evaluation.query.filter_by(
+            employee_id=current_user.id,
+            approval_status='Approved',
+        ).order_by(Evaluation.date.desc()).all()
         month_start = datetime(datetime.today().year, datetime.today().month, 1)
         pending_evals = Employee.query.filter(
             ~Employee.evaluations.any(Evaluation.date >= month_start)
@@ -5173,7 +5176,9 @@ def evaluation_results_export(file_format):
         return "Unsupported evaluation export format", 400
 
     requested_employee_id = request.args.get('employee_id', type=int)
-    if "admin" in current_user.role.lower():
+    employee = None
+    is_admin = "admin" in current_user.role.lower()
+    if is_admin:
         query = Evaluation.query
         employee_label = "All Employees"
         if requested_employee_id:
@@ -5181,7 +5186,10 @@ def evaluation_results_export(file_format):
             query = query.filter_by(employee_id=employee.id)
             employee_label = employee.full_name()
     else:
-        query = Evaluation.query.filter_by(employee_id=current_user.id)
+        query = Evaluation.query.filter_by(
+            employee_id=current_user.id,
+            approval_status='Approved',
+        )
         employee_label = current_user.full_name()
 
     evaluations = query.order_by(Evaluation.date.desc()).all()
@@ -5195,7 +5203,7 @@ def evaluation_results_export(file_format):
                 evaluation.date.strftime('%Y-%m-%d %H:%M') if evaluation.date else '',
                 evaluation.employee.full_name() if evaluation.employee else '',
                 evaluation.employee.company if evaluation.employee else '',
-                evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A',
+                evaluation.evaluator.full_name() if is_admin and evaluation.evaluator else 'Anonymous',
                 evaluation.rating or '',
                 evaluation.category or '',
                 evaluation.remarks or ''
@@ -5220,7 +5228,7 @@ def evaluation_results_export(file_format):
     for evaluation in evaluations:
         date_text = evaluation.date.strftime('%Y-%m-%d') if evaluation.date else 'N/A'
         employee_text = evaluation.employee.full_name() if evaluation.employee else 'N/A'
-        evaluator_text = evaluation.evaluator.full_name() if evaluation.evaluator else 'N/A'
+        evaluator_text = evaluation.evaluator.full_name() if is_admin and evaluation.evaluator else 'Anonymous'
         line = f'{date_text} | {employee_text} | Evaluator: {evaluator_text} | Rating: {evaluation.rating or "N/A"}'
         pdf.drawString(72, y, line[:115])
         y -= 15
