@@ -891,6 +891,7 @@ def inject_authenticated_sidebar(response):
             ('assessment', 'Assessments'),
             ('peer_evaluation', 'Peer Evaluation'),
             ('merit_demerit', 'Merit / Demerit'),
+            ('submit_incident', 'Incident Report'),
         ])
     if is_admin:
         links.extend([
@@ -2430,10 +2431,11 @@ def peer_evaluation():
     questions = EvaluationQuestion.query.filter_by(is_active=True).order_by(EvaluationQuestion.id).all()
     employees = Employee.query.filter(
         Employee.id != current_user.id,
-        Employee.company == current_user.company,
         Employee.role.ilike('%staff%'),
         Employee.first_name.isnot(None),
+        Employee.first_name != '',
         Employee.last_name.isnot(None),
+        Employee.last_name != '',
     ).order_by(Employee.last_name, Employee.first_name).all()
     month_start = datetime.today().date().replace(day=1)
     month_start_dt = datetime.combine(month_start, datetime.min.time())

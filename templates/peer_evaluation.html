@@ -33,7 +33,7 @@
                 <option value="">Select coworker</option>
                 {% for employee in employees %}
                     <option value="{{ employee.id }}" {% if employee.id in submitted_ids %}disabled{% endif %}>
-                        {{ employee.first_name }} {{ employee.last_name }}{% if employee.id in submitted_ids %} - Already submitted{% endif %}
+                        {{ employee.first_name }} {{ employee.last_name }}{% if employee.company %} ({{ employee.company }}){% endif %}{% if employee.id in submitted_ids %} - Already submitted{% endif %}
                     </option>
                 {% endfor %}
             </select>
