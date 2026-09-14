@@ -75,8 +75,33 @@
           grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
           gap: 12px;
           margin-top: 15px;
+          align-items: stretch;
         }
-        .dashboard-links a { text-align:center; }
+        .dashboard-links a {
+          text-align:center;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          min-height:76px;
+          box-sizing:border-box;
+          margin:0;
+          padding:14px 12px;
+          line-height:1.25;
+        }
+
+        @media (max-width: 760px) {
+          body { font-size: 16px; }
+          .container { padding: 14px; }
+          .card { padding: 16px; margin-bottom: 14px; }
+          header { padding: 14px; }
+          header h1 { font-size: 24px; }
+          header p { font-size: 15px; }
+          .dashboard-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+          .dashboard-links a { min-height:64px; font-size:14px; padding:10px 8px; }
+          .btn { padding: 12px 14px; font-size: 15px; margin: 4px; }
+          .brand-header { margin: 10px 0; }
+          .brand-header img { max-height: 48px; margin: 0 4px; }
+        }
 
         /* Progress Bar */
         .progress-container {

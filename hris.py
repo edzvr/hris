@@ -996,12 +996,13 @@ def inject_authenticated_sidebar(response):
     sidebar = f'''
 <style id="hris-global-sidebar-style">
     body.hris-sidebar-page {{ padding-left: 208px !important; }}
-    #hris-global-sidebar {{ position: fixed; z-index: 10000; inset: 0 auto 0 0; width: 190px; padding: 10px 7px; background: #20352f; color: #f4f7f6; box-shadow: 3px 0 12px rgba(0,0,0,.16); font-family: Arial, sans-serif; overflow: hidden; }}
+    #hris-global-sidebar {{ position: fixed; z-index: 10000; inset: 0 auto 0 0; width: 190px; padding: 10px 7px; background: #122c3b; color: #f4f7f6; box-shadow: 3px 0 14px rgba(7,25,36,.28); font-family: Arial, sans-serif; overflow: hidden; }}
     #hris-global-sidebar h2 {{ margin: 0 5px 2px; font-size: 16px; line-height: 19px; letter-spacing: .2px; }}
-    #hris-global-sidebar p {{ margin: 0 5px 6px; color: #b9cec5; font-size: 10px; line-height: 12px; }}
+    #hris-global-sidebar p {{ margin: 0 5px 6px; color: #b7d5dd; font-size: 10px; line-height: 12px; }}
     #hris-global-sidebar a {{ display: block; box-sizing: border-box; height: 27px; min-height: 27px; padding: 5px 7px; margin: 1px 0; color: #f4f7f6; text-decoration: none; border-left: 2px solid transparent; font-size: 12px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ background: #2d5045; border-left-color: #e5b85c; }}
-    #hris-global-sidebar .sidebar-logout {{ margin-top: 6px; border-top: 1px solid #426157; padding-top: 6px; }}
+    #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ background: #1e5266; border-left-color: #f2c14e; }}
+    #hris-global-sidebar a[href="{request.path}"] {{ background: #1e5266; border-left-color: #f2c14e; }}
+    #hris-global-sidebar .sidebar-logout {{ margin-top: 6px; border-top: 1px solid #2c5565; padding-top: 6px; }}
     @media (max-width: 760px) {{ body.hris-sidebar-page {{ padding-left: 174px !important; padding-top: 0 !important; }} #hris-global-sidebar {{ position: fixed !important; inset: 0 auto 0 0 !important; width: 164px !important; height: 100vh !important; max-height: 100vh !important; box-sizing: border-box; padding: 8px 6px; overflow: hidden !important; }} #hris-global-sidebar h2 {{ display: block; margin: 0 5px 2px; font-size: 15px; line-height: 18px; }} #hris-global-sidebar p {{ display: block; margin: 0 5px 5px; font-size: 9px; line-height: 11px; }} #hris-global-sidebar a {{ display: block; box-sizing: border-box; height: 27px; min-height: 27px; margin: 1px 0; padding: 5px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid transparent; border-bottom: 0; font-size: 11px; line-height: 17px; }} #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ border-left-color: #e5b85c; border-bottom-color: transparent; }} #hris-global-sidebar .sidebar-logout {{ margin-top: 6px; padding-top: 6px; height: 27px; min-height: 27px; border-top: 1px solid #426157; }} }}
 </style>
 <aside id="hris-global-sidebar">
