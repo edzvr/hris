@@ -218,6 +218,8 @@ class Loan(db.Model):
     approver = db.Column(db.String(100))
     decision_date = db.Column(db.DateTime)
     date_filed = db.Column(db.DateTime, default=datetime.utcnow)
+    loan_type = db.Column(db.String(30), nullable=False, default="Employee Loan")
+    balance_applied = db.Column(db.Boolean, nullable=False, default=False)
 
 class LoanHistory(db.Model):
     __tablename__ = "loan_history"

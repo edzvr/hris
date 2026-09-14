@@ -16,6 +16,12 @@
         .btn { padding:6px 12px; background:#1976d2; color:white; text-decoration:none; border-radius:6px; }
         .stats { display:flex; justify-content:space-around; margin:20px; }
         .stats div { background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); width:30%; text-align:center; }
+        .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:20px 0; }
+        .summary div { background:#fff; padding:16px; border-left:4px solid #1976d2; }
+        .table-wrap { width:100%; overflow-x:auto; }
+        .admin-form { display:grid; grid-template-columns:2fr 1fr 1fr 2fr auto; gap:10px; align-items:end; }
+        .admin-form label { display:block; font-size:.9rem; font-weight:700; }
+        .admin-form select, .admin-form input { box-sizing:border-box; width:100%; padding:8px; }
         canvas { display:block; width:260px !important; height:180px !important; max-width:100%; margin:20px auto; }
         #loanStatusChart { width:180px !important; height:180px !important; }
         .print-section { display:none; }
@@ -24,10 +30,60 @@
             .no-print { display:none; }
             .print-section { display:block; }
         }
+        @media (max-width:800px) { .admin-form { grid-template-columns:1fr; } }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="card" role="status"><strong>{{ message }}</strong></div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if current_user.role.lower() == 'admin' %}
+    <section class="no-print">
+        <h2>Record Prior-System Loan Balance</h2>
+        <p>Use this once per existing loan that predates HRIS. The amount is added to the employee's current outstanding balance and audit history.</p>
+        <form class="admin-form" method="POST" action="{{ url_for('add_opening_loan_balance') }}">
+            <div><label>Employee</label><select name="employee_id" required>
+                <option value="">Select employee</option>
+                {% for item in loan_accounts %}<option value="{{ item.employee.id }}">{{ item.employee.full_name() }} - {{ item.employee.company or 'N/A' }}</option>{% endfor %}
+            </select></div>
+            <div><label>Outstanding Amount</label><input type="number" name="amount" min="0.01" step="0.01" required></div>
+            <div><label>Effective Date</label><input type="date" name="effective_date" required></div>
+            <div><label>Details</label><input type="text" name="reason" placeholder="Original loan / prior balance details"></div>
+            <div><label>Balance Handling</label><select name="balance_mode">
+                <option value="add">Add to current balance</option>
+                <option value="record_existing">Replace current balance (already entered before)</option>
+            </select></div>
+            <button type="submit">Add Opening Balance</button>
+        </form>
+    </section>
+
+    <section>
+        <h2>Employee Loan Accounts</h2>
+        <div class="table-wrap"><table>
+            <tr><th>Employee</th><th>Company</th><th>Total Recorded Loans</th><th>Payroll Deductions</th><th>Current Outstanding</th><th>Statement</th></tr>
+            {% for item in loan_accounts %}
+            <tr>
+                <td>{{ item.employee.full_name() }}</td><td>{{ item.employee.company or 'N/A' }}</td>
+                <td>₱{{ item.total_credited|currency }}</td><td>₱{{ item.total_deducted|currency }}</td>
+                <td><strong>₱{{ item.outstanding|currency }}</strong></td>
+                <td><a class="btn" href="{{ url_for('download_loan_statement', employee_id=item.employee.id) }}">Download</a></td>
+            </tr>
+            {% endfor %}
+        </table></div>
+    </section>
+    {% else %}
+    <section class="summary">
+        <div><strong>Current Outstanding</strong><p>₱{{ account.outstanding|currency }}</p></div>
+        <div><strong>Total Recorded Loans</strong><p>₱{{ account.total_credited|currency }}</p></div>
+        <div><strong>Total Payroll Deductions</strong><p>₱{{ account.total_deducted|currency }}</p></div>
+        <div><a class="btn" href="{{ url_for('download_loan_statement', employee_id=current_user.id) }}">Download Loan Statement</a></div>
+    </section>
+    {% endif %}
+
     {% if current_user.role.lower() != 'admin' %}
     <!-- Apply Loan Form -->
     <div class="no-print">
@@ -53,14 +109,17 @@
     {% endif %}
 
     <!-- Loan History Table -->
-    <h2>Loan History</h2>
-    <table>
-        <tr><th>Amount</th><th>Reason</th><th>Date Needed</th><th>Status</th>
+    <h2>Loan Details</h2>
+    <div class="table-wrap"><table>
+        <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Reference</th><th>Type</th><th>Amount</th><th>Reason</th><th>Date Needed</th><th>Status</th>
             {% if current_user.role.lower() == 'admin' %}<th class="no-print">Action</th>{% endif %}
         </tr>
         {% for l in loans %}
         <tr>
-            <td>{{ "%.2f"|format(l.amount) }}</td>
+            {% if current_user.role.lower() == 'admin' %}<td>{{ l.employee.full_name() }}</td>{% endif %}
+            <td>LOAN-{{ "%06d"|format(l.id) }}</td>
+            <td>{{ l.loan_type or 'Employee Loan' }}</td>
+            <td>₱{{ l.amount|currency }}</td>
             <td>{{ l.reason }}</td>
             <td>{{ l.date_needed }}</td>
             <td>
@@ -74,21 +133,36 @@
             </td>
             {% if current_user.role.lower() == 'admin' %}
             <td class="no-print">
-                <a href="{{ url_for('approve_loan', id=l.id) }}" class="btn">Approve</a>
+                {% if l.status == 'Pending' %}<a href="{{ url_for('approve_loan', id=l.id) }}" class="btn">Approve</a>
                 <form action="{{ url_for('reject_loan', id=l.id) }}" method="POST" style="display:inline;">
                     <input type="text" name="reason" placeholder="Reason for decline" required>
                     <button type="submit" class="btn btn-danger">Decline</button>
-                </form>
+                </form>{% else %}{{ l.approver or 'Reviewed' }}{% endif %}
             </td>
             {% endif %}
         </tr>
+        {% else %}<tr><td colspan="8">No loan records found.</td></tr>
         {% endfor %}
-    </table>
+    </table></div>
+
+    <h2>Payroll Deduction History</h2>
+    <div class="table-wrap"><table>
+        <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Payroll Reference</th><th>Cutoff</th><th>Deducted</th><th>Status</th><th>Statement</th></tr>
+        {% for item in deduction_history %}
+        <tr>
+            {% if current_user.role.lower() == 'admin' %}<td>{{ item.employee.full_name() }}</td>{% endif %}
+            <td>PAY-{{ "%06d"|format(item.payroll.id) }}</td>
+            <td>{{ item.payroll.cutoff_start }} to {{ item.payroll.cutoff_end }}</td>
+            <td>₱{{ item.payroll.loan|currency }}</td><td>Applied</td>
+            <td><a class="btn" href="{{ url_for('download_loan_statement', employee_id=item.employee.id) }}">Download</a></td>
+        </tr>
+        {% else %}<tr><td colspan="6">No finalized loan deductions yet.</td></tr>
+        {% endfor %}
+    </table></div>
 
     <!-- PDF Export / View -->
     <div class="no-print" style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
-        <a href="{{ url_for('loan', action='print') }}" class="btn" target="_blank">View PDF</a>
-        <button type="button" class="btn" onclick="window.print()">Download PDF</button>
+        {% if current_user.role.lower() != 'admin' %}<a href="{{ url_for('download_loan_statement', employee_id=current_user.id) }}" class="btn">Download Loan Statement</a>{% endif %}
     </div>
 
     <!-- Analytics Charts -->

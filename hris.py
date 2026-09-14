@@ -640,6 +640,19 @@ def ensure_payroll_columns():
     db.session.commit()
 
 
+def ensure_loan_tracking_columns():
+    loan_columns = {column["name"] for column in inspect(db.engine).get_columns("loans")}
+    if "loan_type" not in loan_columns:
+        db.session.execute(text(
+            "ALTER TABLE loans ADD COLUMN loan_type VARCHAR(30) NOT NULL DEFAULT 'Employee Loan'"
+        ))
+    if "balance_applied" not in loan_columns:
+        db.session.execute(text(
+            "ALTER TABLE loans ADD COLUMN balance_applied BOOLEAN NOT NULL DEFAULT TRUE"
+        ))
+    db.session.commit()
+
+
 def ensure_employee_hr_columns():
     employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
     columns = {
@@ -715,6 +728,7 @@ with app.app_context():
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
+    ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
     bootstrap_postgres_from_sqlite()
 
@@ -2824,7 +2838,8 @@ def review_attendance_correction(correction_id, action):
 from flask import send_file
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from sqlalchemy import extract
 import os, io
@@ -3873,6 +3888,41 @@ def reject_leave(id):
     return redirect(url_for('dashboard_admin'))
 
 # ------------------ LOAN ------------------
+def apply_approved_loan_balance(loan_record):
+    """Add an approved loan to the employee balance exactly once."""
+    if loan_record.balance_applied:
+        return False
+    employee = db.session.get(Employee, loan_record.employee_id)
+    employee.loan_balance = float(employee.loan_balance or 0) + float(loan_record.amount or 0)
+    loan_record.balance_applied = True
+    return True
+
+
+def loan_deduction_records(employee_id):
+    return Payroll.query.filter(
+        Payroll.employee_id == employee_id,
+        Payroll.loan > 0,
+        Payroll.loan_deduction_applied.is_(True)
+    ).order_by(Payroll.cutoff_start.desc()).all()
+
+
+def loan_account_summary(employee):
+    approved_loans = Loan.query.filter_by(
+        employee_id=employee.id,
+        status="Approved",
+        balance_applied=True
+    ).order_by(Loan.date_filed.desc()).all()
+    deductions = loan_deduction_records(employee.id)
+    return {
+        "employee": employee,
+        "outstanding": float(employee.loan_balance or 0),
+        "approved_loans": approved_loans,
+        "deductions": deductions,
+        "total_credited": sum(float(item.amount or 0) for item in approved_loans),
+        "total_deducted": sum(float(item.loan or 0) for item in deductions),
+    }
+
+
 @app.route('/approve_loan/<int:id>', methods=['GET','POST'])
 @login_required
 def approve_loan(id):
@@ -3883,6 +3933,7 @@ def approve_loan(id):
     loan.status = "Approved"
     loan.decision_date = datetime.utcnow()
     loan.approver = f"{current_user.first_name} {current_user.last_name}"
+    apply_approved_loan_balance(loan)
     db.session.commit()
     send_loan_email(Employee.query.get_or_404(loan.employee_id), loan, 'approved')
     flash("✅ Loan approved.", "success")
@@ -3922,6 +3973,8 @@ def loan():
         loan.status = "Approved" if action == "approve" else "Rejected"
         loan.decision_date = datetime.utcnow()
         loan.approver = f"{current_user.first_name} {current_user.last_name}"
+        if action == "approve":
+            apply_approved_loan_balance(loan)
         db.session.commit()
         send_loan_email(
             Employee.query.get_or_404(loan.employee_id),
@@ -3933,18 +3986,7 @@ def loan():
 
     # --- PDF-only print view ---
     if action == "print":
-        loans = Loan.query.filter_by(employee_id=current_user.id).all()
-        approved_loans = [l for l in loans if l.status == "Approved"] or loans
-        return render_template(
-            "loan.html",
-            loans=approved_loans,
-            approved=Loan.query.filter_by(employee_id=current_user.id, status="Approved").count(),
-            pending=Loan.query.filter_by(employee_id=current_user.id, status="Pending").count(),
-            rejected=Loan.query.filter_by(employee_id=current_user.id, status="Rejected").count(),
-            print_mode=True,
-            current_user=current_user,
-            now=datetime.now()
-        )
+        return redirect(url_for('download_loan_statement', employee_id=current_user.id))
 
     # --- Loan Application ---
     today = datetime.today()
@@ -3960,8 +4002,7 @@ def loan():
     accumulated = (emp.daily_rate or 0) * attendance_days / 12
     loan_limit = base_limit + accumulated
 
-    active_loans = Loan.query.filter_by(employee_id=current_user.id, status="Approved").all()
-    balance = sum(l.amount for l in active_loans)
+    balance = float(emp.loan_balance or 0)
     remaining_limit = max(0, loan_limit - balance)
 
     if request.method == 'POST':
@@ -4002,11 +4043,35 @@ def loan():
     loans = Loan.query.order_by(Loan.date_filed.desc()).all() if current_user.role.lower() == 'admin' \
             else Loan.query.filter_by(employee_id=current_user.id).order_by(Loan.date_filed.desc()).all()
 
-    approved = Loan.query.filter_by(status="Approved").count()
-    pending = Loan.query.filter_by(status="Pending").count()
-    rejected = Loan.query.filter_by(status="Rejected").count()
+    status_query = Loan.query if current_user.role.lower() == 'admin' else Loan.query.filter_by(employee_id=current_user.id)
+    approved = status_query.filter_by(status="Approved").count()
+    pending = status_query.filter_by(status="Pending").count()
+    rejected = status_query.filter_by(status="Rejected").count()
 
-    loan_trend = LoanHistory.query.order_by(LoanHistory.cutoff_start.desc()).limit(6).all()
+    if current_user.role.lower() == 'admin':
+        account_employees = Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+            Employee.company, Employee.last_name, Employee.first_name
+        ).all()
+        loan_accounts = [loan_account_summary(employee) for employee in account_employees]
+        deduction_history = [
+            {"employee": account["employee"], "payroll": payroll_record}
+            for account in loan_accounts
+            for payroll_record in account["deductions"]
+        ]
+        deduction_history.sort(key=lambda item: item["payroll"].cutoff_start, reverse=True)
+        account = None
+    else:
+        account = loan_account_summary(current_user)
+        loan_accounts = []
+        deduction_history = [
+            {"employee": current_user, "payroll": payroll_record}
+            for payroll_record in account["deductions"]
+        ]
+
+    loan_trend_query = LoanHistory.query
+    if current_user.role.lower() != 'admin':
+        loan_trend_query = loan_trend_query.filter_by(employee_id=current_user.id)
+    loan_trend = loan_trend_query.order_by(LoanHistory.cutoff_start.desc()).limit(6).all()
     loan_labels = [f"{r.cutoff_start.strftime('%b %d')} - {r.cutoff_end.strftime('%b %d')}" for r in loan_trend][::-1]
     loan_values = [r.total_amount - r.deductions_applied for r in loan_trend][::-1]
 
@@ -4018,8 +4083,129 @@ def loan():
                            remaining_limit=remaining_limit,
                            loan_labels=loan_labels,
                            loan_values=loan_values,
+                           account=account,
+                           loan_accounts=loan_accounts,
+                           deduction_history=deduction_history,
                            now=datetime.now(),
                            print_mode=False)
+
+
+@app.route('/admin/loans/opening-balance', methods=['POST'])
+@login_required
+def add_opening_loan_balance():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(request.form.get('employee_id', type=int))
+    try:
+        amount = float(request.form.get('amount', 0))
+        effective_date = datetime.strptime(request.form.get('effective_date', ''), '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        flash('Enter a valid prior loan amount and effective date.', 'danger')
+        return redirect(url_for('loan'))
+    if amount <= 0:
+        flash('Prior loan outstanding amount must be greater than zero.', 'danger')
+        return redirect(url_for('loan'))
+    if Loan.query.filter_by(
+        employee_id=employee.id,
+        loan_type='Prior-System Balance',
+        balance_applied=True
+    ).first():
+        flash('A prior-system opening balance is already recorded for this employee.', 'warning')
+        return redirect(url_for('loan'))
+
+    balance_mode = request.form.get('balance_mode', 'add')
+    if balance_mode == 'record_existing':
+        employee.loan_balance = amount
+    else:
+        employee.loan_balance = float(employee.loan_balance or 0) + amount
+
+    opening_loan = Loan(
+        employee_id=employee.id,
+        amount=amount,
+        date_needed=effective_date,
+        reason=request.form.get('reason', '').strip() or 'Outstanding loan before HRIS implementation',
+        status='Approved',
+        approver=current_user.full_name(),
+        decision_date=datetime.utcnow(),
+        date_filed=datetime.combine(effective_date, time.min),
+        loan_type='Prior-System Balance',
+        balance_applied=True,
+    )
+    db.session.add(opening_loan)
+    db.session.commit()
+    flash(f'Prior loan balance of PHP {amount:,.2f} added for {employee.full_name()}.', 'success')
+    return redirect(url_for('loan'))
+
+
+@app.route('/loan/statement/<int:employee_id>/download')
+@login_required
+def download_loan_statement(employee_id):
+    if current_user.id != employee_id and 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(employee_id)
+    account = loan_account_summary(employee)
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=30,
+        bottomMargin=30,
+    )
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph(payroll_company_name(employee), styles['Title']),
+        Paragraph('LOAN ACCOUNT STATEMENT', styles['Heading2']),
+        Paragraph(f'Employee: {employee.full_name()} (ID: {employee.id})', styles['Normal']),
+        Paragraph(f'Company: {employee.company or "N/A"}', styles['Normal']),
+        Paragraph(f'Generated: {datetime.now():%Y-%m-%d %H:%M}', styles['Normal']),
+        Spacer(1, 10),
+        Paragraph(
+            f'<b>Current Outstanding Balance: PHP {account["outstanding"]:,.2f}</b>',
+            styles['Heading3'],
+        ),
+        Spacer(1, 10),
+    ]
+
+    rows = [['Type', 'Reference / Period', 'Details', 'Amount']]
+    for loan_record in account['approved_loans']:
+        rows.append([
+            loan_record.loan_type or 'Employee Loan',
+            f'LOAN-{loan_record.id:06d}',
+            f'{loan_record.date_needed} | {loan_record.reason}'[:55],
+            f'+{float(loan_record.amount or 0):,.2f}',
+        ])
+    for payroll_record in account['deductions']:
+        rows.append([
+            'Payroll Deduction',
+            f'PAY-{payroll_record.id:06d}',
+            f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end}',
+            f'-{float(payroll_record.loan or 0):,.2f}',
+        ])
+    if len(rows) == 1:
+        rows.append(['No transactions', '', '', '0.00'])
+
+    table = Table(rows, colWidths=[105, 105, 260, 80], repeatRows=1)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.75, colors.black),
+        ('ALIGN', (-1, 1), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(table)
+    document.build(elements)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f'Loan_Statement_{employee.first_name}_{datetime.now():%Y%m%d}.pdf',
+        mimetype='application/pdf'
+    )
 
 
 # ------------------ EVALUATION DASHBOARD------------------
