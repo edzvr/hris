@@ -5674,7 +5674,7 @@ def quiz(employee_id):
         quiz_options[str(question.id)] = displayed_options
     if request.method == 'POST' and mode == 'take':
         quiz_answer_keys = attempt.get('answer_keys', {})
-    else:
+    elif start_requested:
         attempt = session.get(attempt_key, {})
         attempt['answer_keys'] = quiz_answer_keys
         session[attempt_key] = attempt
