@@ -1002,7 +1002,7 @@ def inject_authenticated_sidebar(response):
     #hris-global-sidebar a {{ display: block; padding: 10px 12px; margin: 4px 0; color: #f4f7f6; text-decoration: none; border-left: 3px solid transparent; }}
     #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ background: #2d5045; border-left-color: #e5b85c; }}
     #hris-global-sidebar .sidebar-logout {{ margin-top: 24px; border-top: 1px solid #426157; padding-top: 16px; }}
-    @media (max-width: 760px) {{ body.hris-sidebar-page {{ padding-left: 0 !important; padding-top: 76px !important; }} #hris-global-sidebar {{ inset: 0 0 auto 0; width: auto; height: 54px; padding: 10px 12px; display: flex; align-items: center; gap: 4px; overflow-x: auto; }} #hris-global-sidebar h2, #hris-global-sidebar p {{ display: none; }} #hris-global-sidebar a {{ white-space: nowrap; margin: 0; padding: 8px 10px; border-left: 0; border-bottom: 3px solid transparent; }} #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ border-bottom-color: #e5b85c; }} #hris-global-sidebar .sidebar-logout {{ margin-top: 0; border-top: 0; padding-top: 8px; }} }}
+    @media (max-width: 760px) {{ body.hris-sidebar-page {{ padding-left: 208px !important; padding-top: 0 !important; }} #hris-global-sidebar {{ inset: 0 auto 0 0; width: 190px; height: 100vh; max-height: 100dvh; box-sizing: border-box; padding: 18px 10px; overflow-x: hidden; overflow-y: auto; }} #hris-global-sidebar h2, #hris-global-sidebar p {{ display: block; }} #hris-global-sidebar a {{ white-space: normal; margin: 4px 0; padding: 10px 9px; border-left: 3px solid transparent; border-bottom: 0; }} #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ border-left-color: #e5b85c; border-bottom-color: transparent; }} #hris-global-sidebar .sidebar-logout {{ margin-top: 24px; border-top: 1px solid #426157; padding-top: 16px; }} }}
 </style>
 <aside id="hris-global-sidebar">
     <h2>HRIS</h2>
@@ -3140,6 +3140,32 @@ def build_thirteenth_month_rows(year, employee_id=None):
     return rows
 
 
+def loan_limit_breakdown(employee):
+    today = datetime.today()
+    year_start = date(today.year, 1, 1)
+    attendance_days = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.clock_out != None,
+        Attendance.clock_in >= datetime.combine(year_start, time.min),
+    ).count()
+    base_limit = 3000.0
+    attendance_component = float(employee.daily_rate or 0) * attendance_days / 12
+    thirteenth_rows = build_thirteenth_month_rows(today.year, employee.id)
+    thirteenth_month = float(thirteenth_rows[0]['thirteenth_month']) if thirteenth_rows else 0.0
+    thirteenth_component = round(thirteenth_month * 0.50, 2)
+    outstanding = float(employee.loan_balance or 0)
+    gross_limit = base_limit + attendance_component + thirteenth_component
+    return {
+        'base_limit': round(base_limit, 2),
+        'attendance_component': round(attendance_component, 2),
+        'thirteenth_month': round(thirteenth_month, 2),
+        'thirteenth_component': thirteenth_component,
+        'outstanding': round(outstanding, 2),
+        'gross_limit': round(gross_limit, 2),
+        'remaining_limit': round(max(0, gross_limit - outstanding), 2),
+    }
+
+
 def thirteenth_month_pdf(year, rows, verification):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
@@ -4948,21 +4974,9 @@ def loan():
         return redirect(url_for('download_loan_statement', employee_id=current_user.id))
 
     # --- Loan Application ---
-    today = datetime.today()
-    year_start = datetime(today.year, 1, 1)
-    attendance_days = Attendance.query.filter(
-        Attendance.employee_id==current_user.id,
-        Attendance.clock_out!=None,
-        Attendance.clock_in>=year_start
-    ).count()
-
     emp = Employee.query.get(current_user.id)
-    base_limit = 3000
-    accumulated = (emp.daily_rate or 0) * attendance_days / 12
-    loan_limit = base_limit + accumulated
-
-    balance = float(emp.loan_balance or 0)
-    remaining_limit = max(0, loan_limit - balance)
+    loan_limit_info = loan_limit_breakdown(emp)
+    remaining_limit = loan_limit_info['remaining_limit']
 
     if request.method == 'POST':
         amount = float(request.form.get('amount'))
@@ -5040,6 +5054,7 @@ def loan():
                            pending=pending,
                            rejected=rejected,
                            remaining_limit=remaining_limit,
+                           loan_limit_info=loan_limit_info,
                            loan_labels=loan_labels,
                            loan_values=loan_values,
                            account=account,
