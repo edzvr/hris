@@ -38,6 +38,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
+    <div class="section" style="border-left:5px solid #e5b85c;background:#fff7e3;">
+        <strong>Monthly reminder:</strong> Complete your official Quiz before the end of the month. The timer starts only after you click Start Quiz.
+        <a href="{{ url_for('monthly_reminders') }}">View all important reminders</a>
+    </div>
     <h2>Quiz for {{ emp.first_name }} {{ emp.last_name }}</h2>
     <div id="timer">1:00</div>
 

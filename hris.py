@@ -889,7 +889,8 @@ def inject_authenticated_sidebar(response):
     ]
     if not is_admin:
         links.insert(1, ('staff_help', 'Staff Help'))
-        links.insert(2, ('quiz', 'Quiz'))
+        links.insert(2, ('monthly_reminders', 'Monthly Reminders'))
+        links.insert(3, ('quiz', 'Quiz'))
         links.extend([
             ('assessment', 'Assessments'),
             ('peer_evaluation', 'Peer Evaluation'),
@@ -2144,6 +2145,29 @@ def staff_help():
         else:
             topic_url = url_for(topic['endpoint'])
     return render_template('staff_help.html', question=question, help_result=help_result, topic_url=topic_url)
+
+
+@app.route('/monthly-reminders')
+@login_required
+def monthly_reminders():
+    if 'staff' not in current_user.role.lower():
+        return redirect(url_for('dashboard_admin'))
+    month_start = datetime.today().date().replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    quiz_taken = QuizResult.query.filter(
+        QuizResult.employee_id == current_user.id,
+        QuizResult.is_official.is_(True),
+        QuizResult.date_taken >= datetime.combine(month_start, datetime.min.time()),
+        QuizResult.date_taken < datetime.combine(next_month, datetime.min.time()),
+    ).first() is not None
+    peer_due = peer_evaluation_is_due(current_user, month_start)
+    return render_template(
+        'monthly_reminders.html',
+        month_start=month_start,
+        month_end=next_month - timedelta(days=1),
+        quiz_taken=quiz_taken,
+        peer_due=peer_due,
+    )
 
 
 @app.route('/staff-guide')

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Monthly Reminders</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { margin: 0; padding: 24px; background: #eef3f1; color: #263238; font-family: Arial, sans-serif; }
+        main { max-width: 900px; margin: 0 auto; }
+        .panel { background: #fff; border: 1px solid #d8e0dc; padding: 22px; margin-bottom: 16px; }
+        .reminder { border-left: 5px solid #e5b85c; background: #fff7e3; padding: 16px; margin: 12px 0; }
+        .done { border-left-color: #238b63; background: #edf8f2; }
+        .btn { display: inline-block; margin-top: 10px; padding: 10px 14px; background: #1f7fdf; color: #fff; text-decoration: none; }
+        li { margin: 10px 0; line-height: 1.5; }
+    </style>
+</head>
+<body>
+<main>
+    <section class="panel">
+        <h1>Important Monthly Reminders</h1>
+        <p>Period: {{ month_start.strftime('%B %d, %Y') }} to {{ month_end.strftime('%B %d, %Y') }}</p>
+        <ul>
+            <li>Complete your official Quiz before the end of the month. The official attempt is timed and recorded once per month.</li>
+            <li>Complete your monthly peer-to-peer evaluation before month-end. Evaluate a coworker fairly and constructively.</li>
+            <li>Review your Attendance/DTR, payslip, leave balance, loan balance, and company bulletins regularly.</li>
+            <li>Download finalized payslips and attendance records for your personal file.</li>
+            <li>Peer feedback is anonymous to staff. Admin reviews evaluation submissions before Merit/Demerit points are applied.</li>
+        </ul>
+    </section>
+    <section class="panel">
+        <div class="reminder {{ 'done' if quiz_taken else '' }}">
+            <h2>{{ 'Quiz completed this month' if quiz_taken else 'Quiz reminder: complete before month-end' }}</h2>
+            <p>{{ 'Your official quiz attempt is recorded.' if quiz_taken else 'Open Quiz, choose a category, then click Start Quiz when ready. Opening the page does not start the timer.' }}</p>
+            <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Open Quiz</a>
+        </div>
+        <div class="reminder {{ 'done' if not peer_due else '' }}">
+            <h2>{{ 'Peer evaluation submitted this month' if not peer_due else 'Peer evaluation reminder: complete before month-end' }}</h2>
+            <p>{{ 'Your monthly peer evaluation submission is recorded.' if not peer_due else 'Choose a coworker and submit fair, constructive ratings. Your evaluator identity is private from staff.' }}</p>
+            <a class="btn" href="{{ url_for('peer_evaluation') }}">Open Peer Evaluation</a>
+        </div>
+    </section>
+    <a href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a>
+</main>
+</body>
+</html>
