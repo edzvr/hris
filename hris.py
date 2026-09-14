@@ -404,6 +404,19 @@ LEGACY_PEER_QUESTION_TRANSLATIONS = {
     "Responds constructively to feedback and workplace concerns.": DEFAULT_PEER_QUESTIONS[4],
 }
 
+HANDBOOK_QUIZ_QUESTIONS = [
+    ("Kailan naging epektibo ang Employee Policy Handbook?", "Oktubre 2025", "Enero 2024", "Marso 2026", "Hulyo 2023", "A"),
+    ("Ano ang dapat gawin kapag may hindi malinaw sa handbook?", "Magtanong sa kinauukulan", "Huwag pansinin", "I-share sa social media", "Hulaan ang patakaran", "A"),
+    ("Ano ang ipinagbabawal sa workplace ayon sa handbook?", "Diskriminasyon at panliligalig", "Maayos na komunikasyon", "Pagtutulungan", "Pag-report ng sira", "A"),
+    ("Ano ang ibig sabihin ng Clean As You Go?", "Linisin ang sariling gamit at paligid pagkatapos gamitin", "Iwan ang tools sa sahig", "Hintayin ang ibang staff", "Itago ang kalat", "A"),
+    ("Ano ang dapat gawin kung may sira sa ari-arian ng kumpanya?", "I-report agad", "Itago ang sira", "Iwan sa susunod na shift", "Gamitin pa rin kahit delikado", "A"),
+    ("Ano ang dapat gawin kung mahuhuli o liliban sa trabaho?", "Ipaalam agad sa kinauukulan", "Huwag magsabi", "Mag-clock in para sa iba", "Maghintay ng memo", "A"),
+    ("Ilang araw ang Service Incentive Leave para sa kwalipikadong regular employee?", "Limang araw", "Isang araw", "Pitong araw", "Sampung araw", "A"),
+    ("Ano ang dapat isumite bago gumamit ng leave?", "Leave Request Slip", "Quiz result", "Payslip lamang", "Incident report lamang", "A"),
+    ("Ano ang batayan ng 13th-month pay ayon sa handbook?", "Mga araw na ipinasok sa loob ng 12 buwan", "Allowances lamang", "Overtime lamang", "Birthday leave lamang", "A"),
+    ("Ano ang tamang asal sa paggamit ng company resources?", "Gamitin nang wasto at makatarungan", "Gamitin para sa personal na negosyo", "Iuwi nang walang pahintulot", "Ibigay sa bisita", "A"),
+]
+
 
 def ensure_peer_questions():
     existing_questions = EvaluationQuestion.query.all()
@@ -5615,7 +5628,7 @@ def quiz(employee_id):
     ).all()
 
     if len({question.question.strip().casefold() for question in category_quizzes}) < 10:
-        fallback_questions = [
+        fallback_questions = HANDBOOK_QUIZ_QUESTIONS if category == 'Company Handbook' else [
             ("Ano ang pangunahing layunin ng regular na maintenance ng sasakyan?", "Maiwasan ang pagkasira", "Dagdagan ang ingay", "Bawasan ang kaligtasan", "Tanggalin ang preno", "A"),
             ("Ano ang dapat gawin bago magtrabaho sa makina?", "Patayin at palamigin ang makina", "Buksan ang lahat ng ilaw", "Tanggalin ang gulong", "Lagyan ng tubig ang gasolina", "A"),
             ("Ano ang gamit ng warning light sa dashboard?", "Magbigay ng babala", "Magpalit ng gulong", "Magdagdag ng gasolina", "Maglinis ng upuan", "A"),
