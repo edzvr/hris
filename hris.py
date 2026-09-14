@@ -389,18 +389,35 @@ def assessment():
     return render_template("assessment.html", view="menu")
 
 DEFAULT_PEER_QUESTIONS = [
-    "Communicates clearly and respectfully with the team.",
-    "Completes assigned work accurately and on time.",
-    "Shows teamwork and supports coworkers.",
-    "Demonstrates professionalism and accountability.",
-    "Responds constructively to feedback and workplace concerns."
+    "Nakikipag-usap nang malinaw at may respeto sa mga kasama sa trabaho.",
+    "Tinatapos nang tama at nasa oras ang mga nakatalagang gawain.",
+    "Nakikipagtulungan at tumutulong sa mga katrabaho.",
+    "Nagpapakita ng propesyonalismo at pananagutan sa trabaho.",
+    "Tumatanggap at tumutugon nang maayos sa feedback at mga alalahanin sa trabaho."
 ]
+
+LEGACY_PEER_QUESTION_TRANSLATIONS = {
+    "Communicates clearly and respectfully with the team.": DEFAULT_PEER_QUESTIONS[0],
+    "Completes assigned work accurately and on time.": DEFAULT_PEER_QUESTIONS[1],
+    "Shows teamwork and supports coworkers.": DEFAULT_PEER_QUESTIONS[2],
+    "Demonstrates professionalism and accountability.": DEFAULT_PEER_QUESTIONS[3],
+    "Responds constructively to feedback and workplace concerns.": DEFAULT_PEER_QUESTIONS[4],
+}
 
 
 def ensure_peer_questions():
-    if not EvaluationQuestion.query.first():
+    existing_questions = EvaluationQuestion.query.all()
+    changed = False
+    for question in existing_questions:
+        translated = LEGACY_PEER_QUESTION_TRANSLATIONS.get(question.text)
+        if translated:
+            question.text = translated
+            changed = True
+    if not existing_questions:
         for text in DEFAULT_PEER_QUESTIONS:
             db.session.add(EvaluationQuestion(text=text, category="peer", is_active=True))
+        changed = True
+    if changed:
         db.session.commit()
 
 # ------------------ FUNCTION: generate_auto_quiz ------------------
@@ -5599,16 +5616,16 @@ def quiz(employee_id):
 
     if len({question.question.strip().casefold() for question in category_quizzes}) < 10:
         fallback_questions = [
-            ("Ano ang pangunahing layunin ng regular vehicle maintenance?", "Maiwasan ang sira", "Dagdagan ang ingay", "Bawasan ang safety", "Tanggalin ang preno", "A"),
-            ("Ano ang dapat gawin bago magtrabaho sa engine?", "Patayin at palamigin ito", "Buksan ang lahat ng ilaw", "Tanggalin ang gulong", "Lagyan ng tubig ang fuel", "A"),
-            ("Ano ang gamit ng warning light sa dashboard?", "Magbigay ng alerto", "Magpalit ng gulong", "Magdagdag ng gasolina", "Maglinis ng upuan", "A"),
+            ("Ano ang pangunahing layunin ng regular na maintenance ng sasakyan?", "Maiwasan ang pagkasira", "Dagdagan ang ingay", "Bawasan ang kaligtasan", "Tanggalin ang preno", "A"),
+            ("Ano ang dapat gawin bago magtrabaho sa makina?", "Patayin at palamigin ang makina", "Buksan ang lahat ng ilaw", "Tanggalin ang gulong", "Lagyan ng tubig ang gasolina", "A"),
+            ("Ano ang gamit ng warning light sa dashboard?", "Magbigay ng babala", "Magpalit ng gulong", "Magdagdag ng gasolina", "Maglinis ng upuan", "A"),
             ("Ano ang mahalaga kapag nag-iinspeksyon ng sasakyan?", "Sundin ang checklist", "Hulaan ang resulta", "Laktawan ang safety", "Itago ang sira", "A"),
-            ("Ano ang dapat gamitin sa pagprotekta ng mata?", "Safety goggles", "Open sandals", "Loose cloth", "Paper bag", "A"),
-            ("Ano ang unang hakbang kapag may nakitang oil leak?", "I-report at siyasatin", "Balewalain ito", "Dagdagan ang bilis", "Takpan ng papel", "A"),
+            ("Ano ang dapat gamitin upang maprotektahan ang mga mata?", "Safety goggles o salaming pangkaligtasan", "Open sandals", "Maluwag na tela", "Paper bag", "A"),
+            ("Ano ang unang hakbang kapag may nakitang tagas ng langis?", "I-report at siyasatin", "Balewalain ito", "Dagdagan ang bilis", "Takpan ng papel", "A"),
             ("Bakit kailangang panatilihing malinis ang work area?", "Para maiwasan ang aksidente", "Para bumigat ang tools", "Para madulas ang sahig", "Para mawala ang labels", "A"),
-            ("Ano ang tamang asal sa paggamit ng tools?", "Gamitin ayon sa purpose", "Ihagis pagkatapos gamitin", "Gamitin kahit sira", "Itago nang basa", "A"),
-            ("Ano ang dapat gawin sa sirang equipment?", "I-tag at i-report", "Gamitin pa rin", "Itago sa daan", "Ibigay sa customer", "A"),
-            ("Ano ang dapat suriin bago i-release ang sasakyan?", "Safety at work quality", "Kulay lang", "Busina lang", "Radio lang", "A")
+            ("Ano ang tamang paraan ng paggamit ng tools?", "Gamitin ayon sa tamang gamit nito", "Ihagis pagkatapos gamitin", "Gamitin kahit sira", "Itago nang basa", "A"),
+            ("Ano ang dapat gawin sa sirang equipment?", "Lagyan ng tag at i-report", "Gamitin pa rin", "Itago sa daan", "Ibigay sa customer", "A"),
+            ("Ano ang dapat suriin bago i-release ang sasakyan?", "Kaligtasan at kalidad ng trabaho", "Kulay lang", "Busina lang", "Radio lang", "A")
         ]
         existing_questions = {question.question.strip().casefold() for question in category_quizzes}
         for question, choice_a, choice_b, choice_c, choice_d, correct_answer in fallback_questions:
@@ -5654,7 +5671,7 @@ def quiz(employee_id):
             session.pop(attempt_key, None)
             flash('This quiz attempt could not be verified. Start a new quiz.', 'warning')
             return redirect(url_for('quiz', employee_id=employee_id))
-        if (datetime.utcnow() - attempt_started).total_seconds() > 60:
+        if (datetime.utcnow() - attempt_started).total_seconds() > 300:
             session.pop(attempt_key, None)
             flash('Time expired. The quiz was not accepted. Start a new attempt next month or contact Admin.', 'danger')
             return redirect(url_for('quiz', employee_id=employee_id))
@@ -5779,7 +5796,7 @@ def quiz(employee_id):
         quiz_ids=','.join(str(question.id) for question in quizzes),
         quiz_options=quiz_options,
         quiz_started=bool(session.get(attempt_key)),
-        quiz_duration_seconds=60
+        quiz_duration_seconds=300
     )
 
 # ------------------ MERIT / DEMERIT ------------------

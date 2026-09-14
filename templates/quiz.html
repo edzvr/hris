@@ -18,7 +18,7 @@
     </style>
     <script>
         // Countdown starts only after the server creates an active attempt.
-        let timeLeft = 60;
+        let timeLeft = {{ quiz_duration_seconds }};
         function startTimer() {
             let timer = document.getElementById("timer");
             let interval = setInterval(function() {
@@ -28,7 +28,7 @@
                 timeLeft--;
                 if (timeLeft < 0) {
                     clearInterval(interval);
-                    alert("Time is up! Submitting quiz...");
+                    alert("Tapos na ang oras. Isusumite ang quiz...");
                     document.getElementById("quizForm").submit();
                 }
             }, 1000);
@@ -42,29 +42,29 @@
         <strong>Monthly reminder:</strong> Complete your official Quiz before the end of the month. The timer starts only after you click Start Quiz.
         <a href="{{ url_for('monthly_reminders') }}">View all important reminders</a>
     </div>
-    <h2>Quiz for {{ emp.first_name }} {{ emp.last_name }}</h2>
-    <div id="timer">1:00</div>
+    <h2>Quiz para kay {{ emp.first_name }} {{ emp.last_name }}</h2>
+    <div id="timer">5:00</div>
 
     <!-- Staff selects only the quiz category; uploads are handled by admins. -->
     <div class="section">
-        <h3>Quiz Options</h3>
+        <h3>Mga Pagpipilian sa Quiz</h3>
         <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="mode" value="start">
-            <label>Choose quiz category</label><br>
+            <label>Pumili ng kategorya ng quiz</label><br>
             <select name="category">
                 <option value="Engine" {% if category=="Engine" %}selected{% endif %}>Engine</option>
                 <option value="PMS" {% if category=="PMS" %}selected{% endif %}>PMS</option>
                 <option value="Car Brands" {% if category=="Car Brands" %}selected{% endif %}>Car Brands</option>
                 <option value="General" {% if category=="General" %}selected{% endif %}>General</option>
             </select>
-            <button type="submit" class="btn">Start Quiz</button>
+            <button type="submit" class="btn">Simulan ang Quiz</button>
         </form>
     </div>
 
     <!-- Quiz form -->
     {% if quiz_started %}
     <div class="section">
-        <h3>Take Quiz - {{ category }}</h3>
+        <h3>Sagutan ang Quiz - {{ category }}</h3>
         <form method="POST" id="quizForm">
             <input type="hidden" name="mode" value="take">
             <input type="hidden" name="category" value="{{ category }}">
@@ -75,23 +75,23 @@
                     <label><input type="radio" name="quiz_{{ q.id }}" value="{{ option_key }}" required> {{ option_key }}. {{ option_text }}</label><br>
                 {% endfor %}
             {% else %}
-                <p>No quizzes available for this category/month.</p>
+                <p>Walang available na quiz para sa kategorya/buwang ito.</p>
             {% endfor %}
             {% if quizzes %}
-            <button type="submit" class="btn">Submit Quiz</button>
+            <button type="submit" class="btn">Isumite ang Quiz</button>
             {% endif %}
         </form>
     </div>
     {% else %}
     <div class="section">
-        <h3>Quiz is ready</h3>
-        <p>Opening this page does not start the timer. Choose a category above and click Start Quiz when you are ready.</p>
+        <h3>Handa na ang Quiz</h3>
+        <p>Ang pagbukas ng page na ito ay hindi magsisimula ng timer. Pumili ng kategorya at pindutin ang Simulan ang Quiz kapag handa ka na. May limang minuto para sa opisyal na quiz.</p>
     </div>
     {% endif %}
 
     <!-- Past results -->
     <div class="section">
-        <h3>Past Results</h3>
+        <h3>Mga Nakaraang Resulta</h3>
         <table>
             <tr>
                 <th>Score</th>
