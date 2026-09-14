@@ -845,6 +845,10 @@ def inject_authenticated_sidebar(response):
     if not is_admin:
         links.insert(1, ('staff_help', 'Staff Help'))
         links.insert(2, ('quiz', 'Quiz'))
+        links.extend([
+            ('assessment', 'Assessments'),
+            ('merit_demerit', 'Merit / Demerit'),
+        ])
     if is_admin:
         links.extend([
             ('compliance_reports', 'Compliance Reports'),
@@ -852,7 +856,7 @@ def inject_authenticated_sidebar(response):
         ])
 
     link_markup = ''.join(
-        f'<a href="{url_for(endpoint, employee_id=current_user.id) if endpoint in {"payroll", "attendance", "quiz"} else url_for(endpoint, user_id=current_user.id) if endpoint == "profile" else url_for(endpoint)}">{label}</a>'
+        f'<a href="{url_for(endpoint, employee_id=current_user.id) if endpoint in {"payroll", "attendance", "quiz", "merit_demerit"} else url_for(endpoint, user_id=current_user.id) if endpoint == "profile" else url_for(endpoint)}">{label}</a>'
         for endpoint, label in links
     )
     sidebar = f'''
