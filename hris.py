@@ -5651,6 +5651,19 @@ def quiz(employee_id):
             'started_at': datetime.utcnow().isoformat(),
         }
         return redirect(url_for('quiz', employee_id=employee_id))
+    elif attempt and attempt.get('category') == category:
+        try:
+            attempt_started = datetime.fromisoformat(attempt['started_at'])
+            if (datetime.utcnow() - attempt_started).total_seconds() > 60:
+                session.pop(attempt_key, None)
+                quizzes = []
+            else:
+                selected_ids = [int(value) for value in attempt.get('quiz_ids', [])]
+                quizzes = Quiz.query.filter(Quiz.id.in_(selected_ids)).all()
+                quizzes.sort(key=lambda question: selected_ids.index(question.id))
+        except (KeyError, TypeError, ValueError):
+            session.pop(attempt_key, None)
+            quizzes = []
     else:
         quizzes = []
 
