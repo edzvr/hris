@@ -537,9 +537,6 @@
 
   window.addEventListener('online', syncOfflineAttendance);
   syncOfflineAttendance();
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('{{ url_for('service_worker') }}', { scope: '/' });
-  }
 </script>
 
 <style>

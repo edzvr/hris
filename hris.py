@@ -97,7 +97,11 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 
 @app.route('/service-worker.js')
 def service_worker():
-    return send_from_directory(os.path.join(basedir, 'static'), 'service-worker.js')
+    response = send_from_directory(os.path.join(basedir, 'static'), 'service-worker.js')
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 if load_dotenv:
     load_dotenv(os.path.join(basedir, '.env'))
