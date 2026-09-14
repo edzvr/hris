@@ -2159,10 +2159,13 @@ def submit_incident():
         return redirect(url_for('dashboard_admin'))
 
     coworkers = Employee.query.filter(
-        Employee.company == current_user.company,
         Employee.id != current_user.id,
-        Employee.role.ilike('%staff%')
-    ).order_by(Employee.first_name, Employee.last_name).all()
+        Employee.role.ilike('%staff%'),
+        Employee.first_name.isnot(None),
+        Employee.first_name != '',
+        Employee.last_name.isnot(None),
+        Employee.last_name != '',
+    ).order_by(Employee.last_name, Employee.first_name).all()
 
     if request.method == 'POST':
         category = request.form.get('category', '').strip()
