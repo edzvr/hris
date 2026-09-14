@@ -3188,6 +3188,8 @@ def thirteenth_month_pdf(year, rows, verification):
 @app.route('/13th-month')
 @login_required
 def thirteenth_month():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
     try:
         year = int(request.args.get('year', datetime.today().year))
     except (TypeError, ValueError):

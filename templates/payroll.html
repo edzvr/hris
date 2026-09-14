@@ -151,10 +151,12 @@
         <input id="monthly-period" type="month" name="month" required>
         <button type="submit" name="download" value="true" class="btn">📄 Download Monthly Payslip</button>
     </form>
+    {% if current_user.role.lower() == 'admin' %}
     <p>
         <a class="btn" href="{{ url_for('thirteenth_month', year=(selected_year or now.year)) }}">View 13th-Month Pay</a>
         <a class="btn" href="{{ url_for('thirteenth_month', year=(selected_year or now.year), download='true') }}">Download 13th-Month PDF</a>
     </p>
+    {% endif %}
 </div>
 
 {% if payslip %}
