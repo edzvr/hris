@@ -4066,9 +4066,14 @@ def monthly_payroll(employee_id):
     ).order_by(Payroll.cutoff_start).all()
     totals = {
         'gross_income': sum(float(record.gross_income or 0) for record in records),
+        'sss': sum(float(record.sss or 0) for record in records),
+        'philhealth': sum(float(record.philhealth or 0) for record in records),
+        'pagibig': sum(float(record.pagibig or 0) for record in records),
+        'withholding_tax': sum(float(record.withholding_tax or 0) for record in records),
         'deductions': sum(float(record.total_deductions or 0) for record in records),
         'net_pay': sum(float(record.net_pay or 0) for record in records),
         'loan': sum(float(record.loan or 0) for record in records),
+        'cash_advance': sum(float(record.cash_advance or 0) for record in records),
     }
 
     if request.args.get('download') == 'true':
@@ -4080,7 +4085,17 @@ def monthly_payroll(employee_id):
         pdf.drawString(50, 750, f'Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})')
         pdf.drawString(50, 735, f'Month: {month_start.strftime("%B %Y")}')
         y = 690
-        for label, key in [('Gross Income', 'gross_income'), ('Total Deductions', 'deductions'), ('Loan Deductions', 'loan'), ('NET PAY', 'net_pay')]:
+        for label, key in [
+            ('Gross Income', 'gross_income'),
+            ('SSS', 'sss'),
+            ('PhilHealth', 'philhealth'),
+            ('Pag-IBIG', 'pagibig'),
+            ('Withholding Tax', 'withholding_tax'),
+            ('Loan Deductions', 'loan'),
+            ('Cash Advance', 'cash_advance'),
+            ('Total Deductions', 'deductions'),
+            ('NET PAY', 'net_pay'),
+        ]:
             pdf.setFont('Helvetica-Bold' if key == 'net_pay' else 'Helvetica', 12)
             pdf.drawString(70, y, label)
             pdf.drawRightString(500, y, f'PHP {totals[key]:,.2f}')
