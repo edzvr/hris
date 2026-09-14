@@ -896,6 +896,7 @@ def inject_authenticated_sidebar(response):
         links.extend([
             ('compliance_reports', 'Compliance Reports'),
             ('audit_logs', 'Audit Logs'),
+            ('evaluation_dashboard', 'Evaluation Dashboard'),
         ])
 
     link_markup = ''.join(
@@ -5028,14 +5029,20 @@ def evaluation_dashboard():
         return redirect(url_for('login'))
 
     ensure_peer_questions()
-    employees = Employee.query.all()
+    employees = Employee.query.filter(
+        Employee.role.ilike('%staff%'),
+        Employee.first_name.isnot(None),
+        Employee.first_name != '',
+        Employee.last_name.isnot(None),
+        Employee.last_name != '',
+    ).order_by(Employee.last_name, Employee.first_name).all()
     questions = EvaluationQuestion.query.filter_by(is_active=True).all()
     month_start = datetime.today().date().replace(day=1)
     month_start_dt = datetime.combine(month_start, datetime.min.time())
     peer_status = []
     for emp in employees:
         submitted = Evaluation.query.filter(
-            Evaluation.employee_id == emp.id,
+            Evaluation.evaluator_id == emp.id,
             Evaluation.date >= month_start_dt,
             Evaluation.category.like("peer_%")
         ).first() is not None
@@ -5673,8 +5680,12 @@ def merit_demerit(employee_id):
 
     # Evaluation points
     evaluations = Evaluation.query.filter_by(employee_id=employee_id).all()
-    regular_evaluations = [e for e in evaluations if not str(e.category or '').startswith('peer_')]
-    peer_evaluations = [e for e in evaluations if str(e.category or '').startswith('peer_')]
+    approved_evaluations = [
+        e for e in evaluations
+        if e.approval_status in {'Approved', None}
+    ]
+    regular_evaluations = [e for e in approved_evaluations if not str(e.category or '').startswith('peer_')]
+    peer_evaluations = [e for e in approved_evaluations if str(e.category or '').startswith('peer_')]
     eval_merit = sum(5 if e.score >= 90 else 3 if e.score >= 75 else 1 for e in regular_evaluations)
     eval_demerit = sum(2 for e in regular_evaluations if e.score < 60)
 
