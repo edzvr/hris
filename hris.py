@@ -918,20 +918,35 @@ def inject_authenticated_sidebar(response):
         ('profile', 'Profile'),
     ]
     if not is_admin:
-        links.insert(1, ('staff_help', 'Staff Help'))
-        links.insert(2, ('monthly_reminders', 'Monthly Reminders'))
-        links.insert(3, ('quiz', 'Quiz'))
+        links[1:1] = [
+            ('staff_help', 'Staff Help'),
+            ('monthly_reminders', 'Monthly Reminders'),
+            ('quiz', 'Quiz'),
+        ]
         links.extend([
             ('assessment', 'Assessments'),
             ('peer_evaluation', 'Peer Evaluation'),
             ('merit_demerit', 'Merit / Demerit'),
             ('submit_incident', 'Incident Report'),
+            ('attendance_correction', 'Attendance Correction'),
+            ('apply_ot', 'Apply for OT'),
+            ('bulletin', 'Company Bulletin'),
+            ('company_files', 'Company Files'),
         ])
     if is_admin:
         links.extend([
-            ('compliance_reports', 'Compliance Reports'),
-            ('audit_logs', 'Audit Logs'),
+            ('holiday_ot_dashboard', 'Attendance and OT'),
             ('evaluation_dashboard', 'Evaluation Dashboard'),
+            ('admin_quiz_upload', 'Quiz Questionnaire'),
+            ('admin_files', 'Upload Company Files'),
+            ('employee_201_selector', 'Staff 201 Files'),
+            ('admin_incidents', 'Incident Reports'),
+            ('monthly_deductions', 'Monthly Deductions'),
+            ('tax_reports', 'Tax Reports'),
+            ('compliance_reports', 'Compliance Reports'),
+            ('thirteenth_month', '13th-Month Pay'),
+            ('backup', 'Backup Database'),
+            ('audit_logs', 'Audit Logs'),
         ])
 
     link_markup = ''.join(
@@ -5740,27 +5755,34 @@ def quiz(employee_id):
 
     quiz_options = {}
     quiz_answer_keys = {}
+    stored_options = attempt.get('display_options', {}) if attempt else {}
     for question in quizzes:
-        options = [
-            (question.choice_a, 'A'),
-            (question.choice_b, 'B'),
-            (question.choice_c, 'C'),
-            (question.choice_d, 'D'),
-        ]
-        options = [option for option in options if option[0]]
-        random.shuffle(options)
-        displayed_options = []
-        for index, (option_text, original_key) in enumerate(options):
-            display_key = chr(ord('A') + index)
-            displayed_options.append((display_key, option_text))
-            if original_key == question.correct_answer:
-                quiz_answer_keys[str(question.id)] = display_key
+        stored_question_options = stored_options.get(str(question.id))
+        if stored_question_options and attempt.get('answer_keys'):
+            displayed_options = [tuple(option) for option in stored_question_options]
+            quiz_answer_keys[str(question.id)] = attempt.get('answer_keys', {}).get(str(question.id))
+        else:
+            options = [
+                (question.choice_a, 'A'),
+                (question.choice_b, 'B'),
+                (question.choice_c, 'C'),
+                (question.choice_d, 'D'),
+            ]
+            options = [option for option in options if option[0]]
+            random.shuffle(options)
+            displayed_options = []
+            for index, (option_text, original_key) in enumerate(options):
+                display_key = chr(ord('A') + index)
+                displayed_options.append((display_key, option_text))
+                if original_key == question.correct_answer:
+                    quiz_answer_keys[str(question.id)] = display_key
         quiz_options[str(question.id)] = displayed_options
     if request.method == 'POST' and mode == 'take':
         quiz_answer_keys = attempt.get('answer_keys', {})
-    elif start_requested:
+    elif attempt and quizzes and not attempt.get('answer_keys'):
         attempt = session.get(attempt_key, {})
         attempt['answer_keys'] = quiz_answer_keys
+        attempt['display_options'] = quiz_options
         session[attempt_key] = attempt
 
     # Handle quiz answers
