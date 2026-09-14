@@ -4070,6 +4070,11 @@ def payroll_dashboard():
     payroll_data = []
     employees = Employee.query.order_by(
         Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
+    ).filter(
+        Employee.first_name.isnot(None),
+        Employee.first_name != '',
+        Employee.last_name.isnot(None),
+        Employee.last_name != '',
     ).all()
     accounting_totals = {
         'staff_net_pay': 0.0,
