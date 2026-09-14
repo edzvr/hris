@@ -5558,8 +5558,9 @@ def quiz(employee_id):
         return redirect(url_for('dashboard_staff'))
 
     # Staff can take quizzes; questionnaire uploads belong to the admin route.
-    mode = request.form.get("mode", "auto")
+    mode = request.form.get("mode", "view")
     category = request.form.get("category", "General")
+    start_requested = request.method == 'POST' and mode in {'auto', 'start'}
 
     if request.method == 'POST' and mode == "upload" and 'file' in request.files:
         flash("❌ Questionnaire uploads are available to administrators only.", "danger")
@@ -5636,7 +5637,7 @@ def quiz(employee_id):
         selected_ids = [int(value) for value in attempt.get('quiz_ids', [])]
         quizzes = Quiz.query.filter(Quiz.id.in_(selected_ids)).all()
         quizzes.sort(key=lambda question: selected_ids.index(question.id))
-    else:
+    elif start_requested:
         available_quizzes = list({question.question.strip().casefold(): question for question in category_quizzes}.values())
         if len(available_quizzes) < 10:
             available_quizzes = Quiz.query.filter(
@@ -5649,6 +5650,9 @@ def quiz(employee_id):
             'quiz_ids': [question.id for question in quizzes],
             'started_at': datetime.utcnow().isoformat(),
         }
+        return redirect(url_for('quiz', employee_id=employee_id))
+    else:
+        quizzes = []
 
     quiz_options = {}
     quiz_answer_keys = {}
@@ -5720,6 +5724,7 @@ def quiz(employee_id):
         mode=mode,
         quiz_ids=','.join(str(question.id) for question in quizzes),
         quiz_options=quiz_options,
+        quiz_started=bool(session.get(attempt_key)),
         quiz_duration_seconds=60
     )
 

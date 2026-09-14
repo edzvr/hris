@@ -17,7 +17,7 @@
         .btn { background:#1976d2; color:white; border:none; cursor:pointer; }
     </style>
     <script>
-        // Countdown timer (1 minute)
+        // Countdown starts only after the server creates an active attempt.
         let timeLeft = 60;
         function startTimer() {
             let timer = document.getElementById("timer");
@@ -33,7 +33,7 @@
                 }
             }, 1000);
         }
-        window.onload = startTimer;
+        {% if quiz_started %}window.onload = startTimer;{% endif %}
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
@@ -45,18 +45,20 @@
     <div class="section">
         <h3>Quiz Options</h3>
         <form method="POST" enctype="multipart/form-data">
-            <label><input type="radio" name="mode" value="auto" checked> Use Auto-generated Quiz</label><br>
+            <input type="hidden" name="mode" value="start">
+            <label>Choose quiz category</label><br>
             <select name="category">
                 <option value="Engine" {% if category=="Engine" %}selected{% endif %}>Engine</option>
                 <option value="PMS" {% if category=="PMS" %}selected{% endif %}>PMS</option>
                 <option value="Car Brands" {% if category=="Car Brands" %}selected{% endif %}>Car Brands</option>
                 <option value="General" {% if category=="General" %}selected{% endif %}>General</option>
             </select>
-            <button type="submit" class="btn">Confirm Option</button>
+            <button type="submit" class="btn">Start Quiz</button>
         </form>
     </div>
 
     <!-- Quiz form -->
+    {% if quiz_started %}
     <div class="section">
         <h3>Take Quiz - {{ category }}</h3>
         <form method="POST" id="quizForm">
@@ -76,6 +78,12 @@
             {% endif %}
         </form>
     </div>
+    {% else %}
+    <div class="section">
+        <h3>Quiz is ready</h3>
+        <p>Opening this page does not start the timer. Choose a category above and click Start Quiz when you are ready.</p>
+    </div>
+    {% endif %}
 
     <!-- Past results -->
     <div class="section">
