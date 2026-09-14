@@ -229,7 +229,15 @@
 
     <div class="container card dashboard-section">
         <h2>Need Help?</h2>
-        <p>Use the buttons above to access your key workflows. All pages include a Back to Dashboard link for easier navigation.</p>
+      <p>Ask the HRIS how to use a route, view a record, or download a document.</p>
+      <form method="post" action="{{ url_for('staff_help') }}" style="max-width:760px;">
+        <label for="quick-help-question"><strong>What do you need help with?</strong></label>
+        <input id="quick-help-question" name="question" type="text" required
+             placeholder="Example: How do I download my payslip?"
+             style="width:100%;box-sizing:border-box;padding:12px;margin:8px 0;font-size:18px;">
+        <button type="submit" class="btn btn-primary">Ask Staff Help</button>
+        <a href="{{ url_for('staff_help') }}" class="btn btn-primary">Open Help Center</a>
+      </form>
     </div>
 
 <script>

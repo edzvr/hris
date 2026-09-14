@@ -842,6 +842,8 @@ def inject_authenticated_sidebar(response):
         ('loan', 'Loans'),
         ('profile', 'Profile'),
     ]
+    if not is_admin:
+        links.insert(1, ('staff_help', 'Staff Help'))
     if is_admin:
         links.extend([
             ('compliance_reports', 'Compliance Reports'),
@@ -2004,6 +2006,95 @@ def dashboard_staff():
         peer_evaluation_pending=peer_evaluation_pending,
         latest_payslip=latest_payslip
     )
+
+
+STAFF_HELP_TOPICS = [
+    {
+        'keywords': ('clock in', 'clockin', 'clock out', 'clockout', 'attendance', 'dtr', 'time record'),
+        'title': 'Attendance and DTR',
+        'answer': 'Open My Attendance from the sidebar. Use Clock In at the start of work and Clock Out at the end. To download your DTR, open My Attendance and choose the PDF download. If a time is missing or wrong, use Request Attendance Correction and include the correct time and reason.',
+        'endpoint': 'attendance',
+    },
+    {
+        'keywords': ('payslip', 'payroll', 'salary', 'net pay', 'download pay'),
+        'title': 'Payroll and payslip',
+        'answer': 'Open My Payroll from the sidebar. Finalized payroll records show View and Download options. Staff can download a payslip after Admin finalizes the cutoff. The PDF contains the earnings, deductions, net pay, and QR verification details.',
+        'endpoint': 'payroll',
+    },
+    {
+        'keywords': ('leave', 'sil', 'vacation', 'sick leave', 'leave balance', 'leave credit'),
+        'title': 'Leave request',
+        'answer': 'Open Leave from the sidebar, select the leave type, enter the dates, number of days, and reason, then submit. SIL requests are checked against your remaining credits. The request stays Pending until Admin approves or rejects it.',
+        'endpoint': 'leave',
+    },
+    {
+        'keywords': ('loan', 'outstanding', 'deduction'),
+        'title': 'Loan account',
+        'answer': 'Open Loans from the sidebar to view your outstanding balance, approved loans, and cutoff deductions. You can file a loan request there. The loan statement can be downloaded and includes the QR verification details.',
+        'endpoint': 'loan',
+    },
+    {
+        'keywords': ('overtime', 'ot', 'sunday'),
+        'title': 'Overtime request',
+        'answer': 'Open Apply for OT from the dashboard or sidebar. Enter the OT date, start and end time, and reason. Admin must approve the request before the overtime is included in payroll. Sunday and holiday OT are shown in the payslip breakdown when approved.',
+        'endpoint': 'apply_ot',
+    },
+    {
+        'keywords': ('profile', 'address', 'contact', 'government id', 'tin', 'sss', 'philhealth', 'pagibig'),
+        'title': 'Profile and personal information',
+        'answer': 'Open Profile from the sidebar to review or update your personal information, contact details, address, and government IDs. Downloaded profile documents include a stable document ID and QR verification.',
+        'endpoint': 'profile',
+    },
+    {
+        'keywords': ('bulletin', 'announcement', 'company files', 'document'),
+        'title': 'Company information',
+        'answer': 'Use Company Bulletin for announcements and Company Files for documents shared with your company. Open the document first, then use its download action when available.',
+        'endpoint': 'bulletin',
+    },
+]
+
+
+def answer_staff_help(question):
+    normalized = ' '.join(str(question or '').lower().split())
+    if not normalized:
+        return {
+            'title': 'Ask Staff Help',
+            'answer': 'Type a question such as "How do I download my payslip?" or "How do I file leave?"',
+            'matched': True,
+            'topic': None,
+        }
+    for topic in STAFF_HELP_TOPICS:
+        if any(keyword in normalized for keyword in topic['keywords']):
+            return {'title': topic['title'], 'answer': topic['answer'], 'matched': True, 'topic': topic}
+    return {
+        'title': 'I need more information',
+        'answer': 'Hindi ko pa alam ang sagot sa tanong na iyan. Subukan ang keywords na attendance, payslip, leave, loan, overtime, profile, bulletin, o download. Kung hindi pa rin malinaw, gamitin ang Staff Guide at mag-submit ng Attendance Correction o Incident Report kung iyon ang concern.',
+        'matched': False,
+        'topic': None,
+    }
+
+
+@app.route('/staff-help', methods=['GET', 'POST'])
+@login_required
+def staff_help():
+    if 'staff' not in current_user.role.lower():
+        return redirect(url_for('dashboard_admin'))
+    question = request.form.get('question', '') if request.method == 'POST' else request.args.get('question', '')
+    help_result = answer_staff_help(question)
+    topic_url = None
+    if help_result.get('topic'):
+        topic = help_result['topic']
+        if topic['endpoint'] == 'attendance':
+            topic_url = url_for('attendance', employee_id=current_user.id)
+        elif topic['endpoint'] == 'payroll':
+            topic_url = url_for('payroll', employee_id=current_user.id)
+        elif topic['endpoint'] == 'profile':
+            topic_url = url_for('profile', user_id=current_user.id)
+        elif topic['endpoint'] == 'loan':
+            topic_url = url_for('loan', employee_id=current_user.id)
+        else:
+            topic_url = url_for(topic['endpoint'])
+    return render_template('staff_help.html', question=question, help_result=help_result, topic_url=topic_url)
 
 
 @app.route('/staff-guide')

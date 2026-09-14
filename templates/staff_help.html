@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Staff Help</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { margin: 0; padding: 24px; background: #eef3f1; color: #263238; font-family: Arial, sans-serif; }
+        main { max-width: 820px; margin: 0 auto; }
+        .panel { background: #fff; border: 1px solid #d8e0dc; padding: 22px; margin-bottom: 16px; }
+        textarea { width: 100%; min-height: 90px; box-sizing: border-box; padding: 12px; font: inherit; resize: vertical; }
+        .btn { display: inline-block; margin-top: 10px; padding: 10px 14px; border: 0; background: #1f7fdf; color: #fff; text-decoration: none; cursor: pointer; }
+        .answer { border-left: 4px solid {{ '#238b63' if help_result.matched else '#c88719' }}; background: {{ '#edf8f2' if help_result.matched else '#fff7e3' }}; padding: 16px; line-height: 1.6; }
+        .examples { display: flex; gap: 8px; flex-wrap: wrap; }
+        .examples a { color: #1f5f8b; }
+    </style>
+</head>
+<body>
+<main>
+    <section class="panel">
+        <h1>Staff Help</h1>
+        <p>Ask what you need to do in the HRIS. The assistant can explain the available routes and download steps.</p>
+        <form method="post">
+            <label for="question"><strong>Your question</strong></label>
+            <textarea id="question" name="question" placeholder="Example: How do I download my payslip?" required>{{ question }}</textarea>
+            <button class="btn" type="submit">Ask Staff Help</button>
+        </form>
+    </section>
+
+    {% if question or help_result %}
+    <section class="panel">
+        <h2>{{ help_result.title }}</h2>
+        <div class="answer">{{ help_result.answer }}</div>
+        {% if topic_url %}<a class="btn" href="{{ topic_url }}">Open {{ help_result.title }}</a>{% endif %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+        <h2>Try asking</h2>
+        <div class="examples">
+            <a href="{{ url_for('staff_help', question='How do I download my payslip?') }}">Download payslip</a>
+            <a href="{{ url_for('staff_help', question='How do I file leave?') }}">File leave</a>
+            <a href="{{ url_for('staff_help', question='How do I correct attendance?') }}">Correct attendance</a>
+            <a href="{{ url_for('staff_help', question='How do I submit overtime?') }}">Submit overtime</a>
+            <a href="{{ url_for('staff_help', question='How do I see my loan balance?') }}">View loan balance</a>
+        </div>
+        <a class="btn" href="{{ url_for('staff_guide') }}">Open Staff Guide</a>
+    </section>
+</main>
+</body>
+</html>
