@@ -231,6 +231,25 @@ class LoanHistory(db.Model):
     total_amount = db.Column(db.Float, default=0)
     deductions_applied = db.Column(db.Float, default=0)
 
+
+class PayslipVerification(db.Model):
+    __tablename__ = "payslip_verifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    payroll_id = db.Column(db.Integer, db.ForeignKey("payrolls.id"), nullable=True)
+    document_type = db.Column(db.String(40), nullable=False, default="payslip")
+    document_id = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    document_label = db.Column(db.String(120), nullable=True)
+    net_pay = db.Column(db.Float, default=0.0, nullable=False)
+    cutoff_start = db.Column(db.Date, nullable=True)
+    cutoff_end = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    verification_hash = db.Column(db.String(128), nullable=False)
+
+    employee = db.relationship("Employee", backref="payslip_verifications")
+    payroll = db.relationship("Payroll", backref="verification_records")
+
 # ------------------ EVALUATION ------------------
 class Evaluation(db.Model):
     __tablename__ = "evaluations"

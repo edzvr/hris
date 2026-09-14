@@ -49,6 +49,7 @@
         </div>
     </section>
     {% endfor %}
+    <a class="btn" href="{{ url_for('compliance_reports', year=current_year) }}">SSS / PhilHealth / Pag-IBIG / BIR Reports</a>
     <a class="btn" href="{{ url_for('payroll_dashboard') }}">Back to Payroll Dashboard</a>
 </main>
 </body>

@@ -21,6 +21,7 @@ pillow==12.3.0
 pip==26.1.2
 psycopg2-binary==2.9.10
 python-dateutil==2.9.0.post0
+qrcode==8.0
 python-dotenv==1.2.3
 reportlab==5.0.0
 six==1.17.0

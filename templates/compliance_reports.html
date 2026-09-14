@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Compliance Reports</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 24px; color: #263238; }
+        main { max-width: 1050px; margin: 0 auto; }
+        .panel { background: #fff; border: 1px solid #d8e0dc; padding: 20px; margin-bottom: 18px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .report { border-top: 1px solid #d8e0dc; padding: 14px 0; }
+        label { display: flex; flex-direction: column; gap: 6px; font-weight: 700; }
+        input, select { padding: 9px; font: inherit; }
+        .btn { display: inline-block; padding: 9px 13px; margin: 8px 8px 0 0; background: #2879ad; color: #fff; text-decoration: none; border: 0; cursor: pointer; }
+        @media (max-width: 650px) { body { padding: 14px; } .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <section class="panel">
+        <h1>Compliance Reports</h1>
+        <p>These are HRIS-prepared data reports. Review and validate them against the current agency-prescribed filing formats before submission.</p>
+        <form method="get" class="grid">
+            <label>Calendar Year<input type="number" name="year" min="2000" max="{{ year + 1 }}" value="{{ year }}" required></label>
+            <label>Company
+                <select name="company">
+                    {% for company in companies %}<option value="{{ company }}">{{ company }}</option>{% endfor %}
+                </select>
+            </label>
+            <button class="btn" type="submit">Load Report Options</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        {% for report_type, report in reports.items() %}
+        <div class="report">
+            <h2>{{ report.title }}</h2>
+            <p>Calendar year {{ year }} payroll data with QR-authenticated PDF output.</p>
+            <a class="btn" href="{{ url_for('download_compliance_report', report_type=report_type, year=year) }}">Download All Companies</a>
+            <a class="btn" href="{{ url_for('download_compliance_report', report_type=report_type, year=year, company='Trece-Uno') }}">Download Trece-Uno</a>
+            <a class="btn" href="{{ url_for('download_compliance_report', report_type=report_type, year=year, company='Auto Expert') }}">Download Auto Expert</a>
+        </div>
+        {% endfor %}
+    </section>
+
+    <a href="{{ url_for('tax_reports') }}">Back to Tax Reports</a>
+</main>
+</body>
+</html>

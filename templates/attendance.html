@@ -74,6 +74,14 @@
                 </div>
             </div>
         </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title">Undertime Hours</h6>
+                    <h3>{{ total_undertime_hours|round(2) }}</h3>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Performance Score -->
@@ -100,7 +108,7 @@
                         <th>Clock In</th>
                         <th>Clock Out</th>
                         <th>Status</th>
-                        <th>Hours</th>
+                        <th>Hours</th><th>Undertime</th>
                         <th>Branch</th>
                     </tr>
                 </thead>
@@ -112,6 +120,7 @@
                         <td>{{ record.clock_out }}</td>
                         <td>{{ record.status }}</td>
                         <td>{{ record.hours|round(2) }}</td>
+                        <td>{{ record.undertime_hours|round(2) }}</td>
                         <td>{{ record.branch }}</td>
                     </tr>
                     {% endfor %}

@@ -1,9 +1,9 @@
 # ------------------ HRIS MAIN APP ------------------
-import os, random, logging, re
+import os, random, logging, re, hashlib
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
-from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory
+from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory, has_request_context
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import MetaData, Table as SQLAlchemyTable, create_engine, inspect, text
@@ -249,7 +249,8 @@ from models import (
     EmployeeDocument,
     PasswordResetToken,
     OTApplication,
-    AuditLog
+    AuditLog,
+    PayslipVerification
 )
 
 from utils.helpers import compute_weekly_deductions, compute_withholding_tax, compute_merit_demerit, ai_suggestion
@@ -1274,6 +1275,21 @@ def employee_201_pdf(employee_id):
     pdf.line(340, y, 528, y)
     pdf.drawString(72, y - 15, 'Authorized Person Signature')
     pdf.drawString(340, y - 15, 'Date')
+    verification = build_document_verification(
+        'employee_201',
+        employee.id,
+        f'Employee201-{employee.id}-{datetime.now().strftime("%Y%m%d")}',
+        cutoff_start=datetime.now().date().replace(day=1),
+        cutoff_end=datetime.now().date(),
+        net_pay=0.0,
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(420, 54, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(420, 44, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -1392,11 +1408,16 @@ def delete_employee(employee_id):
     return redirect(url_for('dashboard_admin'))
 
 # ------------------ ATTENDANCE REPORT ------------------
-import io, csv
+import io, csv, uuid
 from flask import Response, make_response, request, render_template
 from datetime import datetime
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
+
+try:
+    import qrcode
+except ImportError:  # pragma: no cover
+    qrcode = None
 
 
 @app.route('/profile/<int:employee_id>/download')
@@ -1459,6 +1480,19 @@ def download_employee_profile(employee_id):
     pdf.drawCentredString(page_width - 160, y - 15, authorized_person.full_name() if authorized_person else 'Authorized Representative')
     pdf.setFont('Helvetica', 9)
     pdf.drawCentredString(page_width - 160, y - 29, 'Authorized Signatory')
+    verification = build_document_verification(
+        'employee_profile',
+        employee.id,
+        f'Profile-{employee.id}',
+        net_pay=0.0,
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(430, 38, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(430, 28, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 505, 48, width=55, height=55)
     pdf.drawString(54, 44, f'Generated on {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     pdf.save()
     buffer.seek(0)
@@ -1484,6 +1518,18 @@ def attendance(employee_id):
                       for log in history if log.clock_in and log.clock_out)
     valid_days = sum(1 for log in history if log.clock_in and log.clock_out)
     avg_hours = total_hours / valid_days if valid_days else 0
+    total_undertime_hours = 0.0
+    for log in history:
+        if not log.clock_out:
+            continue
+        expected_end = time(12, 0) if (
+            log.date.weekday() == 6
+            and str(emp.company or '').lower().startswith('trece')
+        ) else time(17, 0)
+        total_undertime_hours += max(
+            (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
+            0,
+        )
 
     punctuality_score = (total_present / total_days) * 50 if total_days else 0
     attendance_score = ((total_present + total_late) / total_days) * 30 if total_days else 0
@@ -1503,12 +1549,21 @@ def attendance(employee_id):
     dtr_records = []
     for log in history:
         hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
+        expected_end = time(12, 0) if (
+            log.date.weekday() == 6
+            and str(emp.company or '').lower().startswith('trece')
+        ) else time(17, 0)
+        undertime_hours = max(
+            (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
+            0,
+        ) if log.clock_out else 0
         dtr_records.append({
             "date": log.date.strftime('%Y-%m-%d'),
             "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
             "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
             "status": log.status,
             "hours": hours_worked,
+            "undertime_hours": undertime_hours,
             "branch": getattr(log, "company", "N/A")  # ginamit ko 'company' field para consistent
         })
 
@@ -1568,6 +1623,22 @@ def attendance(employee_id):
         pdf.line(50, 35, 220, 35)
         pdf.drawString(50, 20, "Authorized Person Signature")
 
+        verification = build_document_verification(
+            'attendance_report',
+            emp.id,
+            f'Attendance-{emp.id}-{date_range}',
+            cutoff_start=history[-1].date if history else datetime.today().date(),
+            cutoff_end=history[0].date if history else datetime.today().date(),
+            net_pay=float(performance_score),
+        )
+        pdf.setFont('Helvetica-Oblique', 8)
+        pdf.drawString(430, 100, f'Document ID: {verification["document_id"]}')
+        pdf.drawString(430, 90, 'Scan QR to verify.')
+        if qrcode is not None:
+            qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+            if qr_bytes:
+                pdf.drawImage(io.BytesIO(qr_bytes), 470, 18, width=70, height=70)
+
         pdf.save()
         output.seek(0)
         return Response(output.read(),
@@ -1602,6 +1673,7 @@ def attendance(employee_id):
                            total_late=total_late,
                            total_absent=total_absent,
                            avg_hours=avg_hours,
+                           total_undertime_hours=round(total_undertime_hours, 2),
                            performance_score=performance_score,
                            motivation=motivation,
                            date_range=date_range,
@@ -2025,6 +2097,21 @@ def incident_report_pdf(emp_id):
     pdf.line(340, 75, 528, 75)
     pdf.drawString(72, 60, 'Authorized Person Signature')
     pdf.drawString(340, 60, 'Date')
+    verification = build_document_verification(
+        'incident_report',
+        emp.id,
+        f'IncidentReport-{emp.id}-{selected_year or datetime.now().year}-{selected_month or "all"}',
+        cutoff_start=date(selected_year, selected_month, 1) if selected_year and selected_month else None,
+        cutoff_end=(date(selected_year + (selected_month == 12), 1 if selected_month == 12 else selected_month + 1, 1) - timedelta(days=1)) if selected_year and selected_month else None,
+        net_pay=0.0,
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(420, 54, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(420, 44, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -2105,6 +2192,21 @@ def export_insights_pdf(emp_id):
     pdf.drawString(72, 70, "Authorized Person Signature")
     pdf.drawString(340, 70, "Date")
     pdf.drawString(72, 50, f"Generated on {datetime.now().strftime('%m-%d-%Y %H:%M')}")
+    verification = build_document_verification(
+        'ai_insights',
+        emp.id,
+        f'Insights-{emp.id}-{cutoff_start.isoformat()}-{cutoff_end.isoformat()}',
+        cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end,
+        net_pay=0.0,
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(420, 54, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(420, 44, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -2378,9 +2480,173 @@ def tax_summary_pdf(title, company, period, records):
     pdf.drawString(50, y - 64, f'Position: {employer["position"] or "Not configured"}')
     pdf.setFont('Helvetica-Oblique', 8)
     pdf.drawString(50, 55, 'Internal payroll tax report. Validate against the current BIR-prescribed form before filing.')
+    verification = build_document_verification(
+        'tax_summary',
+        0,
+        f'{title}-{company}-{period}',
+        cutoff_start=None,
+        cutoff_end=None,
+        net_pay=float(sum(float(record.withholding_tax or 0) for record in records)),
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(420, 54, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(420, 44, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
     pdf.save()
     buffer.seek(0)
     return buffer
+
+
+COMPLIANCE_REPORTS = {
+    'sss_r3': {
+        'title': 'SSS R3 Employee Contribution Report',
+        'columns': ('Employee', 'SSS Number', 'Compensation', 'Employee Share'),
+    },
+    'philhealth_rf1': {
+        'title': 'PhilHealth RF1 Employee Contribution Report',
+        'columns': ('Employee', 'PhilHealth Number', 'Compensation', 'Employee Share'),
+    },
+    'pagibig_mcrf': {
+        'title': 'Pag-IBIG MCRF Employee Contribution Report',
+        'columns': ('Employee', 'Pag-IBIG Number', 'Compensation', 'Employee Share'),
+    },
+    'bir_1601c': {
+        'title': 'BIR 1601-C Withholding Tax Report',
+        'columns': ('Employee', 'TIN', 'Compensation', 'Tax Withheld'),
+    },
+    'bir_2316': {
+        'title': 'BIR 2316 Annual Compensation Report',
+        'columns': ('Employee', 'TIN', 'Annual Compensation', 'Tax Withheld'),
+    },
+}
+
+
+def build_compliance_report_rows(report_type, year, company=None):
+    if report_type not in COMPLIANCE_REPORTS:
+        abort(404)
+    query = Employee.query.filter(Employee.role.ilike('%staff%'))
+    if company in {'Trece-Uno', 'Auto Expert'}:
+        query = query.filter(company_employee_filter(company))
+    employees = query.order_by(Employee.last_name, Employee.first_name).all()
+    rows = []
+    for employee in employees:
+        records = Payroll.query.filter(
+            Payroll.employee_id == employee.id,
+            Payroll.cutoff_start >= date(year, 1, 1),
+            Payroll.cutoff_start <= date(year, 12, 31),
+        ).all()
+        gross = round(sum(float(record.gross_income or 0) for record in records), 2)
+        tax = round(sum(float(record.withholding_tax or 0) for record in records), 2)
+        if report_type == 'sss_r3':
+            identifier = employee.sss or 'N/A'
+            contribution = round(sum(float(record.sss or 0) for record in records), 2)
+        elif report_type == 'philhealth_rf1':
+            identifier = employee.philhealth or 'N/A'
+            contribution = round(sum(float(record.philhealth or 0) for record in records), 2)
+        elif report_type == 'pagibig_mcrf':
+            identifier = employee.pagibig or 'N/A'
+            contribution = round(sum(float(record.pagibig or 0) for record in records), 2)
+        else:
+            identifier = employee.tin or 'N/A'
+            contribution = tax
+        rows.append({
+            'employee': employee,
+            'identifier': identifier,
+            'compensation': gross,
+            'contribution': contribution,
+            'periods': len(records),
+        })
+    return rows
+
+
+def compliance_report_pdf(report_type, year, company, rows, verification):
+    report = COMPLIANCE_REPORTS[report_type]
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(35, 555, report['title'])
+    pdf.setFont('Helvetica', 9)
+    pdf.drawString(35, 540, f'Year: {year} | Company: {company or "All Companies"}')
+    pdf.drawString(35, 526, 'HRIS-prepared report. Validate against the agency-prescribed form before filing.')
+    headers = report['columns']
+    positions = (35, 220, 390, 540)
+    pdf.setFont('Helvetica-Bold', 8)
+    for position, header in zip(positions, headers):
+        pdf.drawString(position, 500, header)
+    y = 482
+    pdf.setFont('Helvetica', 8)
+    for row in rows:
+        if y < 65:
+            pdf.showPage()
+            y = 750
+            pdf.setFont('Helvetica', 8)
+        pdf.drawString(positions[0], y, row['employee'].full_name()[:28])
+        pdf.drawString(positions[1], y, row['identifier'][:24])
+        pdf.drawRightString(positions[2] + 85, y, f'PHP {row["compensation"]:,.2f}')
+        pdf.drawRightString(positions[3] + 85, y, f'PHP {row["contribution"]:,.2f}')
+        y -= 15
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(35, 32, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(35, 20, 'Scan QR to verify this HRIS report.')
+    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    if qr_bytes:
+        pdf.drawImage(io.BytesIO(qr_bytes), 700, 10, width=60, height=60)
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
+@app.route('/admin/compliance-reports')
+@login_required
+def compliance_reports():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    try:
+        year = int(request.args.get('year', datetime.today().year))
+    except (TypeError, ValueError):
+        abort(400)
+    if year < 2000 or year > datetime.today().year + 1:
+        abort(400)
+    return render_template(
+        'compliance_reports.html',
+        year=year,
+        companies=('All Companies', 'Trece-Uno', 'Auto Expert'),
+        reports=COMPLIANCE_REPORTS,
+    )
+
+
+@app.route('/admin/compliance-reports/<string:report_type>/download')
+@login_required
+def download_compliance_report(report_type):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    if report_type not in COMPLIANCE_REPORTS:
+        abort(404)
+    try:
+        year = int(request.args.get('year', datetime.today().year))
+    except (TypeError, ValueError):
+        abort(400)
+    company = request.args.get('company')
+    company = company if company in {'Trece-Uno', 'Auto Expert'} else None
+    rows = build_compliance_report_rows(report_type, year, company)
+    total_contribution = sum(row['contribution'] for row in rows)
+    verification = build_document_verification(
+        report_type,
+        current_user.id,
+        f'{report_type}-{year}-{company or "all"}',
+        cutoff_start=date(year, 1, 1),
+        cutoff_end=date(year, 12, 31),
+        net_pay=total_contribution,
+    )
+    return send_file(
+        compliance_report_pdf(report_type, year, company, rows, verification),
+        as_attachment=True,
+        download_name=f'{report_type.upper()}_{year}.pdf',
+        mimetype='application/pdf',
+    )
 
 
 @app.route('/admin/tax-reports', methods=['GET', 'POST'])
@@ -2487,6 +2753,126 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
     return rows
 
 
+def build_thirteenth_month_rows(year, employee_id=None):
+    query = Employee.query.filter(Employee.role.ilike('%staff%'))
+    if employee_id is not None:
+        query = query.filter(Employee.id == employee_id)
+    employees = query.order_by(Employee.last_name, Employee.first_name).all()
+    year_start = date(year, 1, 1)
+    year_end = date(year, 12, 31)
+    rows = []
+
+    for employee in employees:
+        attendance_records = Attendance.query.filter(
+            Attendance.employee_id == employee.id,
+            Attendance.date >= year_start,
+            Attendance.date <= year_end,
+            Attendance.clock_out != None,
+        ).all()
+        basic_pay = sum(
+            regular_day_pay(record, float(employee.daily_rate or 0))
+            for record in attendance_records
+        )
+        payroll_records = Payroll.query.filter(
+            Payroll.employee_id == employee.id,
+            Payroll.cutoff_start >= year_start,
+            Payroll.cutoff_start <= year_end,
+        ).all()
+        if not attendance_records:
+            basic_pay = sum(float(record.gross_income or 0) for record in payroll_records)
+        rows.append({
+            'employee': employee,
+            'basic_pay': round(basic_pay, 2),
+            'thirteenth_month': round(basic_pay / 12, 2),
+            'payroll_periods': len(payroll_records),
+        })
+    return rows
+
+
+def thirteenth_month_pdf(year, rows, verification):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 15)
+    pdf.drawString(50, 770, '13TH-MONTH PAY REPORT')
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(50, 750, f'Calendar Year: {year}')
+    pdf.drawString(50, 735, 'Basis: total basic salary earned during the calendar year divided by 12')
+    pdf.drawString(50, 720, 'Excluded from basis: overtime, allowances, incentives, and deductions')
+
+    y = 685
+    pdf.setFont('Helvetica-Bold', 9)
+    pdf.drawString(50, y, 'Employee')
+    pdf.drawString(300, y, 'Basic Pay Earned')
+    pdf.drawString(440, y, '13th-Month Pay')
+    y -= 18
+    pdf.setFont('Helvetica', 9)
+    for row in rows:
+        if y < 90:
+            pdf.showPage()
+            y = 750
+            pdf.setFont('Helvetica', 9)
+        pdf.drawString(50, y, row['employee'].full_name()[:36])
+        pdf.drawRightString(390, y, f'PHP {row["basic_pay"]:,.2f}')
+        pdf.drawRightString(540, y, f'PHP {row["thirteenth_month"]:,.2f}')
+        y -= 16
+
+    total_basic = sum(row['basic_pay'] for row in rows)
+    total_thirteenth = sum(row['thirteenth_month'] for row in rows)
+    pdf.line(50, max(y, 70), 540, max(y, 70))
+    pdf.setFont('Helvetica-Bold', 9)
+    pdf.drawString(50, max(y - 16, 54), 'TOTAL')
+    pdf.drawRightString(390, max(y - 16, 54), f'PHP {total_basic:,.2f}')
+    pdf.drawRightString(540, max(y - 16, 54), f'PHP {total_thirteenth:,.2f}')
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(50, 35, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(50, 23, 'Scan QR to verify this report.')
+    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    if qr_bytes:
+        pdf.drawImage(io.BytesIO(qr_bytes), 470, 12, width=60, height=60)
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
+@app.route('/13th-month')
+@login_required
+def thirteenth_month():
+    try:
+        year = int(request.args.get('year', datetime.today().year))
+    except (TypeError, ValueError):
+        abort(400)
+    if year < 2000 or year > datetime.today().year + 1:
+        abort(400)
+
+    is_admin = 'admin' in current_user.role.lower()
+    rows = build_thirteenth_month_rows(year, None if is_admin else current_user.id)
+    total_basic = sum(row['basic_pay'] for row in rows)
+    total_thirteenth = sum(row['thirteenth_month'] for row in rows)
+    if request.args.get('download') == 'true':
+        verification = build_document_verification(
+            'thirteenth_month',
+            current_user.id,
+            f'13thMonth-{year}-{"all" if is_admin else current_user.id}',
+            cutoff_start=date(year, 1, 1),
+            cutoff_end=date(year, 12, 31),
+            net_pay=total_thirteenth,
+        )
+        return send_file(
+            thirteenth_month_pdf(year, rows, verification),
+            as_attachment=True,
+            download_name=f'13th_Month_Pay_{year}.pdf',
+            mimetype='application/pdf',
+        )
+    return render_template(
+        'thirteenth_month.html',
+        rows=rows,
+        year=year,
+        total_basic=total_basic,
+        total_thirteenth=total_thirteenth,
+        is_admin=is_admin,
+    )
+
+
 def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
@@ -2494,6 +2880,8 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     pdf.drawString(30, 560, f'{company.upper()} PAYROLL SUMMARY')
     pdf.setFont('Helvetica', 9)
     pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
+    pdf.drawString(550, 544, 'Address: Trece Martires Cavite, Philippines')
+    pdf.drawString(550, 532, 'Prepared by: Admin')
     headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Deductions', 'Net Pay', 'Status']
     x_positions = [25, 175, 212, 270, 322, 382, 442, 492, 542, 620, 694]
     pdf.setFont('Helvetica-Bold', 8)
@@ -2518,10 +2906,152 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     pdf.setFont('Helvetica-Bold', 9)
     pdf.drawString(30, y - 22, 'Total Net Pay')
     pdf.drawRightString(760, y - 22, f"PHP {sum(row['net_pay'] for row in rows):,.2f}")
+    verification = build_document_verification(
+        'payroll_summary',
+        0,
+        f'{company}-{cutoff_start}',
+        cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1),
+        net_pay=float(sum(row['net_pay'] for row in rows)),
+    )
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(520, 30, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(520, 20, 'Scan QR to verify.')
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            pdf.drawImage(io.BytesIO(qr_bytes), 665, 12, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def build_document_verification(document_type, employee_id, label, reference_id=None, cutoff_start=None, cutoff_end=None, net_pay=0.0):
+    if isinstance(cutoff_start, str):
+        try:
+            cutoff_start = datetime.strptime(cutoff_start, '%Y-%m-%d').date()
+        except ValueError:
+            cutoff_start = None
+    if isinstance(cutoff_end, str):
+        try:
+            cutoff_end = datetime.strptime(cutoff_end, '%Y-%m-%d').date()
+        except ValueError:
+            cutoff_end = None
+
+    existing = PayslipVerification.query.filter_by(
+        employee_id=employee_id,
+        document_type=document_type,
+        document_label=label,
+        payroll_id=reference_id,
+    ).first()
+    if existing is not None:
+        verification_id = existing.document_id
+        verification_hash = existing.verification_hash
+    else:
+        verification_id = f"{document_type.upper()[:3]}-{str(uuid.uuid4())[:8].upper()}"
+        payload = f"{document_type}|{employee_id}|{label}|{reference_id or 'none'}|{cutoff_start or 'none'}|{cutoff_end or 'none'}|{float(net_pay or 0)}|{app.secret_key}"
+        verification_hash = hashlib.sha256(payload.encode()).hexdigest()
+        record = PayslipVerification(
+            employee_id=employee_id,
+            payroll_id=reference_id,
+            document_type=document_type,
+            document_id=verification_id,
+            document_label=label,
+            net_pay=float(net_pay or 0),
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end,
+            verification_hash=verification_hash,
+        )
+        db.session.add(record)
+        db.session.commit()
+
+    if has_request_context():
+        verify_url = url_for('verify_document', verification_id=verification_id, _external=True)
+    else:
+        verify_url = f"https://railway.app/verify-document/{verification_id}"
+    return {
+        'document_id': verification_id,
+        'employee_id': employee_id,
+        'document_type': document_type,
+        'document_label': label,
+        'reference_id': reference_id,
+        'cutoff_start': cutoff_start,
+        'cutoff_end': cutoff_end,
+        'net_pay': float(net_pay or 0),
+        'verify_url': verify_url,
+        'verification_hash': verification_hash,
+    }
+
+
+def build_payslip_verification(employee_id, payroll_id, cutoff_start, cutoff_end, net_pay):
+    return build_document_verification(
+        'payslip',
+        employee_id,
+        f'Payslip-{payroll_id}',
+        reference_id=payroll_id,
+        cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end,
+        net_pay=net_pay,
+    )
+
+
+def generate_qr_image_bytes(verify_url, size=140):
+    if qrcode is None:
+        return None
+    qr = qrcode.QRCode(box_size=8, border=2)
+    qr.add_data(verify_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color='black', back_color='white')
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+@app.route('/verify-document/<verification_id>')
+def verify_document(verification_id):
+    record = PayslipVerification.query.filter_by(document_id=verification_id).first()
+    if record is None:
+        return render_template_string('''
+            <html><body style="font-family:Arial,sans-serif;padding:32px;">
+                <h2>Invalid Document</h2>
+                <p>Document ID not found in the HRIS records.</p>
+            </body></html>
+        '''), 404
+
+    employee = Employee.query.get(record.employee_id)
+    payroll = Payroll.query.get(record.payroll_id) if record.payroll_id else None
+    payload = f"{record.document_type}|{record.employee_id}|{record.document_label}|{record.payroll_id or 'none'}|{record.cutoff_start or 'none'}|{record.cutoff_end or 'none'}|{float(record.net_pay or 0)}|{app.secret_key}"
+    expected_hash = hashlib.sha256(payload.encode()).hexdigest()
+    is_valid = employee is not None and record.verification_hash == expected_hash and (record.document_type != 'payslip' or payroll is not None)
+
+    return render_template_string('''
+        <html><body style="font-family:Arial,sans-serif;padding:32px;">
+            <h2>{% if is_valid %}Valid {{ record.document_type|capitalize }} Document{% else %}Verification Failed{% endif %}</h2>
+            <p><strong>Document ID:</strong> {{ record.document_id }}</p>
+            <p><strong>Employee:</strong> {{ employee_name }}</p>
+            <p><strong>Document Type:</strong> {{ record.document_type }}</p>
+            {% if record.cutoff_start and record.cutoff_end %}
+            <p><strong>Cutoff:</strong> {{ record.cutoff_start }} to {{ record.cutoff_end }}</p>
+            {% endif %}
+            {% if record.net_pay %}
+            <p><strong>Net Pay:</strong> ₱{{ "%.2f"|format(record.net_pay) }}</p>
+            {% endif %}
+            {% if is_valid %}
+                <p>This document matches the official HRIS record and was generated by the system.</p>
+                <p>Prepared by: Admin</p>
+                <p>Address: Trece Martires Cavite, Philippines</p>
+            {% else %}
+                <p>This document could not be verified against the official HRIS records.</p>
+            {% endif %}
+        </body></html>
+    ''', record=record, employee_name=(employee.full_name() if employee else 'Unknown Employee'), is_valid=is_valid)
+
+
+@app.route('/verify-payslip/<verification_id>')
+def verify_payslip(verification_id):
+    return verify_document(verification_id)
 
 
 @app.route('/payroll/summary')
@@ -2537,6 +3067,8 @@ def payroll_summary():
     except ValueError:
         abort(400)
     rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
+    if request.args.get('view') == 'true':
+        return render_template('payroll_summary_view.html', rows=rows, company=company, cutoff_start=cutoff_start, cutoff_end=cutoff_end - timedelta(days=1))
     pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
     return send_file(
         io.BytesIO(pdf_data), as_attachment=True,
@@ -2838,7 +3370,8 @@ def review_attendance_correction(correction_id, action):
 from flask import send_file
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from sqlalchemy import extract
@@ -3027,7 +3560,8 @@ def payroll(employee_id):
                                cutoff_options=cutoff_options,
                                years=years,
                                selected_year=selected_year,
-                               latest_finalized_payslip=latest_finalized_payslip)
+                               latest_finalized_payslip=latest_finalized_payslip,
+                               now=datetime.now())
 
     # ADMIN VIEW
     try:
@@ -3224,7 +3758,8 @@ def payroll(employee_id):
          payslip=payslip,
             loan_deduction=loan,
          selected_year=None,
-         years=[])
+         years=[],
+         now=datetime.now())
 
 
 @app.route('/payroll/<int:employee_id>/monthly')
@@ -3328,6 +3863,41 @@ def finalize_payroll(employee_id):
     return redirect(url_for(
         'payroll', employee_id=employee_id, finalize='true', cutoff_start=cutoff_start
     ))
+
+
+@app.route('/payroll/bulk-finalize', methods=['POST'])
+@login_required
+def bulk_finalize_payroll():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.form.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
+
+    selected_ids = request.form.getlist('selected_employee_ids')
+    if not selected_ids:
+        flash('Select at least one employee to finalize.', 'warning')
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
+
+    finalized = 0
+    for employee_id in selected_ids:
+        payroll_record = Payroll.query.filter_by(
+            employee_id=int(employee_id),
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1)
+        ).first()
+        if payroll_record is None:
+            continue
+        if not payroll_record.is_paid:
+            payroll_record.is_paid = True
+            finalized += 1
+    db.session.commit()
+    flash(f'{finalized} payroll records finalized for this cutoff.', 'success')
+    return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
+
+
 @app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
 @login_required
 def reopen_payroll(employee_id):
@@ -3385,6 +3955,15 @@ def download_payslip(emp_id, payroll_id):
         return 'Access denied', 403
 
     payslip = build_payslip_breakdown(employee, payroll_record)
+    verification = build_payslip_verification(
+        employee.id,
+        payroll_record.id,
+        payroll_record.cutoff_start,
+        payroll_record.cutoff_end,
+        payroll_record.net_pay,
+    )
+    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 16)
@@ -3395,8 +3974,10 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
     pdf.drawString(50, 715, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
     pdf.drawString(50, 700, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
-    pdf.drawString(300, 700, f'Reference: PAY-{payroll_record.id:06d}')
+    pdf.drawString(300, 700, f'Reference: {verification["document_id"]}')
     pdf.drawString(300, 715, f'Position/Department: {employee.role} / {employee.company or "N/A"}')
+    pdf.drawString(50, 685, 'Address: Trece Martires Cavite, Philippines')
+    pdf.drawString(300, 685, 'Prepared by: Admin')
     data = weekly_payslip_table_data(payslip)
     table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
     table.setStyle(TableStyle([
@@ -3419,6 +4000,11 @@ def download_payslip(emp_id, payroll_id):
     pdf.setFont('Helvetica', 10)
     pdf.drawString(70, y - 35, 'Authorized Person Signature')
     pdf.drawString(330, y - 35, 'Date')
+    if qr_bytes:
+        pdf.drawImage(io.BytesIO(qr_bytes), 455, 36, width=90, height=90)
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(440, 24, f'Official Document ID: {verification["document_id"]}')
+    pdf.drawString(440, 14, 'Scan QR to verify.')
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -4198,6 +4784,20 @@ def download_loan_statement(employee_id):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
     elements.append(table)
+    verification = build_document_verification(
+        'loan_statement',
+        employee.id,
+        f'Loan-{employee.id}-{datetime.now().strftime("%Y%m%d")}',
+        cutoff_start=datetime.now().date().replace(day=1),
+        cutoff_end=datetime.now().date(),
+        net_pay=float(account['outstanding']),
+    )
+    elements.append(Paragraph(f'Document ID: {verification["document_id"]}', styles['Italic']))
+    if qrcode is not None:
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+        if qr_bytes:
+            qr_img = ImageReader(io.BytesIO(qr_bytes))
+            elements.append(Image(qr_img, width=60, height=60))
     document.build(elements)
     buffer.seek(0)
     return send_file(

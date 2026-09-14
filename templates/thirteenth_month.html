@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>13th-Month Pay</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 24px; }
+        .page { max-width: 1100px; margin: 0 auto; }
+        .panel { background: #fff; padding: 20px; margin-bottom: 18px; border: 1px solid #d6dfdc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border: 1px solid #d6dfdc; padding: 10px; text-align: right; }
+        th:first-child, td:first-child { text-align: left; }
+        th { background: #2879ad; color: #fff; }
+        .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .btn { display: inline-block; padding: 9px 13px; background: #2879ad; color: #fff; text-decoration: none; border: 0; cursor: pointer; }
+        input { padding: 8px; }
+        .total { font-weight: 700; background: #eef6f2; }
+    </style>
+</head>
+<body>
+<main class="page">
+    <section class="panel">
+        <h1>13th-Month Pay</h1>
+        <p>Computed from basic salary earned during the selected calendar year, divided by 12.</p>
+        <form method="get" class="actions">
+            <label for="year">Calendar year</label>
+            <input id="year" type="number" name="year" min="2000" max="{{ year + 1 }}" value="{{ year }}" required>
+            <button class="btn" type="submit">Load Report</button>
+            <a class="btn" href="{{ url_for('thirteenth_month', year=year, download='true') }}">Download Authenticated PDF</a>
+        </form>
+    </section>
+
+    <section class="panel">
+        <table>
+            <thead>
+                <tr>
+                    <th>Employee</th>
+                    <th>Basic Pay Earned</th>
+                    <th>13th-Month Pay</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>{{ row.employee.full_name() }}</td>
+                    <td>PHP {{ '%.2f'|format(row.basic_pay) }}</td>
+                    <td>PHP {{ '%.2f'|format(row.thirteenth_month) }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="3">No payroll or attendance records found for {{ year }}.</td></tr>
+            {% endfor %}
+                <tr class="total">
+                    <td>Total</td>
+                    <td>PHP {{ '%.2f'|format(total_basic) }}</td>
+                    <td>PHP {{ '%.2f'|format(total_thirteenth) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <p><a href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</main>
+</body>
+</html>
