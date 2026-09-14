@@ -5713,7 +5713,9 @@ def quiz(employee_id):
                 db.extract('month', Quiz.date_created) == current_month
             ).all()
             available_quizzes = list({question.question.strip().casefold(): question for question in available_quizzes}.values())
-        quizzes = random.sample(available_quizzes, min(10, len(available_quizzes)))
+        month_seed = f'{employee_id}:{datetime.utcnow().year}:{current_month}:{category}'
+        question_selector = random.Random(month_seed)
+        quizzes = question_selector.sample(available_quizzes, min(10, len(available_quizzes)))
         session[attempt_key] = {
             'category': category,
             'quiz_ids': [question.id for question in quizzes],
@@ -5748,7 +5750,9 @@ def quiz(employee_id):
                 for question in available_quizzes
             }.values())
         if available_quizzes:
-            quizzes = random.sample(available_quizzes, min(10, len(available_quizzes)))
+            month_seed = f'{employee_id}:{datetime.utcnow().year}:{current_month}:{category}'
+            question_selector = random.Random(month_seed)
+            quizzes = question_selector.sample(available_quizzes, min(10, len(available_quizzes)))
             attempt['quiz_ids'] = [question.id for question in quizzes]
             attempt.pop('answer_keys', None)
             session[attempt_key] = attempt
