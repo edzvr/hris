@@ -2171,7 +2171,7 @@ def peer_evaluation():
 
 
 # ------------------ CLOCK IN / OUT (Unified) ------------------
-def apply_overtime_details(attendance):
+def apply_overtime_details(attendance, force_approved=False):
     if not attendance.clock_in or not attendance.clock_out:
         return
 
@@ -2195,15 +2195,16 @@ def apply_overtime_details(attendance):
         status="Approved"
     ).first()
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    attendance.is_restday_ot = bool(application and attendance.date.weekday() == 6 and not is_trece_sunday)
-    attendance.is_holiday_ot = bool(application and holiday)
+    is_approved = bool(application or force_approved)
+    attendance.is_restday_ot = bool(is_approved and attendance.date.weekday() == 6 and not is_trece_sunday)
+    attendance.is_holiday_ot = bool(is_approved and holiday)
     attendance.is_weekday_ot = bool(
-        application
+        is_approved
         and attendance.overtime_hours > 0
         and not attendance.is_restday_ot
         and not attendance.is_holiday_ot
     )
-    attendance.ot_status = "Approved" if application and attendance.overtime_hours > 0 else None
+    attendance.ot_status = "Approved" if is_approved and attendance.overtime_hours > 0 else None
 
 
 def holiday_multiplier(attendance):
@@ -2443,7 +2444,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + overtime_pay
         deductions = (
-            compute_weekly_deductions(basic_pay, weeks=1)
+            compute_weekly_deductions(basic_pay * 4, weeks=4)
             if basic_pay > 0
             else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
         )
@@ -2830,7 +2831,66 @@ import os, io
 
 
 def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_pay=0.0):
-    """Return a payslip payload matching the sample payroll format."""
+    """Return an itemized weekly payslip that reconciles to the payroll record."""
+    attendance_records = Attendance.query.filter(
+        Attendance.employee_id == emp.id,
+        Attendance.date >= payroll_record.cutoff_start,
+        Attendance.date <= payroll_record.cutoff_end,
+        Attendance.clock_out != None
+    ).all()
+    if not worked_days_count:
+        worked_days_count = len(attendance_records)
+
+    daily_rate = float(emp.daily_rate or 0)
+    basic_pay = 0.0
+    rest_day_pay = 0.0
+    special_holiday = 0.0
+    regular_holiday = 0.0
+    overtime_amounts = {
+        "regular_overtime": 0.0,
+        "sunday_overtime": 0.0,
+        "rest_day": 0.0,
+        "special_holiday_ot": 0.0,
+        "regular_holiday_ot": 0.0,
+    }
+    for attendance in attendance_records:
+        holiday = Holiday.query.filter_by(date=attendance.date).first()
+        day_pay = regular_day_pay(attendance, daily_rate)
+        is_trece_sunday = (
+            attendance.date.weekday() == 6
+            and str(emp.company or '').lower().startswith('trece')
+        )
+        if holiday and holiday.holiday_type == "Regular Holiday":
+            regular_holiday += day_pay
+        elif holiday:
+            special_holiday += day_pay
+        elif attendance.date.weekday() == 6 and not is_trece_sunday:
+            rest_day_pay += day_pay
+        else:
+            basic_pay += day_pay
+
+        if attendance.ot_status != "Approved":
+            continue
+        amount = (
+            (daily_rate / 8)
+            * holiday_multiplier(attendance)
+            * float(attendance.overtime_hours or 0)
+        )
+        if holiday and holiday.holiday_type == "Regular Holiday":
+            key = "regular_holiday_ot"
+        elif holiday:
+            key = "special_holiday_ot"
+        elif attendance.date.weekday() == 6:
+            key = "rest_day" if attendance.is_restday_ot else "sunday_overtime"
+        else:
+            key = "regular_overtime"
+        overtime_amounts[key] += amount
+
+    calculated_overtime_pay = sum(overtime_amounts.values())
+    if overtime_pay and not calculated_overtime_pay:
+        overtime_amounts["regular_overtime"] = float(overtime_pay)
+        calculated_overtime_pay = float(overtime_pay)
+
     gross_income = float(payroll_record.gross_income or 0)
     late_ut = 0.0
     sss = float(payroll_record.sss or 0)
@@ -2840,25 +2900,41 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     sss_loan = float(payroll_record.loan or 0)
     hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
-    adjustment = 0.0
     night_differential = 0.0
-    regular_overtime = float(overtime_pay or 0)
-    rest_day = 0.0
-    special_holiday = 0.0
-    special_holiday_ot = 0.0
-    regular_holiday = 0.0
-    regular_holiday_ot = 0.0
+    allowance = float(emp.allowance or 0)
+    incentives = float(emp.incentives or 0)
+    regular_overtime = overtime_amounts["regular_overtime"]
+    sunday_overtime = overtime_amounts["sunday_overtime"]
+    rest_day_overtime = overtime_amounts["rest_day"]
+    special_holiday_ot = overtime_amounts["special_holiday_ot"]
+    regular_holiday_ot = overtime_amounts["regular_holiday_ot"]
 
-    total_deductions = late_ut + sss + philhealth + pagibig + sss_loan + hdmf_loan + cash_advance + withholding_tax
-    net_pay = gross_income - total_deductions
+    itemized_earnings = (
+        basic_pay + allowance + incentives + rest_day_pay
+        + special_holiday + regular_holiday + calculated_overtime_pay
+        + night_differential
+    )
+    adjustment = round(gross_income - itemized_earnings, 2)
+    known_deductions = (
+        late_ut + sss + philhealth + pagibig + sss_loan
+        + hdmf_loan + cash_advance + withholding_tax
+    )
+    total_deductions = float(payroll_record.total_deductions or known_deductions)
+    other_deductions = max(round(total_deductions - known_deductions, 2), 0.0)
+    net_pay = float(payroll_record.net_pay or (gross_income - total_deductions))
 
     return {
         "employee": emp,
         "actual_worked_days": worked_days_count,
+        "basic_pay": basic_pay,
+        "allowance": allowance,
+        "incentives": incentives,
         "adjustment": adjustment,
         "night_differential": night_differential,
         "regular_overtime": regular_overtime,
-        "rest_day": rest_day,
+        "sunday_overtime": sunday_overtime,
+        "rest_day_pay": rest_day_pay,
+        "rest_day": rest_day_overtime,
         "special_holiday": special_holiday,
         "special_holiday_ot": special_holiday_ot,
         "regular_holiday": regular_holiday,
@@ -2871,11 +2947,33 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "sss_loan": sss_loan,
         "hdmf_loan": hdmf_loan,
         "cash_advance": cash_advance,
-        "withholding_tax": withholding_tax,
+        "other_deductions": other_deductions,
         "gross_income": gross_income,
         "total_deductions": total_deductions,
         "net_pay": net_pay,
     }
+
+
+def weekly_payslip_table_data(payslip):
+    """Return the shared earnings and deductions rows for weekly payslip PDFs."""
+    amount = lambda key: f"{payslip[key]:,.2f}"
+    return [
+        ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
+        ["Basic Pay", str(payslip["actual_worked_days"]), amount("basic_pay"), "Tardiness/Absence", "", amount("late_ut")],
+        ["Weekly Allowance", "", amount("allowance"), "SSS", "", amount("sss")],
+        ["Incentives", "", amount("incentives"), "PhilHealth", "", amount("philhealth")],
+        ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
+        ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
+        ["Regular Holiday Pay", "", amount("regular_holiday"), "Loan Deduction", "", amount("sss_loan")],
+        ["Regular OT", "", amount("regular_overtime"), "Cash Advance", "", amount("cash_advance")],
+        ["Sunday OT", "", amount("sunday_overtime"), "Other Deductions", "", amount("other_deductions")],
+        ["Rest Day OT", "", amount("rest_day"), "", "", ""],
+        ["Special Holiday OT", "", amount("special_holiday_ot"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
+        ["Regular Holiday OT", "", amount("regular_holiday_ot"), "NET PAY", "", amount("net_pay")],
+        ["Night Differential", "", amount("night_differential"), "", "", ""],
+        ["Adjustment", "", amount("adjustment"), "", "", ""],
+        ["GROSS PAY", "", amount("gross_income"), "", "", ""],
+    ]
 
 
 @app.route('/payroll/<int:employee_id>', methods=['GET', 'POST'])
@@ -2994,7 +3092,7 @@ def payroll(employee_id):
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
     )
     deductions = (
-        compute_weekly_deductions(cutoff_salary, weeks=1)
+        compute_weekly_deductions(cutoff_salary * 4, weeks=4)
         if cutoff_salary > 0
         else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
     )
@@ -3063,26 +3161,16 @@ def payroll(employee_id):
     c.drawString(300, 715, f"Department: {emp.company}")
     c.drawString(300, 700, f"Daily Rate: {float(emp.daily_rate or 0):.2f}")
     c.drawString(300, 685, f"Cut-off: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
+    c.drawString(50, 685, f"Reference: PAY-{payroll_record.id or 0:06d}")
 
-    data = [
-        ["Earnings", "", "", "Deductions", "", ""],
-        ["Description", "Days/Hrs", "Amount", "Description", "Mins", "Amount"],
-        ["Actual Worked Days", str(payslip['actual_worked_days']), f"{payslip['gross_income']:.2f}", "Late/UT", "", f"{payslip['late_ut']:.2f}"],
-        ["Adjustment", "", f"{payslip['adjustment']:.2f}", "SSS", "", f"{payslip['sss']:.2f}"],
-        ["Night Differential", "", f"{payslip['night_differential']:.2f}", "PhilHealth", "", f"{payslip['philhealth']:.2f}"],
-        ["Regular Overtime", "", f"{payslip['regular_overtime']:.2f}", "HDMF", "", f"{payslip['pagibig']:.2f}"],
-        ["Rest Day", "", f"{payslip['rest_day']:.2f}", "SSS Loan", "", f"{payslip['sss_loan']:.2f}"],
-        ["Special Holiday", "", f"{payslip['special_holiday']:.2f}", "HDMF Loan", "", f"{payslip['hdmf_loan']:.2f}"],
-        ["Special Holiday OT", "", f"{payslip['special_holiday_ot']:.2f}", "Cash Advance", "", f"{payslip['cash_advance']:.2f}"],
-        ["Regular Holiday", "", f"{payslip['regular_holiday']:.2f}", "Withholding Tax", "", f"{payslip['withholding_tax']:.2f}"],
-        ["Regular Holiday OT", "", f"{payslip['regular_holiday_ot']:.2f}", "Gross Deductions", "", f"{payslip['total_deductions']:.2f}"],
-        ["Gross Income", "", f"{payslip['gross_income']:.2f}", "NET PAY", "", f"{payslip['net_pay']:.2f}"],
-    ]
+    data = weekly_payslip_table_data(payslip)
 
     table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
     table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,1), colors.whitesmoke),
-        ('FONTNAME', (0,0), (-1,1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTNAME', (0,-1), (2,-1), 'Helvetica-Bold'),
+        ('FONTNAME', (3,-5), (5,-4), 'Helvetica-Bold'),
         ('GRID', (0,0), (-1,-1), 0.75, colors.black),
         ('ALIGN', (1,1), (-1,-1), 'CENTER'),
         ('ALIGN', (2,2), (2,-1), 'RIGHT'),
@@ -3091,16 +3179,16 @@ def payroll(employee_id):
         ('TOPPADDING', (0,0), (-1,-1), 6),
     ]))
     table.wrapOn(c, 50, 600)
-    table.drawOn(c, 50, 420)
+    table.drawOn(c, 50, 350)
 
-    c.line(50, 400, 550, 400)
+    c.line(50, 330, 550, 330)
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, 385, "Authorized by Admin")
-    c.line(50, 340, 250, 340)
-    c.line(350, 340, 550, 340)
+    c.drawString(50, 315, "Authorized by Admin")
+    c.line(50, 270, 250, 270)
+    c.line(350, 270, 550, 270)
     c.setFont("Helvetica", 10)
-    c.drawString(50, 325, "Authorized Person Signature")
-    c.drawString(350, 325, "Date")
+    c.drawString(50, 255, "Authorized Person Signature")
+    c.drawString(350, 255, "Date")
 
     c.showPage()
     c.save()
@@ -3263,20 +3351,13 @@ def payslip(emp_id, payroll_id):
         flash("Access denied.", "danger")
         return redirect(url_for('dashboard_staff'))
 
-    allowance = float(employee.allowance or 0)
-    incentives = float(employee.incentives or 0)
-    gross_income = float(payroll_record.gross_income or 0)
-    basic_pay = max(gross_income - allowance - incentives, 0)
-    ot_pay = 0.0
-    tax = float(payroll_record.withholding_tax or 0)
+    breakdown = build_payslip_breakdown(employee, payroll_record)
 
     return render_template(
         "payslip.html",
         employee=employee,
         payroll=payroll_record,
-        basic_pay=basic_pay,
-        ot_pay=ot_pay,
-        tax=tax
+        payslip=breakdown
     )
 
 
@@ -3288,6 +3369,7 @@ def download_payslip(emp_id, payroll_id):
     if current_user.id != emp_id and 'admin' not in current_user.role.lower():
         return 'Access denied', 403
 
+    payslip = build_payslip_breakdown(employee, payroll_record)
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 16)
@@ -3298,21 +3380,25 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
     pdf.drawString(50, 715, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
     pdf.drawString(50, 700, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
-    y = 675
-    for label, amount in [
-        ('Gross Income', payroll_record.gross_income),
-        ('SSS', payroll_record.sss),
-        ('PhilHealth', payroll_record.philhealth),
-        ('Pag-IBIG', payroll_record.pagibig),
-        ('Loan Deduction', payroll_record.loan),
-        ('Cash Advance', payroll_record.cash_advance),
-        ('Total Deductions', payroll_record.total_deductions),
-        ('NET PAY', payroll_record.net_pay),
-    ]:
-        pdf.setFont('Helvetica-Bold' if label == 'NET PAY' else 'Helvetica', 12)
-        pdf.drawString(70, y, label)
-        pdf.drawRightString(500, y, f'PHP {float(amount or 0):,.2f}')
-        y -= 26
+    pdf.drawString(300, 700, f'Reference: PAY-{payroll_record.id:06d}')
+    pdf.drawString(300, 715, f'Position/Department: {employee.role} / {employee.company or "N/A"}')
+    data = weekly_payslip_table_data(payslip)
+    table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, -1), (2, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (3, -5), (5, -4), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.75, colors.black),
+        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+        ('ALIGN', (3, 1), (3, -1), 'LEFT'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    table.wrapOn(pdf, 50, 650)
+    table.drawOn(pdf, 50, 350)
+    y = 325
     pdf.line(70, y - 20, 260, y - 20)
     pdf.line(330, y - 20, 500, y - 20)
     pdf.setFont('Helvetica', 10)
@@ -3448,7 +3534,7 @@ def payroll_dashboard():
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
         )
         deduction_values = (
-            compute_weekly_deductions(cutoff_salary, weeks=1)
+            compute_weekly_deductions(cutoff_salary * 4, weeks=4)
             if cutoff_salary > 0
             else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
         )
@@ -3514,7 +3600,7 @@ def holiday_ot_dashboard():
         if att_id and action:
             att = Attendance.query.get_or_404(att_id)
             if action == "approve":
-                att.ot_status = "Approved"
+                apply_overtime_details(att, force_approved=True)
                 flash(f"✅ Overtime #{att.id} approved.", "success")
             elif action == "reject":
                 att.ot_status = "Rejected"
@@ -3528,6 +3614,12 @@ def holiday_ot_dashboard():
         attendance for attendance in query.order_by(Attendance.date.desc()).all()
         if (
             attendance.is_holiday_ot or attendance.is_weekday_ot or attendance.is_restday_ot
+            or (
+                attendance.date.weekday() == 6
+                and attendance.employee
+                and str(attendance.employee.company or '').lower().startswith('trece')
+                and attendance.clock_out.time() > time(12, 0)
+            )
             or (
                 attendance.clock_out.hour > 17
                 or (attendance.clock_out.hour == 17 and attendance.clock_out.minute > 0)

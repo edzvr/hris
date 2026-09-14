@@ -280,27 +280,6 @@
     <button onclick="showTab('settings')">Settings</button>
   </div>
 
-  <div class="card">
-    <h2>Today's Staff Attendance</h2>
-    <p>Monitor who has clocked in, clocked out, or has no attendance record today.</p>
-    <input id="staffAttendanceSearch" type="search" placeholder="Search employee or company" style="max-width:360px; padding:10px;">
-    <table id="staffAttendanceTable">
-      <tr><th>Employee</th><th>Company</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>Actions</th></tr>
-      {% for item in staff_attendance %}
-      <tr>
-        <td>{{ item.employee.full_name() }}</td>
-        <td>{{ item.employee.company or 'N/A' }}</td>
-        <td>{{ item.record.clock_in.strftime('%I:%M %p') if item.record and item.record.clock_in else '—' }}</td>
-        <td>{{ item.record.clock_out.strftime('%I:%M %p') if item.record and item.record.clock_out else '—' }}</td>
-        <td>{{ '%.2f'|format(item.record.hours or 0) if item.record else '0.00' }}</td>
-        <td>{{ item.status }}</td>
-        <td><a class="btn" href="{{ url_for('attendance', employee_id=item.employee.id) }}">Attendance</a> <a class="btn" href="{{ url_for('payroll', employee_id=item.employee.id) }}">Payroll</a></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7">No staff records found.</td></tr>
-      {% endfor %}
-    </table>
-  </div>
   <div class="card" id="attendance-corrections">
     <h2>Pending Attendance Corrections</h2>
     <table>
@@ -520,17 +499,6 @@
         }
       }
     });
-
-    const staffAttendanceSearch = document.getElementById('staffAttendanceSearch');
-    if (staffAttendanceSearch) {
-      staffAttendanceSearch.addEventListener('input', function () {
-        const query = this.value.toLowerCase().trim();
-        document.querySelectorAll('#staffAttendanceTable tr').forEach((row, index) => {
-          if (index === 0) return;
-          row.style.display = row.textContent.toLowerCase().includes(query) ? '' : 'none';
-        });
-      });
-    }
 
     function saveSettings() {
       const settings = {

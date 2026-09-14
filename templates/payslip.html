@@ -35,7 +35,9 @@
             <p><strong>Employee:</strong> {{ employee.first_name }} {{ employee.last_name }}</p>
             <p><strong>Employee ID:</strong> {{ employee.id }}</p>
             <p><strong>Cut-Off:</strong> {{ payroll.cutoff_start.strftime('%m-%d-%Y') }} ~ {{ payroll.cutoff_end.strftime('%m-%d-%Y') }}</p>
-            <p><strong>Department:</strong> {{ employee.company or 'N/A' }}</p>
+            <p><strong>Position/Department:</strong> {{ employee.role }} / {{ employee.company or 'N/A' }}</p>
+            <p><strong>Daily Rate:</strong> ₱{{ (employee.daily_rate or 0)|currency }}</p>
+            <p><strong>Reference:</strong> PAY-{{ "%06d"|format(payroll.id) }}</p>
         </div>
 
         <table class="table">
@@ -45,23 +47,37 @@
             </tr>
             <tr>
                 <td>
-                    <p>Basic Pay: ₱{{ basic_pay|currency }}</p>
-                    <p>OT Pay: ₱{{ ot_pay|currency }}</p>
-                    <p><strong>Gross Income: ₱{{ (payroll.gross_income or 0)|currency }}</strong></p>
+                    <p>Worked Days: {{ payslip.actual_worked_days }}</p>
+                    <p>Basic Pay: ₱{{ payslip.basic_pay|currency }}</p>
+                    <p>Weekly Allowance: ₱{{ payslip.allowance|currency }}</p>
+                    <p>Incentives: ₱{{ payslip.incentives|currency }}</p>
+                    <p>Rest Day Pay: ₱{{ payslip.rest_day_pay|currency }}</p>
+                    <p>Special Holiday Pay: ₱{{ payslip.special_holiday|currency }}</p>
+                    <p>Regular Holiday Pay: ₱{{ payslip.regular_holiday|currency }}</p>
+                    <p>Regular OT: ₱{{ payslip.regular_overtime|currency }}</p>
+                    <p>Sunday OT: ₱{{ payslip.sunday_overtime|currency }}</p>
+                    <p>Rest Day OT: ₱{{ payslip.rest_day|currency }}</p>
+                    <p>Special Holiday OT: ₱{{ payslip.special_holiday_ot|currency }}</p>
+                    <p>Regular Holiday OT: ₱{{ payslip.regular_holiday_ot|currency }}</p>
+                    <p>Night Differential: ₱{{ payslip.night_differential|currency }}</p>
+                    <p>Adjustment: ₱{{ payslip.adjustment|currency }}</p>
+                    <p><strong>Gross Pay: ₱{{ payslip.gross_income|currency }}</strong></p>
                 </td>
                 <td>
-                    <p>SSS: ₱{{ (payroll.sss or 0)|currency }}</p>
-                    <p>PhilHealth: ₱{{ (payroll.philhealth or 0)|currency }}</p>
-                    <p>Pag-IBIG: ₱{{ (payroll.pagibig or 0)|currency }}</p>
-                    <p>Tax: ₱{{ tax|currency }}</p>
-                    <p>Loan: ₱{{ (payroll.loan or 0)|currency }}</p>
-                    <p>Cash Advance: ₱{{ (payroll.cash_advance or 0)|currency }}</p>
-                    <p><strong>Total Deductions: ₱{{ (payroll.total_deductions or 0)|currency }}</strong></p>
+                    <p>SSS: ₱{{ payslip.sss|currency }}</p>
+                    <p>PhilHealth: ₱{{ payslip.philhealth|currency }}</p>
+                    <p>Pag-IBIG: ₱{{ payslip.pagibig|currency }}</p>
+                    <p>Withholding Tax: ₱{{ payslip.withholding_tax|currency }}</p>
+                    <p>Loan Deduction: ₱{{ payslip.sss_loan|currency }}</p>
+                    <p>Cash Advance: ₱{{ payslip.cash_advance|currency }}</p>
+                    <p>Tardiness/Absence: ₱{{ payslip.late_ut|currency }}</p>
+                    <p>Other Deductions: ₱{{ payslip.other_deductions|currency }}</p>
+                    <p><strong>Total Deductions: ₱{{ payslip.total_deductions|currency }}</strong></p>
                 </td>
             </tr>
         </table>
 
-        <p class="net-pay"><strong>Net Pay: ₱{{ (payroll.net_pay or 0)|currency }}</strong></p>
+        <p class="net-pay"><strong>Net Pay: ₱{{ payslip.net_pay|currency }}</strong></p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:55px;text-align:center;">
             <div style="border-top:1px solid #333;padding-top:8px;">Authorized Person Signature</div>
             <div style="border-top:1px solid #333;padding-top:8px;">Date</div>
