@@ -815,6 +815,71 @@ def audit_authenticated_request(response):
         record_audit_action(action, response)
     return response
 
+
+@app.after_request
+def inject_authenticated_sidebar(response):
+    if (
+        not current_user.is_authenticated
+        or not response.content_type
+        or 'text/html' not in response.content_type
+        or request.path.startswith('/verify-')
+        or request.args.get('export') == 'print'
+        or request.args.get('download') == 'true'
+    ):
+        return response
+
+    html = response.get_data(as_text=True)
+    if '</body>' not in html or 'hris-global-sidebar' in html:
+        return response
+
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    dashboard_endpoint = 'dashboard_admin' if is_admin else 'dashboard_staff'
+    links = [
+        (dashboard_endpoint, 'Dashboard'),
+        ('payroll_dashboard' if is_admin else 'payroll', 'Payroll'),
+        ('attendance', 'Attendance'),
+        ('leave', 'Leave'),
+        ('loan', 'Loans'),
+        ('profile', 'Profile'),
+    ]
+    if is_admin:
+        links.extend([
+            ('compliance_reports', 'Compliance Reports'),
+            ('audit_logs', 'Audit Logs'),
+        ])
+
+    link_markup = ''.join(
+        f'<a href="{url_for(endpoint, employee_id=current_user.id) if endpoint in {"payroll", "attendance"} else url_for(endpoint, user_id=current_user.id) if endpoint == "profile" else url_for(endpoint)}">{label}</a>'
+        for endpoint, label in links
+    )
+    sidebar = f'''
+<style id="hris-global-sidebar-style">
+    body.hris-sidebar-page {{ padding-left: 248px !important; }}
+    #hris-global-sidebar {{ position: fixed; z-index: 10000; inset: 0 auto 0 0; width: 220px; padding: 22px 14px; background: #20352f; color: #f4f7f6; box-shadow: 3px 0 12px rgba(0,0,0,.16); font-family: Arial, sans-serif; }}
+    #hris-global-sidebar h2 {{ margin: 0 8px 5px; font-size: 19px; letter-spacing: .3px; }}
+    #hris-global-sidebar p {{ margin: 0 8px 20px; color: #b9cec5; font-size: 12px; }}
+    #hris-global-sidebar a {{ display: block; padding: 10px 12px; margin: 4px 0; color: #f4f7f6; text-decoration: none; border-left: 3px solid transparent; }}
+    #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ background: #2d5045; border-left-color: #e5b85c; }}
+    #hris-global-sidebar .sidebar-logout {{ margin-top: 24px; border-top: 1px solid #426157; padding-top: 16px; }}
+    @media (max-width: 760px) {{ body.hris-sidebar-page {{ padding-left: 0 !important; padding-top: 76px !important; }} #hris-global-sidebar {{ inset: 0 0 auto 0; width: auto; height: 54px; padding: 10px 12px; display: flex; align-items: center; gap: 4px; overflow-x: auto; }} #hris-global-sidebar h2, #hris-global-sidebar p {{ display: none; }} #hris-global-sidebar a {{ white-space: nowrap; margin: 0; padding: 8px 10px; border-left: 0; border-bottom: 3px solid transparent; }} #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ border-bottom-color: #e5b85c; }} #hris-global-sidebar .sidebar-logout {{ margin-top: 0; border-top: 0; padding-top: 8px; }} }}
+</style>
+<aside id="hris-global-sidebar">
+    <h2>HRIS</h2>
+    <p>{'Admin workspace' if is_admin else 'Employee self-service'}</p>
+    {link_markup}
+    <a class="sidebar-logout" href="{url_for('logout')}">Sign out</a>
+</aside>
+'''
+    if '<body class="' in html:
+        html = html.replace('<body class="', '<body class="hris-sidebar-page ', 1)
+    elif '<body ' in html:
+        html = html.replace('<body ', '<body class="hris-sidebar-page" ', 1)
+    else:
+        html = html.replace('<body>', '<body class="hris-sidebar-page">', 1)
+    html = html.replace('</body>', f'{sidebar}</body>', 1)
+    response.set_data(html)
+    return response
+
 # ----------------- LOGIN + FORGOT PASSWORD ------------------
 from werkzeug.security import check_password_hash, generate_password_hash
 
