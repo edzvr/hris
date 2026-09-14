@@ -1045,9 +1045,25 @@ def monthly_deductions():
         Payroll.cutoff_start < next_month
     ).order_by(Employee.company, Employee.last_name, Payroll.cutoff_start).all()
 
+    employer_rows = []
+    for record, employee in rows:
+        employer_rows.append({
+            'record': record,
+            'employee': employee,
+            # Internal estimate using the current HRIS employee-share basis.
+            'employer_sss': float(record.sss or 0),
+            'employer_philhealth': float(record.philhealth or 0),
+            'employer_pagibig': float(record.pagibig or 0),
+        })
+
     totals = {key: sum(float(getattr(record, key) or 0) for record, _ in rows) for key in (
         'sss', 'philhealth', 'pagibig', 'withholding_tax', 'loan', 'total_deductions'
     )}
+    totals.update({
+        'employer_sss': sum(row['employer_sss'] for row in employer_rows),
+        'employer_philhealth': sum(row['employer_philhealth'] for row in employer_rows),
+        'employer_pagibig': sum(row['employer_pagibig'] for row in employer_rows),
+    })
     if request.args.get('download') == 'true':
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=letter)
@@ -1064,6 +1080,7 @@ def monthly_deductions():
         pdf.drawString(410, y, 'Tax')
         pdf.drawString(450, y, 'Loan')
         pdf.drawString(500, y, 'Total')
+        pdf.drawString(555, y, 'Employer Share')
         y -= 18
         pdf.setFont('Helvetica', 8)
         for record, employee in rows:
@@ -1073,15 +1090,25 @@ def monthly_deductions():
             pdf.drawString(40, y, f'{employee.full_name()} / {payroll_company_name(employee)}'[:28])
             for x, key in [(220, 'sss'), (270, 'philhealth'), (345, 'pagibig'), (410, 'withholding_tax'), (450, 'loan'), (500, 'total_deductions')]:
                 pdf.drawRightString(x + 38, y, f'{float(getattr(record, key) or 0):,.2f}')
+            employer_total = float(record.sss or 0) + float(record.philhealth or 0) + float(record.pagibig or 0)
+            pdf.drawRightString(610, y, f'{employer_total:,.2f}')
             y -= 15
         pdf.line(40, max(y, 45), 540, max(y, 45))
         pdf.setFont('Helvetica-Bold', 9)
         pdf.drawString(40, max(y - 15, 30), 'AUTHORIZED PERSON SIGNATURE: ____________________    DATE: __________')
+        employer_y = max(y - 48, 20)
+        pdf.setFont('Helvetica-Bold', 9)
+        pdf.drawString(40, employer_y, 'EMPLOYER SHARE - INTERNAL ESTIMATE')
+        pdf.setFont('Helvetica', 8)
+        pdf.drawString(40, employer_y - 14, f'SSS: PHP {totals["employer_sss"]:,.2f}')
+        pdf.drawString(180, employer_y - 14, f'PhilHealth: PHP {totals["employer_philhealth"]:,.2f}')
+        pdf.drawString(340, employer_y - 14, f'Pag-IBIG: PHP {totals["employer_pagibig"]:,.2f}')
+        pdf.drawString(40, employer_y - 28, 'Separate from employee deductions; validate before official filing.')
         pdf.showPage()
         pdf.save()
         buffer.seek(0)
         return send_file(buffer, as_attachment=True, download_name=f'monthly_deductions_{month_start:%Y_%m}.pdf', mimetype='application/pdf')
-    return render_template('monthly_deductions.html', rows=rows, totals=totals, month_start=month_start)
+    return render_template('monthly_deductions.html', rows=rows, employer_rows=employer_rows, totals=totals, month_start=month_start)
 
 
 @app.route('/forgot_password', methods=['GET', 'POST'])

@@ -28,6 +28,7 @@
         </form>
     </main>
     <section class="section">
+        <h3>Employee Share (deducted from salary)</h3>
         <table>
             <tr><th>Employee / Company</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Tax</th><th>Loan</th><th>Total Deductions</th></tr>
             {% for record, employee in rows %}
@@ -44,6 +45,25 @@
             <tr><td colspan="7">No finalized payroll deductions for this month.</td></tr>
             {% endfor %}
             <tr><th>Monthly Total</th><th>PHP {{ '%.2f'|format(totals.sss) }}</th><th>PHP {{ '%.2f'|format(totals.philhealth) }}</th><th>PHP {{ '%.2f'|format(totals.pagibig) }}</th><th>PHP {{ '%.2f'|format(totals.withholding_tax) }}</th><th>PHP {{ '%.2f'|format(totals.loan) }}</th><th>PHP {{ '%.2f'|format(totals.total_deductions) }}</th></tr>
+        </table>
+    </section>
+    <section class="section">
+        <h3>Employer Share (Admin/Payroll internal view)</h3>
+        <p>These values are separate from employee deductions and do not reduce employee net pay. Validate against current statutory contribution tables before official filing.</p>
+        <table>
+            <tr><th>Employee / Company</th><th>Employer SSS</th><th>Employer PhilHealth</th><th>Employer Pag-IBIG</th><th>Total Employer Share</th></tr>
+            {% for row in employer_rows %}
+            <tr>
+                <td>{{ row.employee.full_name() }} / {{ 'Trece-Uno Auto Supply' if row.employee.company and row.employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_sss) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_philhealth) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_pagibig) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_sss + row.employer_philhealth + row.employer_pagibig) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">No employer contribution records for this month.</td></tr>
+            {% endfor %}
+            <tr><th>Monthly Total</th><th>PHP {{ '%.2f'|format(totals.employer_sss) }}</th><th>PHP {{ '%.2f'|format(totals.employer_philhealth) }}</th><th>PHP {{ '%.2f'|format(totals.employer_pagibig) }}</th><th>PHP {{ '%.2f'|format(totals.employer_sss + totals.employer_philhealth + totals.employer_pagibig) }}</th></tr>
         </table>
     </section>
     <p><a href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
