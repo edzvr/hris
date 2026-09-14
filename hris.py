@@ -995,8 +995,8 @@ def inject_authenticated_sidebar(response):
     )
     sidebar = f'''
 <style id="hris-global-sidebar-style">
-    body.hris-sidebar-page {{ padding-left: 208px !important; }}
-    #hris-global-sidebar {{ --sidebar-scale: 1; position: fixed; z-index: 10000; inset: 0 auto 0 0; width: 190px; padding: 10px 7px; background: #122c3b; color: #f4f7f6; box-shadow: 3px 0 14px rgba(7,25,36,.28); font-family: Arial, sans-serif; overflow-y: auto; overflow-x: hidden; }}
+    body.hris-sidebar-page {{ --hris-sidebar-width: 190px; padding-left: calc(var(--hris-sidebar-width) + 18px) !important; }}
+    #hris-global-sidebar {{ --sidebar-scale: 1; position: fixed; z-index: 10000; inset: 0 auto 0 0; width: var(--hris-sidebar-width); padding: 10px 7px; background: #122c3b; color: #f4f7f6; box-shadow: 3px 0 14px rgba(7,25,36,.28); font-family: Arial, sans-serif; overflow-y: auto; overflow-x: hidden; }}
     #hris-global-sidebar h2 {{ margin: 0 5px 2px; font-size: calc(16px * var(--sidebar-scale)); line-height: 19px; letter-spacing: .2px; }}
     #hris-global-sidebar p {{ margin: 0 5px 6px; color: #b7d5dd; font-size: calc(10px * var(--sidebar-scale)); line-height: 12px; }}
     #hris-global-sidebar a {{ display: flex !important; align-items: center; box-sizing: border-box; width: 100%; height: calc(30px * var(--sidebar-scale)) !important; min-height: calc(30px * var(--sidebar-scale)) !important; padding: 6px 7px !important; margin: 2px 0 !important; color: #f4f7f6; text-decoration: none; border-left: 2px solid transparent; font-size: calc(13px * var(--sidebar-scale)) !important; line-height: 18px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis; }}
@@ -1006,7 +1006,7 @@ def inject_authenticated_sidebar(response):
     #hris-sidebar-controls {{ display: flex; gap: 4px; margin: 5px; }}
     #hris-sidebar-controls button {{ flex: 1; height: 25px; padding: 0; border: 1px solid #5f8996; border-radius: 5px; background: #1e5266; color: #fff; font-size: 12px; cursor: pointer; }}
     #hris-sidebar-controls button:hover {{ background: #2d7187; }}
-    @media (max-width: 760px) {{ body.hris-sidebar-page {{ padding-left: 224px !important; padding-top: 0 !important; }} #hris-global-sidebar {{ width: 214px !important; height: 100vh !important; max-height: 100vh !important; padding: 12px 9px; overflow-y: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }} #hris-global-sidebar h2 {{ font-size: calc(18px * var(--sidebar-scale)); line-height: 22px; }} #hris-global-sidebar p {{ font-size: calc(11px * var(--sidebar-scale)); line-height: 14px; }} #hris-global-sidebar a {{ height: calc(39px * var(--sidebar-scale)) !important; min-height: calc(39px * var(--sidebar-scale)) !important; padding: 9px 8px !important; margin: 2px 0 !important; font-size: calc(14px * var(--sidebar-scale)) !important; line-height: 19px !important; }} }}
+    @media (max-width: 760px) {{ body.hris-sidebar-page {{ --hris-sidebar-width: 280px; padding-left: calc(var(--hris-sidebar-width) + 12px) !important; padding-top: 0 !important; }} #hris-global-sidebar {{ width: var(--hris-sidebar-width) !important; height: 100vh !important; max-height: 100vh !important; padding: 14px 12px; overflow-y: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }} #hris-global-sidebar h2 {{ font-size: calc(20px * var(--sidebar-scale)); line-height: 24px; }} #hris-global-sidebar p {{ font-size: calc(13px * var(--sidebar-scale)); line-height: 16px; }} #hris-global-sidebar a {{ height: calc(42px * var(--sidebar-scale)) !important; min-height: calc(42px * var(--sidebar-scale)) !important; padding: 10px 11px !important; margin: 2px 0 !important; font-size: max(16px, calc(16px * var(--sidebar-scale))) !important; line-height: 21px !important; }} }}
 </style>
 <aside id="hris-global-sidebar">
     <h2>HRIS</h2>
@@ -1015,7 +1015,7 @@ def inject_authenticated_sidebar(response):
     {link_markup}
     <a class="sidebar-logout" href="{url_for('logout')}">Sign out</a>
 </aside>
-<script>(function() {{ const sidebar=document.getElementById('hris-global-sidebar'); if (!sidebar) return; let scale=parseFloat(localStorage.getItem('hris-sidebar-scale')||'1'); const apply=()=>{{ scale=Math.max(.85,Math.min(1.2,scale)); sidebar.style.setProperty('--sidebar-scale',scale); localStorage.setItem('hris-sidebar-scale',scale); }}; sidebar.querySelectorAll('[data-sidebar-zoom]').forEach(button=>button.addEventListener('click',()=>{{ const action=button.dataset.sidebarZoom; scale=action==='up'?scale+.1:action==='down'?scale-.1:1; apply(); }})); apply(); }})();</script>
+<script>(function() {{ const sidebar=document.getElementById('hris-global-sidebar'); if (!sidebar) return; let scale=parseFloat(localStorage.getItem('hris-sidebar-scale')||'1'); const apply=()=>{{ scale=Math.max(.95,Math.min(1.2,scale)); sidebar.style.setProperty('--sidebar-scale',scale); localStorage.setItem('hris-sidebar-scale',scale); }}; sidebar.querySelectorAll('[data-sidebar-zoom]').forEach(button=>button.addEventListener('click',()=>{{ const action=button.dataset.sidebarZoom; scale=action==='up'?scale+.1:action==='down'?scale-.1:1; apply(); }})); apply(); }})();</script>
 '''
     if '<body class="' in html:
         html = html.replace('<body class="', '<body class="hris-sidebar-page ', 1)
