@@ -722,6 +722,45 @@ def ensure_employee_hr_columns():
     db.session.commit()
 
 
+def ensure_document_verification_columns():
+    table_name = 'payslip_verifications'
+    inspector = inspect(db.engine)
+    if table_name not in inspector.get_table_names():
+        return
+    columns = {column['name'] for column in inspector.get_columns(table_name)}
+    statements = []
+    if 'document_type' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN document_type VARCHAR(40) NOT NULL DEFAULT 'payslip'")
+    if 'document_label' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN document_label VARCHAR(120)")
+    if 'payroll_id' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN payroll_id INTEGER")
+    if 'net_pay' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN net_pay FLOAT NOT NULL DEFAULT 0")
+    if 'cutoff_start' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN cutoff_start DATE")
+    if 'cutoff_end' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN cutoff_end DATE")
+    if 'created_at' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    if 'verification_hash' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN verification_hash VARCHAR(128) NOT NULL DEFAULT ''")
+    for statement in statements:
+        db.session.execute(text(statement))
+    if db.engine.dialect.name == 'postgresql' and 'payroll_id' in columns:
+        db.session.execute(text(
+            'ALTER TABLE payslip_verifications ALTER COLUMN payroll_id DROP NOT NULL'
+        ))
+    if db.engine.dialect.name == 'postgresql':
+        db.session.execute(text(
+            'ALTER TABLE payslip_verifications ALTER COLUMN cutoff_start DROP NOT NULL'
+        ))
+        db.session.execute(text(
+            'ALTER TABLE payslip_verifications ALTER COLUMN cutoff_end DROP NOT NULL'
+        ))
+    db.session.commit()
+
+
 def bootstrap_postgres_from_sqlite():
     if db.engine.dialect.name != "postgresql":
         return
@@ -805,6 +844,7 @@ with app.app_context():
     ensure_payroll_columns()
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
+    ensure_document_verification_columns()
     bootstrap_postgres_from_sqlite()
     sync_postgres_id_sequences()
 
