@@ -723,6 +723,32 @@ def bootstrap_postgres_from_sqlite():
             source_engine.dispose()
 
 
+def sync_postgres_id_sequences():
+    if db.engine.dialect.name != 'postgresql':
+        return
+    inspector = inspect(db.engine)
+    for table_name in inspector.get_table_names():
+        if table_name == 'alembic_version' or 'id' not in {
+            column['name'] for column in inspector.get_columns(table_name)
+        }:
+            continue
+        safe_table_name = table_name.replace('"', '""')
+        sequence_name = db.session.execute(
+            text("SELECT pg_get_serial_sequence(:table_name, 'id')"),
+            {'table_name': table_name},
+        ).scalar()
+        if not sequence_name:
+            continue
+        db.session.execute(
+            text(
+                f'SELECT setval(:sequence_name, '
+                f'COALESCE((SELECT MAX(id) FROM "{safe_table_name}"), 0) + 1, false)'
+            ),
+            {'sequence_name': sequence_name},
+        )
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
@@ -732,6 +758,7 @@ with app.app_context():
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
     bootstrap_postgres_from_sqlite()
+    sync_postgres_id_sequences()
 
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
