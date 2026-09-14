@@ -5667,6 +5667,23 @@ def quiz(employee_id):
     else:
         quizzes = []
 
+    if attempt and attempt.get('category') == category and not quizzes and request.method != 'POST':
+        available_quizzes = list({
+            question.question.strip().casefold(): question
+            for question in category_quizzes
+        }.values())
+        if len(available_quizzes) < 10:
+            available_quizzes = Quiz.query.filter_by(category=category).all()
+            available_quizzes = list({
+                question.question.strip().casefold(): question
+                for question in available_quizzes
+            }.values())
+        if available_quizzes:
+            quizzes = random.sample(available_quizzes, min(10, len(available_quizzes)))
+            attempt['quiz_ids'] = [question.id for question in quizzes]
+            attempt.pop('answer_keys', None)
+            session[attempt_key] = attempt
+
     quiz_options = {}
     quiz_answer_keys = {}
     for question in quizzes:
