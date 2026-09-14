@@ -240,6 +240,14 @@
       </form>
     </div>
 
+    {% if peer_evaluation_pending %}
+    <div class="container card dashboard-section" style="border-left:4px solid #e5b85c;background:#fff7e3;">
+      <h2>Monthly Peer Evaluation Due</h2>
+      <p>Please evaluate a coworker this month. Your peer evaluation contributes to the employee's evaluation and Merit/Demerit record.</p>
+      <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">Evaluate a Coworker</a>
+    </div>
+    {% endif %}
+
 <script>
     // Real-time Clock
     function updateClock() {

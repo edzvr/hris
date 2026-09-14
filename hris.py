@@ -520,13 +520,16 @@ def generate_monthly_peer_eval_reminder():
     try:
         from datetime import datetime
         month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        pending = Employee.query.filter(~Employee.evaluations.any(Evaluation.date >= month_start)).all()
-        if not pending:
+        due_staff = [
+            employee for employee in Employee.query.filter(Employee.role.ilike('%staff%')).all()
+            if peer_evaluation_is_due(employee, month_start.date())
+        ]
+        if not due_staff:
             logger.info("No pending peer evaluations this month.")
             return
 
-        title = f"Peer evaluations due: {len(pending)} employees"
-        content_lines = [f"{e.id}: {e.full_name()}" for e in pending]
+        title = f"Peer evaluations due: {len(due_staff)} staff"
+        content_lines = [f"{e.id}: {e.full_name()}" for e in due_staff]
         content = "\n".join(content_lines)
 
         post = Bulletin(title=title, content=content, author="System")
@@ -535,21 +538,33 @@ def generate_monthly_peer_eval_reminder():
 
         # Try to email admins if mail configured
         try:
-            admins = Employee.query.filter(Employee.role.ilike('%admin%')).all()
-            if mail and admins and app.config.get('MAIL_SERVER'):
+            if mail and due_staff and app.config.get('MAIL_SERVER'):
                 with app.app_context():
-                    for a in admins:
-                        if not a.email:
+                    for employee in due_staff:
+                        if not employee.email:
                             continue
                         msg = Message(subject="Peer evaluations due",
                                       sender=app.config.get('MAIL_USERNAME'),
-                                      recipients=[a.email])
-                        msg.body = title + "\n\n" + content
+                                      recipients=[employee.email])
+                        msg.body = (
+                            f"Hi {employee.first_name},\n\n"
+                            "Please complete your monthly peer-to-peer evaluation in the HRIS.\n"
+                            "Open Assessments or Peer Evaluation from your staff dashboard."
+                        )
                         mail.send(msg)
         except Exception:
             logger.exception("Failed to send peer evaluation reminder emails")
     except Exception:
         logger.exception("Error running monthly peer-eval reminder job")
+
+
+def peer_evaluation_is_due(employee, month_start):
+    month_start_dt = datetime.combine(month_start, datetime.min.time())
+    return not Evaluation.query.filter(
+        Evaluation.evaluator_id == employee.id,
+        Evaluation.date >= month_start_dt,
+        Evaluation.category.like('peer_%'),
+    ).first()
 
 
 def send_lunch_reminder(phase):
@@ -874,6 +889,7 @@ def inject_authenticated_sidebar(response):
         links.insert(2, ('quiz', 'Quiz'))
         links.extend([
             ('assessment', 'Assessments'),
+            ('peer_evaluation', 'Peer Evaluation'),
             ('merit_demerit', 'Merit / Demerit'),
         ])
     if is_admin:
@@ -2013,11 +2029,7 @@ def dashboard_staff():
             )
     insights = generate_ai_insights(current_user)
     month_start = datetime.today().date().replace(day=1)
-    peer_evaluation_pending = not Evaluation.query.filter(
-        Evaluation.evaluator_id == current_user.id,
-        Evaluation.date >= datetime.combine(month_start, datetime.min.time()),
-        Evaluation.category.like("peer_%")
-    ).first()
+    peer_evaluation_pending = peer_evaluation_is_due(current_user, month_start)
     latest_payslip = Payroll.query.filter_by(
         employee_id=current_user.id,
         is_paid=True
@@ -2415,7 +2427,13 @@ def peer_evaluation():
 
     ensure_peer_questions()
     questions = EvaluationQuestion.query.filter_by(is_active=True).order_by(EvaluationQuestion.id).all()
-    employees = Employee.query.filter(Employee.id != current_user.id).all()
+    employees = Employee.query.filter(
+        Employee.id != current_user.id,
+        Employee.company == current_user.company,
+        Employee.role.ilike('%staff%'),
+        Employee.first_name.isnot(None),
+        Employee.last_name.isnot(None),
+    ).order_by(Employee.last_name, Employee.first_name).all()
     month_start = datetime.today().date().replace(day=1)
     month_start_dt = datetime.combine(month_start, datetime.min.time())
 
@@ -5655,8 +5673,21 @@ def merit_demerit(employee_id):
 
     # Evaluation points
     evaluations = Evaluation.query.filter_by(employee_id=employee_id).all()
-    eval_merit = sum(5 if e.score >= 90 else 3 if e.score >= 75 else 1 for e in evaluations)
-    eval_demerit = sum(2 for e in evaluations if e.score < 60)
+    regular_evaluations = [e for e in evaluations if not str(e.category or '').startswith('peer_')]
+    peer_evaluations = [e for e in evaluations if str(e.category or '').startswith('peer_')]
+    eval_merit = sum(5 if e.score >= 90 else 3 if e.score >= 75 else 1 for e in regular_evaluations)
+    eval_demerit = sum(2 for e in regular_evaluations if e.score < 60)
+
+    peer_groups = defaultdict(list)
+    for evaluation in peer_evaluations:
+        group_key = (
+            evaluation.evaluator_id,
+            evaluation.date.year if evaluation.date else 0,
+            evaluation.date.month if evaluation.date else 0,
+        )
+        peer_groups[group_key].append(evaluation.score or 0)
+    peer_merit = sum(3 for ratings in peer_groups.values() if sum(ratings) / len(ratings) >= 4)
+    peer_demerit = sum(2 for ratings in peer_groups.values() if sum(ratings) / len(ratings) <= 2)
 
     # Quiz points
     quizzes = QuizResult.query.filter_by(employee_id=employee_id).all()
@@ -5664,8 +5695,8 @@ def merit_demerit(employee_id):
     quiz_demerit = sum(2 for q in quizzes if q.score < 75)
 
     # Totals
-    merit_points = attendance_merit + eval_merit + quiz_merit
-    demerit_points = attendance_demerit + eval_demerit + quiz_demerit
+    merit_points = attendance_merit + eval_merit + peer_merit + quiz_merit
+    demerit_points = attendance_demerit + eval_demerit + peer_demerit + quiz_demerit
     cash_value = merit_points * 10  # 1 point = ₱10
 
     return render_template("merit_demerit.html",
@@ -5675,6 +5706,8 @@ def merit_demerit(employee_id):
                            attendance_demerit=attendance_demerit,
                            eval_merit=eval_merit,
                            eval_demerit=eval_demerit,
+                           peer_merit=peer_merit,
+                           peer_demerit=peer_demerit,
                            quiz_merit=quiz_merit,
                            quiz_demerit=quiz_demerit,
                            merit_points=merit_points,
