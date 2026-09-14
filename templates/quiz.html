@@ -65,10 +65,9 @@
             <input type="hidden" name="quiz_ids" value="{{ quiz_ids }}">
             {% for q in quizzes %}
                 <p><b>[{{ q.category }}] {{ q.question }}</b></p>
-                <label><input type="radio" name="quiz_{{ q.id }}" value="A"> A. {{ q.choice_a }}</label><br>
-                <label><input type="radio" name="quiz_{{ q.id }}" value="B"> B. {{ q.choice_b }}</label><br>
-                {% if q.choice_c %}<label><input type="radio" name="quiz_{{ q.id }}" value="C"> C. {{ q.choice_c }}</label><br>{% endif %}
-                {% if q.choice_d %}<label><input type="radio" name="quiz_{{ q.id }}" value="D"> D. {{ q.choice_d }}</label><br>{% endif %}
+                {% for option_key, option_text in quiz_options.get(q.id|string, []) %}
+                    <label><input type="radio" name="quiz_{{ q.id }}" value="{{ option_key }}" required> {{ option_key }}. {{ option_text }}</label><br>
+                {% endfor %}
             {% else %}
                 <p>No quizzes available for this category/month.</p>
             {% endfor %}
@@ -116,7 +115,7 @@
                         {% if (r.score/r.total_points*100) >= 75 %}
                             +5 Merit
                         {% else %}
-                            +3 Demerit
+                            For Admin Review
                         {% endif %}
                     {% else %}
                         Practice Only

@@ -3,7 +3,7 @@ import os, random, logging, re, hashlib
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
-from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory, has_request_context
+from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory, has_request_context, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import MetaData, Table as SQLAlchemyTable, create_engine, inspect, text
@@ -5608,8 +5608,24 @@ def quiz(employee_id):
             Quiz.category == category
         ).all()
 
-    selected_ids = [int(value) for value in request.form.get('quiz_ids', '').split(',') if value.isdigit()]
-    if request.method == 'POST' and mode == "take" and selected_ids:
+    attempt_key = f'quiz_attempt_{employee_id}'
+    attempt = session.get(attempt_key)
+    selected_ids = []
+    if request.method == 'POST' and mode == "take":
+        if not attempt or attempt.get('category') != category:
+            flash('This quiz attempt is no longer active. Start a new quiz.', 'warning')
+            return redirect(url_for('quiz', employee_id=employee_id))
+        try:
+            attempt_started = datetime.fromisoformat(attempt['started_at'])
+        except (KeyError, TypeError, ValueError):
+            session.pop(attempt_key, None)
+            flash('This quiz attempt could not be verified. Start a new quiz.', 'warning')
+            return redirect(url_for('quiz', employee_id=employee_id))
+        if (datetime.utcnow() - attempt_started).total_seconds() > 60:
+            session.pop(attempt_key, None)
+            flash('Time expired. The quiz was not accepted. Start a new attempt next month or contact Admin.', 'danger')
+            return redirect(url_for('quiz', employee_id=employee_id))
+        selected_ids = [int(value) for value in attempt.get('quiz_ids', [])]
         quizzes = Quiz.query.filter(Quiz.id.in_(selected_ids)).all()
         quizzes.sort(key=lambda question: selected_ids.index(question.id))
     else:
@@ -5620,6 +5636,36 @@ def quiz(employee_id):
             ).all()
             available_quizzes = list({question.question.strip().casefold(): question for question in available_quizzes}.values())
         quizzes = random.sample(available_quizzes, min(10, len(available_quizzes)))
+        session[attempt_key] = {
+            'category': category,
+            'quiz_ids': [question.id for question in quizzes],
+            'started_at': datetime.utcnow().isoformat(),
+        }
+
+    quiz_options = {}
+    quiz_answer_keys = {}
+    for question in quizzes:
+        options = [
+            (question.choice_a, 'A'),
+            (question.choice_b, 'B'),
+            (question.choice_c, 'C'),
+            (question.choice_d, 'D'),
+        ]
+        options = [option for option in options if option[0]]
+        random.shuffle(options)
+        displayed_options = []
+        for index, (option_text, original_key) in enumerate(options):
+            display_key = chr(ord('A') + index)
+            displayed_options.append((display_key, option_text))
+            if original_key == question.correct_answer:
+                quiz_answer_keys[str(question.id)] = display_key
+        quiz_options[str(question.id)] = displayed_options
+    if request.method == 'POST' and mode == 'take':
+        quiz_answer_keys = attempt.get('answer_keys', {})
+    else:
+        attempt = session.get(attempt_key, {})
+        attempt['answer_keys'] = quiz_answer_keys
+        session[attempt_key] = attempt
 
     # Handle quiz answers
     if request.method == 'POST' and mode == "take":
@@ -5627,7 +5673,7 @@ def quiz(employee_id):
         for quiz in quizzes:
             answer = request.form.get(f"quiz_{quiz.id}")
             total_points += quiz.points
-            if answer == quiz.correct_answer:
+            if answer == quiz_answer_keys.get(str(quiz.id)):
                 score += quiz.points
 
         percentage = (score / total_points * 100) if total_points else 0
@@ -5635,7 +5681,10 @@ def quiz(employee_id):
         existing = QuizResult.query.filter_by(
             employee_id=employee_id,
             is_official=True
-        ).filter(db.extract('month', QuizResult.date_taken) == datetime.utcnow().month).first()
+        ).filter(
+            db.extract('month', QuizResult.date_taken) == datetime.utcnow().month,
+            db.extract('year', QuizResult.date_taken) == datetime.utcnow().year,
+        ).first()
 
         if existing:
             result = QuizResult(employee_id=employee_id, score=score, total_points=total_points, is_official=False)
@@ -5646,11 +5695,11 @@ def quiz(employee_id):
                 flash("🎉 Congratulations! You passed the quiz!", "success")
                 emp.merit_points += 5
             else:
-                flash("⚠️ You need to retake the quiz.", "warning")
-                emp.demerit_points += 3
+                flash("⚠️ Quiz failed. No demerit was applied automatically; Admin review is required.", "warning")
 
         db.session.add(result)
         db.session.commit()
+        session.pop(attempt_key, None)
         return redirect(url_for('quiz', employee_id=employee_id))
 
     results = QuizResult.query.filter_by(employee_id=employee_id).all()
@@ -5662,6 +5711,7 @@ def quiz(employee_id):
         category=category,
         mode=mode,
         quiz_ids=','.join(str(question.id) for question in quizzes),
+        quiz_options=quiz_options,
         quiz_duration_seconds=60
     )
 
@@ -5708,7 +5758,7 @@ def merit_demerit(employee_id):
     # Quiz points
     quizzes = QuizResult.query.filter_by(employee_id=employee_id).all()
     quiz_merit = sum(3 if q.score >= 90 else 1 if q.score >= 75 else 0 for q in quizzes)
-    quiz_demerit = sum(2 for q in quizzes if q.score < 75)
+    quiz_demerit = 0
 
     # Totals
     merit_points = attendance_merit + eval_merit + peer_merit + quiz_merit
