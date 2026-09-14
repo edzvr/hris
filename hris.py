@@ -5613,12 +5613,12 @@ def quiz(employee_id):
 
     # Staff can take quizzes; questionnaire uploads belong to the admin route.
     mode = request.form.get("mode", "view")
-    category = request.form.get("category", "General")
+    category = request.form.get("category") or request.args.get("category", "General")
     start_requested = request.method == 'POST' and mode in {'auto', 'start'}
 
     if request.method == 'POST' and mode == "upload" and 'file' in request.files:
         flash("❌ Questionnaire uploads are available to administrators only.", "danger")
-        return redirect(url_for('quiz', employee_id=employee_id))
+        return redirect(url_for('quiz', employee_id=employee_id, category=category))
 
     # Get current month quizzes by category
     current_month = datetime.utcnow().month
