@@ -78,7 +78,8 @@
           margin-top: 15px;
           align-items: stretch;
         }
-        .dashboard-links a {
+        .dashboard-links a,
+        .dashboard-links button {
           text-align:center;
           display:flex;
           align-items:center;
@@ -90,6 +91,13 @@
           font-size: var(--staff-button-font-size, 20px);
           line-height:1.25;
         }
+        .dashboard-links button {
+          border:0;
+          cursor:pointer;
+          font-family:inherit;
+        }
+        #staffSettingsPanel { display:none; }
+        #staffSettingsPanel.is-open { display:block; }
         .staff-dashboard-settings {
           display:grid;
           grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
@@ -108,7 +116,7 @@
           header h1 { font-size: 24px; }
           header p { font-size: 15px; }
           .dashboard-links { grid-template-columns: repeat(min(var(--staff-buttons-per-row, 2), 2), minmax(0, 1fr)); gap: 8px; }
-          .dashboard-links a { min-height:64px; font-size:14px; padding:10px 8px; }
+          .dashboard-links a, .dashboard-links button { min-height:64px; font-size:14px; padding:10px 8px; }
           .btn { padding: 12px 14px; font-size: 15px; margin: 4px; }
           .brand-header { margin: 10px 0; }
           .brand-header img { max-height: 48px; margin: 0 4px; }
@@ -208,11 +216,12 @@
             <a href="{{ url_for('bulletin') }}" class="btn btn-primary">📢 Company Bulletin</a>
             <a href="{{ url_for('company_files') }}" class="btn btn-primary">📁 Company Files</a>
             <a href="{{ url_for('submit_incident') }}" class="btn btn-primary">⚠️ Incident Report</a>
+            <button type="button" class="btn btn-primary" onclick="toggleStaffSettings()">⚙️ Settings</button>
             <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
         </div>
     </div>
 
-        <div class="container card dashboard-section">
+          <div id="staffSettingsPanel" class="container card dashboard-section">
           <h2>Dashboard Settings</h2>
           <div class="staff-dashboard-settings">
             <label>Top bar size
@@ -472,6 +481,15 @@
         }
       });
     });
+  }
+
+  function toggleStaffSettings() {
+    const panel = document.getElementById('staffSettingsPanel');
+    if (!panel) return;
+    panel.classList.toggle('is-open');
+    if (panel.classList.contains('is-open')) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function applyStaffDashboardSettings(settings) {
