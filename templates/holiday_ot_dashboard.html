@@ -21,12 +21,14 @@
         .back-link { display:inline-block; margin-top:20px; color:#1976d2; text-decoration:none; font-weight:bold; }
         .back-link:hover { text-decoration:underline; }
         .filter { margin-bottom:15px; text-align:center; }
+        .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:12px; margin:12px 0; }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
+        <p class="notice"><strong>Strict regular holiday rule:</strong> Regular holiday pay is allowed only when the employee is present or on approved paid leave on the scheduled workday before and after the regular holiday. Approved OT is still reviewed separately.</p>
 
         <!-- Filter dropdown -->
         <div class="filter">

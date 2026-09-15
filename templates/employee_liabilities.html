@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Liabilities</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#eef3f1; margin:0; padding:24px; color:#263238; }
+        main { max-width:1200px; margin:0 auto; }
+        .panel { background:#fff; padding:20px; margin-bottom:18px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+        .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:14px; }
+        .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+        .summary div { background:#f8faf9; padding:14px; border-left:4px solid #2879ad; }
+        form.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end; }
+        label { font-weight:700; }
+        input, select, textarea { box-sizing:border-box; width:100%; padding:9px; margin-top:6px; font:inherit; }
+        textarea { min-height:80px; }
+        table { width:100%; border-collapse:collapse; margin-top:14px; }
+        th, td { border:1px solid #d8e0dc; padding:9px; text-align:left; vertical-align:top; }
+        th { background:#2879ad; color:#fff; }
+        .btn { display:inline-block; padding:9px 13px; margin:3px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; }
+        .btn-danger { background:#c0392b; }
+        .table-wrap { overflow-x:auto; }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+<main>
+    <section class="panel">
+        <h1>{{ 'Employee Liabilities / Shortage' if is_admin else 'My Liabilities / Recoverable Deductions' }}</h1>
+        <p class="notice"><strong>Paalala:</strong> Ito ay hiwalay na documentation ng employee accountability tulad ng uncollected company receivable, cash shortage, damage, or authorized other deduction. Kapag approved at may written agreement, lalabas ito sa payroll bilang hiwalay na line item: Recoverable Receivable / Liability Deduction. Kapag nagbayad ang customer, ang refundable/releasable amount ay dapat i-record dito.</p>
+        <div class="summary">
+            <div><strong>Original Amount</strong><br>PHP {{ totals.original|currency }}</div>
+            <div><strong>Deducted</strong><br>PHP {{ totals.deducted|currency }}</div>
+            <div><strong>Customer Recovered</strong><br>PHP {{ totals.recovered|currency }}</div>
+            <div><strong>Refundable to Employee</strong><br>PHP {{ totals.refundable|currency }}</div>
+            <div><strong>Remaining</strong><br>PHP {{ totals.remaining|currency }}</div>
+        </div>
+    </section>
+
+    {% if is_admin %}
+    <section class="panel">
+        <h2>Add Liability / Recoverable Deduction</h2>
+        <form class="grid" method="POST">
+            <input type="hidden" name="action" value="create">
+            <label>Employee
+                <select name="employee_id" required>
+                    <option value="">Select employee</option>
+                    {% for employee in employees %}<option value="{{ employee.id }}">{{ employee.full_name() }} - {{ employee.company or 'N/A' }}</option>{% endfor %}
+                </select>
+            </label>
+            <label>Category
+                <select name="category" required>
+                    {% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}
+                </select>
+            </label>
+            <label>Customer / Account
+                <input type="text" name="customer_name" placeholder="Customer name or account">
+            </label>
+            <label>Agreement Date
+                <input type="date" name="agreement_date">
+            </label>
+            <label>Total Amount
+                <input type="number" name="total_amount" min="0.01" step="0.01" required>
+            </label>
+            <label>Deduction per Cutoff
+                <input type="number" name="deduction_per_cutoff" min="0" step="0.01" required>
+            </label>
+            <label>Acknowledgment
+                <select name="acknowledgment_status">
+                    <option value="Acknowledged">Acknowledged / With written agreement</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Disputed">Disputed</option>
+                </select>
+            </label>
+            <label>Reference
+                <input type="text" name="reference" placeholder="Agreement / OR / case reference">
+            </label>
+            <label style="grid-column:1/-1;">Description
+                <textarea name="description" required placeholder="Explain the accountability, written agreement, customer receivable, or shortage."></textarea>
+            </label>
+            <label style="grid-column:1/-1;">Remarks
+                <textarea name="remarks" placeholder="Payment schedule, refund rule, or additional notes."></textarea>
+            </label>
+            <button class="btn" type="submit">Save Liability Record</button>
+        </form>
+    </section>
+    {% endif %}
+
+    <section class="panel">
+        <h2>Records</h2>
+        <div class="table-wrap"><table>
+            <tr><th>Employee</th><th>Category / Reference</th><th>Agreement</th><th>Original</th><th>Per Cutoff</th><th>Deducted</th><th>Recovered</th><th>Refunded</th><th>Refundable</th><th>Remaining</th><th>Status</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+            {% for item in liabilities %}
+            <tr>
+                <td>{{ item.employee.full_name() }}</td>
+                <td><strong>{{ item.category }}</strong><br>{{ item.reference or 'No reference' }}<br>{{ item.customer_name or '' }}<br><small>{{ item.description }}</small></td>
+                <td>{{ item.agreement_date or 'N/A' }}<br>{{ item.acknowledgment_status }}</td>
+                <td>PHP {{ item.total_amount|currency }}</td>
+                <td>PHP {{ item.deduction_per_cutoff|currency }}</td>
+                <td>PHP {{ item.amount_deducted|currency }}</td>
+                <td>PHP {{ item.amount_recovered|currency }}</td>
+                <td>PHP {{ item.amount_refunded|currency }}</td>
+                <td>PHP {{ item.refundable_balance|currency }}</td>
+                <td>PHP {{ item.remaining_balance|currency }}</td>
+                <td>{{ item.status }}</td>
+                {% if is_admin %}
+                <td>
+                    <form method="POST"><input type="hidden" name="action" value="recover"><input type="hidden" name="liability_id" value="{{ item.id }}"><input type="number" name="amount_recovered" min="0.01" step="0.01" placeholder="Customer paid"><button class="btn" type="submit">Record Recovery</button></form>
+                    <form method="POST"><input type="hidden" name="action" value="refund"><input type="hidden" name="liability_id" value="{{ item.id }}"><input type="number" name="amount_refunded" min="0.01" step="0.01" max="{{ item.refundable_balance }}" placeholder="Refund amount"><button class="btn" type="submit">Record Refund</button></form>
+                    <form method="POST"><input type="hidden" name="action" value="close"><input type="hidden" name="liability_id" value="{{ item.id }}"><button class="btn btn-danger" type="submit">Close</button></form>
+                </td>
+                {% endif %}
+            </tr>
+            {% else %}
+            <tr><td colspan="12">No liability records found.</td></tr>
+            {% endfor %}
+        </table></div>
+    </section>
+
+    <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</main>
+</body>
+</html>

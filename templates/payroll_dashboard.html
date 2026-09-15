@@ -120,6 +120,7 @@
                     <th>PhilHealth</th>
                     <th>Pag-IBIG</th>
                     <th>Withholding Tax</th>
+                    <th>Liability</th>
                     <th>Deductions</th>
                     <th>Net Pay</th>
                     <th>Outstanding Loan</th>
@@ -130,7 +131,7 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="15">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label"><td colspan="16">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="{{ 'admin-row' if p.is_admin else '' }}">
                     <td>
@@ -150,6 +151,7 @@
                     <td>₱{{ p.philhealth|currency }}</td>
                     <td>₱{{ p.pagibig|currency }}</td>
                     <td>₱{{ p.withholding_tax|currency }}</td>
+                    <td>₱{{ p.liability_deduction|currency }}</td>
                     <td>₱{{ p.deductions|currency }}</td>
                     <td><strong>₱{{ p.net_pay|currency }}</strong></td>
                     <td>

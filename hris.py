@@ -257,6 +257,7 @@ from models import (
     QuizResult,
     Bulletin,
     Payroll,
+    EmployeeLiability,
     EmployerTaxProfile,
     RedemptionHistory,
     IncidentReport,
@@ -699,8 +700,41 @@ def ensure_payroll_columns():
         statements.append("ALTER TABLE payrolls ADD COLUMN withholding_tax FLOAT DEFAULT 0")
     if "loan_deduction_applied" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN loan_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
+    if "liability_deduction" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction FLOAT DEFAULT 0")
+    if "liability_deduction_applied" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
     for statement in statements:
         db.session.execute(text(statement))
+    db.session.commit()
+
+
+def ensure_employee_liability_schema():
+    inspector = inspect(db.engine)
+    if "employee_liabilities" in inspector.get_table_names():
+        return
+    db.session.execute(text("""
+        CREATE TABLE employee_liabilities (
+            id INTEGER PRIMARY KEY,
+            employee_id INTEGER NOT NULL REFERENCES employees(id),
+            category VARCHAR(80) NOT NULL DEFAULT 'Uncollected Company Receivable',
+            description TEXT NOT NULL,
+            customer_name VARCHAR(150),
+            agreement_date DATE,
+            total_amount FLOAT NOT NULL DEFAULT 0,
+            deduction_per_cutoff FLOAT NOT NULL DEFAULT 0,
+            amount_deducted FLOAT NOT NULL DEFAULT 0,
+            amount_recovered FLOAT NOT NULL DEFAULT 0,
+            amount_refunded FLOAT NOT NULL DEFAULT 0,
+            status VARCHAR(30) NOT NULL DEFAULT 'Active',
+            acknowledgment_status VARCHAR(30) NOT NULL DEFAULT 'Acknowledged',
+            reference VARCHAR(120),
+            remarks TEXT,
+            created_by INTEGER REFERENCES employees(id),
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+    """))
     db.session.commit()
 
 
@@ -857,6 +891,7 @@ with app.app_context():
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
+    ensure_employee_liability_schema()
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
     ensure_document_verification_columns()
@@ -992,6 +1027,7 @@ def inject_authenticated_sidebar(response):
             ('submit_incident', 'Incident Report'),
             ('attendance_correction', 'Attendance Correction'),
             ('apply_ot', 'Apply for OT'),
+            ('employee_liabilities', 'Liabilities'),
             ('bulletin', 'Company Bulletin'),
             ('company_files', 'Company Files'),
         ])
@@ -1004,6 +1040,7 @@ def inject_authenticated_sidebar(response):
             ('employee_201_selector', 'Staff 201 Files'),
             ('admin_incidents', 'Incident Reports'),
             ('monthly_deductions', 'Monthly Deductions'),
+            ('employee_liabilities', 'Liabilities / Shortage'),
             ('tax_reports', 'Tax Reports'),
             ('compliance_reports', 'Compliance Reports'),
             ('thirteenth_month', '13th-Month Pay'),
@@ -1608,6 +1645,127 @@ def employee_201_documents(employee_id):
         can_manage_documents=is_admin
     )
 
+
+LIABILITY_CATEGORIES = [
+    'Uncollected Company Receivable',
+    'Cash Shortage',
+    'Damage to Company Property',
+    'Unremitted Collection',
+    'Authorized Other Deduction',
+]
+
+
+def active_employee_liabilities(employee_id):
+    records = EmployeeLiability.query.filter(
+        EmployeeLiability.employee_id == employee_id,
+        EmployeeLiability.status.in_(['Active', 'Partially Recovered']),
+    ).order_by(EmployeeLiability.created_at.asc()).all()
+    return [record for record in records if record.remaining_balance > 0]
+
+
+def liability_cutoff_deduction(employee_id):
+    total = 0.0
+    for liability in active_employee_liabilities(employee_id):
+        scheduled = float(liability.deduction_per_cutoff or 0)
+        if scheduled <= 0:
+            continue
+        total += min(scheduled, liability.remaining_balance)
+    return round(total, 2)
+
+
+def apply_liability_deduction(employee_id, amount):
+    remaining = max(float(amount or 0), 0.0)
+    for liability in active_employee_liabilities(employee_id):
+        if remaining <= 0:
+            break
+        applied = min(float(liability.deduction_per_cutoff or 0), liability.remaining_balance, remaining)
+        if applied <= 0:
+            continue
+        liability.amount_deducted = float(liability.amount_deducted or 0) + applied
+        remaining -= applied
+        if liability.remaining_balance <= 0:
+            liability.status = 'Fully Paid'
+
+
+def reverse_liability_deduction(employee_id, amount):
+    remaining = max(float(amount or 0), 0.0)
+    records = EmployeeLiability.query.filter_by(employee_id=employee_id).order_by(EmployeeLiability.updated_at.desc()).all()
+    for liability in records:
+        if remaining <= 0:
+            break
+        reversed_amount = min(float(liability.amount_deducted or 0), remaining)
+        if reversed_amount <= 0:
+            continue
+        liability.amount_deducted = max(float(liability.amount_deducted or 0) - reversed_amount, 0.0)
+        remaining -= reversed_amount
+        if liability.status == 'Fully Paid' and liability.remaining_balance > 0:
+            liability.status = 'Active'
+
+
+
+@app.route('/employee-liabilities', methods=['GET', 'POST'])
+@login_required
+def employee_liabilities():
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    if request.method == 'POST':
+        if not is_admin:
+            return 'Access denied', 403
+        action = request.form.get('action', 'create')
+        try:
+            if action == 'create':
+                employee_id = request.form.get('employee_id', type=int)
+                employee = Employee.query.get_or_404(employee_id)
+                liability = EmployeeLiability(
+                    employee_id=employee.id,
+                    category=request.form.get('category') or 'Uncollected Company Receivable',
+                    description=request.form.get('description', '').strip(),
+                    customer_name=request.form.get('customer_name', '').strip() or None,
+                    agreement_date=datetime.strptime(request.form.get('agreement_date'), '%Y-%m-%d').date() if request.form.get('agreement_date') else None,
+                    total_amount=max(float(request.form.get('total_amount') or 0), 0.0),
+                    deduction_per_cutoff=max(float(request.form.get('deduction_per_cutoff') or 0), 0.0),
+                    acknowledgment_status=request.form.get('acknowledgment_status') or 'Acknowledged',
+                    reference=request.form.get('reference', '').strip() or None,
+                    remarks=request.form.get('remarks', '').strip() or None,
+                    created_by=current_user.id,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+                if not liability.description or liability.total_amount <= 0:
+                    flash('Description and positive total amount are required.', 'danger')
+                    return redirect(url_for('employee_liabilities'))
+                db.session.add(liability)
+                flash('Employee liability record created.', 'success')
+            else:
+                liability = EmployeeLiability.query.get_or_404(request.form.get('liability_id', type=int))
+                if action == 'recover':
+                    liability.amount_recovered = float(liability.amount_recovered or 0) + max(float(request.form.get('amount_recovered') or 0), 0.0)
+                    liability.status = 'Partially Recovered' if liability.remaining_balance > 0 else 'Fully Recovered'
+                elif action == 'refund':
+                    liability.amount_refunded = float(liability.amount_refunded or 0) + min(max(float(request.form.get('amount_refunded') or 0), 0.0), liability.refundable_balance)
+                elif action == 'close':
+                    liability.status = 'Closed'
+                liability.remarks = request.form.get('remarks', liability.remarks) or liability.remarks
+                liability.updated_at = datetime.utcnow()
+            db.session.commit()
+        except (TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter valid liability amounts and dates.', 'danger')
+        return redirect(url_for('employee_liabilities'))
+
+    if is_admin:
+        liabilities = EmployeeLiability.query.order_by(EmployeeLiability.created_at.desc()).all()
+        employees = Employee.query.filter(Employee.role.ilike('%staff%')).order_by(Employee.last_name, Employee.first_name).all()
+    else:
+        liabilities = EmployeeLiability.query.filter_by(employee_id=current_user.id).order_by(EmployeeLiability.created_at.desc()).all()
+        employees = []
+    totals = {
+        'original': sum(float(item.total_amount or 0) for item in liabilities),
+        'deducted': sum(float(item.amount_deducted or 0) for item in liabilities),
+        'recovered': sum(float(item.amount_recovered or 0) for item in liabilities),
+        'refundable': sum(item.refundable_balance for item in liabilities),
+        'remaining': sum(item.remaining_balance for item in liabilities),
+    }
+    return render_template('employee_liabilities.html', liabilities=liabilities, employees=employees, categories=LIABILITY_CATEGORIES, totals=totals, is_admin=is_admin)
 
 @app.route('/admin/employee_document/<int:document_id>/download')
 @login_required
@@ -2713,6 +2871,43 @@ def holiday_multiplier(attendance):
     return 1.25
 
 
+def scheduled_workday_near(employee, holiday_date, direction):
+    target = holiday_date + timedelta(days=direction)
+    for _ in range(7):
+        is_trece_sunday = target.weekday() == 6 and employee and str(employee.company or '').lower().startswith('trece')
+        if target.weekday() != 6 or is_trece_sunday:
+            return target
+        target += timedelta(days=direction)
+    return holiday_date + timedelta(days=direction)
+
+
+def paid_attendance_or_leave(employee_id, target_date):
+    attended = Attendance.query.filter(
+        Attendance.employee_id == employee_id,
+        Attendance.date == target_date,
+        Attendance.clock_out != None,
+    ).first() is not None
+    if attended:
+        return True
+    return LeaveRequest.query.filter(
+        LeaveRequest.employee_id == employee_id,
+        LeaveRequest.status == 'Approved',
+        LeaveRequest.is_paid.is_(True),
+        LeaveRequest.start_date <= target_date,
+        LeaveRequest.end_date >= target_date,
+    ).first() is not None
+
+
+def eligible_for_regular_holiday_pay(attendance):
+    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
+    before_date = scheduled_workday_near(employee, attendance.date, -1)
+    after_date = scheduled_workday_near(employee, attendance.date, 1)
+    return (
+        paid_attendance_or_leave(attendance.employee_id, before_date)
+        and paid_attendance_or_leave(attendance.employee_id, after_date)
+    )
+
+
 def regular_day_pay(attendance, daily_rate):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
     employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
@@ -2725,6 +2920,8 @@ def regular_day_pay(attendance, daily_rate):
     )
     is_restday = attendance.date.weekday() == 6 and not is_trece_sunday
     if holiday and holiday.holiday_type == 'Regular Holiday':
+        if not eligible_for_regular_holiday_pay(attendance):
+            return 0.0
         if is_restday:
             return prorated_daily_rate * 2.6
         return prorated_daily_rate * 2.0
@@ -3851,6 +4048,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     pagibig = float(payroll_record.pagibig or 0)
     withholding_tax = float(payroll_record.withholding_tax or 0)
     sss_loan = float(payroll_record.loan or 0)
+    liability_deduction = float(payroll_record.liability_deduction or 0)
     hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
@@ -3870,7 +4068,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     adjustment = round(gross_income - itemized_earnings, 2)
     known_deductions = (
         late_ut + sss + philhealth + pagibig + sss_loan
-        + hdmf_loan + cash_advance + withholding_tax
+        + liability_deduction + hdmf_loan + cash_advance + withholding_tax
     )
     total_deductions = float(payroll_record.total_deductions or known_deductions)
     other_deductions = max(round(total_deductions - known_deductions, 2), 0.0)
@@ -3898,6 +4096,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "pagibig": pagibig,
         "withholding_tax": withholding_tax,
         "sss_loan": sss_loan,
+        "liability_deduction": liability_deduction,
         "hdmf_loan": hdmf_loan,
         "cash_advance": cash_advance,
         "other_deductions": other_deductions,
@@ -3918,9 +4117,9 @@ def weekly_payslip_table_data(payslip):
         ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
         ["Regular Holiday Pay", "", amount("regular_holiday"), "Loan Deduction", "", amount("sss_loan")],
-        ["Regular OT", "", amount("regular_overtime"), "Cash Advance", "", amount("cash_advance")],
-        ["Sunday OT", "", amount("sunday_overtime"), "Other Deductions", "", amount("other_deductions")],
-        ["Rest Day OT", "", amount("rest_day"), "", "", ""],
+        ["Regular OT", "", amount("regular_overtime"), "Liability Deduction", "", amount("liability_deduction")],
+        ["Sunday OT", "", amount("sunday_overtime"), "Cash Advance", "", amount("cash_advance")],
+        ["Rest Day OT", "", amount("rest_day"), "Other Deductions", "", amount("other_deductions")],
         ["Special Holiday OT", "", amount("special_holiday_ot"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
         ["Regular Holiday OT", "", amount("regular_holiday_ot"), "NET PAY", "", amount("net_pay")],
         ["Night Differential", "", amount("night_differential"), "", "", ""],
@@ -4061,11 +4260,12 @@ def payroll(employee_id):
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
     loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
+    liability_deduction = liability_cutoff_deduction(emp.id)
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
     monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
     withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
-    total_deductions = sss + philhealth + pagibig + loan + withholding_tax
+    total_deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
     net_pay = gross_income - total_deductions
 
     if payroll_record is None:
@@ -4082,6 +4282,7 @@ def payroll(employee_id):
     payroll_record.pagibig = pagibig
     payroll_record.withholding_tax = withholding_tax
     payroll_record.loan = loan
+    payroll_record.liability_deduction = liability_deduction
     payroll_record.cash_advance = 0.0
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
@@ -4089,6 +4290,9 @@ def payroll(employee_id):
         if not payroll_record.loan_deduction_applied:
             emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
             payroll_record.loan_deduction_applied = True
+        if not payroll_record.liability_deduction_applied:
+            apply_liability_deduction(emp.id, liability_deduction)
+            payroll_record.liability_deduction_applied = True
         payroll_record.is_paid = True
         db.session.commit()
 
@@ -4194,6 +4398,7 @@ def monthly_payroll(employee_id):
         'deductions': sum(float(record.total_deductions or 0) for record in records),
         'net_pay': sum(float(record.net_pay or 0) for record in records),
         'loan': sum(float(record.loan or 0) for record in records),
+        'liability_deduction': sum(float(record.liability_deduction or 0) for record in records),
         'cash_advance': sum(float(record.cash_advance or 0) for record in records),
     }
 
@@ -4213,6 +4418,7 @@ def monthly_payroll(employee_id):
             ('Pag-IBIG', 'pagibig'),
             ('Withholding Tax', 'withholding_tax'),
             ('Loan Deductions', 'loan'),
+            ('Recoverable Receivable / Liability', 'liability_deduction'),
             ('Cash Advance', 'cash_advance'),
             ('Total Deductions', 'deductions'),
             ('NET PAY', 'net_pay'),
@@ -4311,6 +4517,9 @@ def bulk_finalize_payroll():
         if payroll_record is None:
             continue
         if not payroll_record.is_paid:
+            if not payroll_record.liability_deduction_applied:
+                apply_liability_deduction(int(employee_id), payroll_record.liability_deduction)
+                payroll_record.liability_deduction_applied = True
             payroll_record.is_paid = True
             finalized += 1
     db.session.commit()
@@ -4335,6 +4544,9 @@ def reopen_payroll(employee_id):
             employee = db.session.get(Employee, employee_id)
             employee.loan_balance = float(employee.loan_balance or 0) + float(payroll_record.loan or 0)
             payroll_record.loan_deduction_applied = False
+        if payroll_record.liability_deduction_applied:
+            reverse_liability_deduction(employee_id, payroll_record.liability_deduction)
+            payroll_record.liability_deduction_applied = False
         payroll_record.is_paid = False
         db.session.commit()
         flash('Payroll reopened and its loan deduction was reversed. Open the payroll page to recalculate it.', 'success')
@@ -4577,10 +4789,11 @@ def payroll_dashboard():
             if payroll_record is not None
             else 0.0
         )
+        liability_deduction = liability_cutoff_deduction(emp.id)
 
         monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
-        deductions = sss + philhealth + pagibig + loan + withholding_tax
+        deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
         net_pay = gross_income - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
         accounting_totals['total_net_pay'] += net_pay
@@ -4598,6 +4811,7 @@ def payroll_dashboard():
             "philhealth": philhealth,
             "pagibig": pagibig,
             "loan_deduction": loan,
+            "liability_deduction": liability_deduction,
             "withholding_tax": withholding_tax,
             "gross_income": gross_income,
             "deductions": deductions,

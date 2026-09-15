@@ -65,6 +65,12 @@ class Employee(db.Model, UserMixin):
     loans = db.relationship("Loan", backref="employee", lazy=True)
     payrolls = db.relationship("Payroll", backref="employee", lazy=True)
     redemptions = db.relationship("RedemptionHistory", backref="employee", lazy=True)
+    liabilities = db.relationship(
+        "EmployeeLiability",
+        foreign_keys="EmployeeLiability.employee_id",
+        backref="employee",
+        lazy=True,
+    )
     
     # Password helpers
     def set_password(self, raw_password):
@@ -347,9 +353,44 @@ class Payroll(db.Model):
     withholding_tax = db.Column(db.Float, default=0.0)
     loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)
+    liability_deduction = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_paid = db.Column(db.Boolean, default=False)
     loan_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
+    liability_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
+
+
+class EmployeeLiability(db.Model):
+    __tablename__ = "employee_liabilities"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    category = db.Column(db.String(80), nullable=False, default="Uncollected Company Receivable")
+    description = db.Column(db.Text, nullable=False)
+    customer_name = db.Column(db.String(150), nullable=True)
+    agreement_date = db.Column(db.Date, nullable=True)
+    total_amount = db.Column(db.Float, nullable=False, default=0.0)
+    deduction_per_cutoff = db.Column(db.Float, nullable=False, default=0.0)
+    amount_deducted = db.Column(db.Float, nullable=False, default=0.0)
+    amount_recovered = db.Column(db.Float, nullable=False, default=0.0)
+    amount_refunded = db.Column(db.Float, nullable=False, default=0.0)
+    status = db.Column(db.String(30), nullable=False, default="Active")
+    acknowledgment_status = db.Column(db.String(30), nullable=False, default="Acknowledged")
+    reference = db.Column(db.String(120), nullable=True)
+    remarks = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    creator = db.relationship("Employee", foreign_keys=[created_by])
+
+    @property
+    def remaining_balance(self):
+        return max(float(self.total_amount or 0) - float(self.amount_deducted or 0) - float(self.amount_recovered or 0), 0.0)
+
+    @property
+    def refundable_balance(self):
+        return max(min(float(self.amount_deducted or 0), float(self.amount_recovered or 0)) - float(self.amount_refunded or 0), 0.0)
 
 
 class EmployerTaxProfile(db.Model):
