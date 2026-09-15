@@ -972,6 +972,7 @@ def inject_authenticated_sidebar(response):
             ('staff_help', 'Staff Help'),
             ('monthly_reminders', 'Monthly Reminders'),
             ('quiz', 'Quiz'),
+            ('thirteenth_month', '13th-Month Pay'),
         ]
         links.extend([
             ('assessment', 'Assessments'),
@@ -3225,8 +3226,6 @@ def thirteenth_month_pdf(year, rows, verification):
 @app.route('/13th-month')
 @login_required
 def thirteenth_month():
-    if 'admin' not in current_user.role.lower():
-        return 'Access denied', 403
     try:
         year = int(request.args.get('year', datetime.today().year))
     except (TypeError, ValueError):
@@ -3234,7 +3233,7 @@ def thirteenth_month():
     if year < 2000 or year > datetime.today().year + 1:
         abort(400)
 
-    is_admin = 'admin' in current_user.role.lower()
+    is_admin = 'admin' in str(current_user.role or '').lower()
     rows = build_thirteenth_month_rows(year, None if is_admin else current_user.id)
     total_basic = sum(row['basic_pay'] for row in rows)
     total_thirteenth = sum(row['thirteenth_month'] for row in rows)
