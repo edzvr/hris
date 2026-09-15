@@ -11,17 +11,17 @@
       margin: 0;
       padding: 0;
       color: hsl(207, 47%, 32%);
-      font-size: 22px !important;
-      line-height: 1.6;
+      font-size: 20px;
+      line-height: 1.5;
     }
-    h2 { margin: 0 0 18px; font-size: 38px !important; }
-    h3 { margin: 0 0 14px; font-size: 30px !important; }
-    p, td, th, label, input, select, textarea { font-size: 22px !important; }
+    h2 { margin: 0 0 16px; font-size: 36px; }
+    h3 { margin: 0 0 12px; font-size: 28px; }
+    p, td, th, label, input, select { font-size: 21px; }
     .card {
       background: #fff;
-      padding: 28px;
+      padding: 20px;
         border-radius: 10px;
-      margin: 24px;
+      margin: 20px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.08);
     }
     .stats {
@@ -32,7 +32,7 @@
     }
     .stats div {
       background: #fff;
-      padding: 24px 18px;
+      padding: 15px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.08);
       width: 22%;
@@ -53,9 +53,9 @@
       box-sizing: border-box;
       margin: 0;
       text-align: center;
-      min-height: var(--admin-button-height, 110px) !important;
-      padding: var(--admin-button-padding, 24px) 18px !important;
-      font-size: var(--admin-button-font-size, 25px) !important;
+      min-height: var(--admin-button-height, 94px);
+      padding: var(--admin-button-padding, 20px) 16px;
+      font-size: var(--admin-button-font-size, 23px);
       line-height: 1.35;
       display: flex;
       align-items: center;
@@ -86,7 +86,7 @@
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 18px;
+      padding: 14px;
       text-align: center;
     }
     th {
@@ -96,8 +96,8 @@
     tr:nth-child(even) { background: #f9f9f9; }
     .btn {
       border: none;
-      padding: 22px 38px;
-      font-size: 24px !important;
+      padding: 20px 36px;
+      font-size: 22px;
       font-weight: 600;
       background: var(--admin-button-color, #86a9cf);
       color: white;
@@ -116,7 +116,7 @@
     .btn-danger:hover, .btn-red:hover, .logout-link:hover { background: #c47e79; }
     .profile {
       margin: 20px;
-      padding: 28px;
+      padding: 20px;
       border-radius: 10px;
       background: #fff;
       box-shadow: 0 2px 6px rgba(0,0,0,0.08);
@@ -519,10 +519,10 @@
       document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#6f94be');
       const sizes = {
         small: { height: '70px', padding: '12px', fontSize: '18px' },
-        medium: { height: '110px', padding: '24px', fontSize: '25px' },
-        large: { height: '135px', padding: '30px', fontSize: '29px' }
+        medium: { height: '94px', padding: '20px', fontSize: '23px' },
+        large: { height: '125px', padding: '28px', fontSize: '27px' }
       };
-      const size = settings.buttonSize === 'small' ? sizes.medium : (sizes[settings.buttonSize] || sizes.medium);
+      const size = sizes[settings.buttonSize] || sizes.medium;
       document.documentElement.style.setProperty('--admin-button-height', size.height);
       document.documentElement.style.setProperty('--admin-button-padding', size.padding);
       document.documentElement.style.setProperty('--admin-button-font-size', size.fontSize);
@@ -580,7 +580,6 @@
         employeesPanel.classList.add('active');
       }
       const storedSettings = JSON.parse(localStorage.getItem('hrisAdminSettings') || '{}');
-      if (storedSettings.buttonSize === 'small') storedSettings.buttonSize = 'medium';
       document.getElementById('themeSelect').value = storedSettings.theme || 'light';
       document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
       document.getElementById('buttonColor').value = storedSettings.buttonColor || '#86a9cf';

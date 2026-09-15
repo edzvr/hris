@@ -948,6 +948,8 @@ def audit_authenticated_request(response):
 
 @app.after_request
 def inject_authenticated_sidebar(response):
+    return response
+
     auth_pages = {'login', 'register', 'forgot_password', 'reset_password'}
     if (
         not current_user.is_authenticated
