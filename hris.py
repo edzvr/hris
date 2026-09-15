@@ -742,6 +742,24 @@ def ensure_employee_liability_schema():
 def ensure_hr_document_schema():
     inspector = inspect(db.engine)
     if "hr_documents" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("hr_documents")}
+        missing_columns = {
+            "response_due_date": "ALTER TABLE hr_documents ADD COLUMN response_due_date DATE",
+            "effective_date": "ALTER TABLE hr_documents ADD COLUMN effective_date DATE",
+            "related_reference": "ALTER TABLE hr_documents ADD COLUMN related_reference VARCHAR(120)",
+            "status": "ALTER TABLE hr_documents ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'Draft'",
+            "employee_response": "ALTER TABLE hr_documents ADD COLUMN employee_response TEXT",
+            "acknowledged_at": "ALTER TABLE hr_documents ADD COLUMN acknowledged_at DATETIME",
+            "created_by": "ALTER TABLE hr_documents ADD COLUMN created_by INTEGER",
+            "created_at": "ALTER TABLE hr_documents ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "ALTER TABLE hr_documents ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "issued_at": "ALTER TABLE hr_documents ADD COLUMN issued_at DATETIME",
+            "document_id": "ALTER TABLE hr_documents ADD COLUMN document_id VARCHAR(32)",
+        }
+        for column_name, statement in missing_columns.items():
+            if column_name not in columns:
+                db.session.execute(text(statement))
+        db.session.commit()
         return
     db.session.execute(text("""
         CREATE TABLE hr_documents (
@@ -3772,7 +3790,8 @@ def download_hr_document(document_id):
     document = HRDocument.query.get_or_404(document_id)
     if document.employee_id != current_user.id and 'admin' not in str(current_user.role or '').lower():
         return 'Access denied', 403
-    return send_file(hr_document_pdf(document), as_attachment=True, download_name=f'HR_Document_{document.id}_{document.document_type}.pdf', mimetype='application/pdf')
+    download_name = secure_filename(f'HR_Document_{document.id}_{document.document_type}.pdf') or f'HR_Document_{document.id}.pdf'
+    return send_file(hr_document_pdf(document), as_attachment=True, download_name=download_name, mimetype='application/pdf')
 
 
 def generate_qr_image_bytes(verify_url, size=140):
