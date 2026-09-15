@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Documents</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#eef3f1; margin:0; padding:24px; color:#263238; }
+    main { max-width:1200px; margin:0 auto; }
+    .panel { background:#fff; padding:20px; margin-bottom:18px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+    .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:14px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end; }
+    label { font-weight:700; }
+    input, select, textarea { box-sizing:border-box; width:100%; padding:9px; margin-top:6px; font:inherit; }
+    textarea { min-height:150px; }
+    table { width:100%; border-collapse:collapse; margin-top:14px; }
+    th, td { border:1px solid #d8e0dc; padding:9px; text-align:left; vertical-align:top; }
+    th { background:#2879ad; color:#fff; }
+    .btn { display:inline-block; padding:9px 13px; margin:3px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; }
+    .table-wrap { overflow-x:auto; }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>{{ 'HR Document Generator' if is_admin else 'My HR Documents' }}</h1>
+    <p class="notice"><strong>Paper trail:</strong> Documents generated here are stored in HRIS, downloadable as PDF, and include a QR/document ID for authentication. Staff can download, acknowledge, and submit responses for NTE or other documents requiring explanation.</p>
+  </section>
+
+  {% if is_admin %}
+  <section class="panel">
+    <h2>Create HR Document</h2>
+    <form method="POST">
+      <div class="grid">
+        <label>Employee
+          <select name="employee_id" required>
+            <option value="">Select employee</option>
+            {% for employee in employees %}<option value="{{ employee.id }}">{{ employee.full_name() }} - {{ employee.company or 'N/A' }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Document Type
+          <select name="document_type" required>
+            {% for key, label in document_types.items() %}<option value="{{ key }}">{{ key }} - {{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Subject
+          <input type="text" name="subject" placeholder="Subject / Title">
+        </label>
+        <label>Response Due Date
+          <input type="date" name="response_due_date">
+        </label>
+        <label>Effective Date
+          <input type="date" name="effective_date">
+        </label>
+        <label>Reference
+          <input type="text" name="related_reference" placeholder="Incident / case / agreement ref">
+        </label>
+        <label><input type="checkbox" name="issue_now" value="true"> Issue immediately</label>
+      </div>
+      <label>Body / Details
+        <textarea name="body" placeholder="Write details, facts, policy reference, decision, or agreement terms."></textarea>
+      </label>
+      <button class="btn" type="submit">Save Document</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Document Records</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Date</th><th>Employee</th><th>Type</th><th>Subject</th><th>Status</th><th>Due/Effective</th><th>Response</th><th>Actions</th></tr>
+      {% for document in documents %}
+      <tr>
+        <td>{{ document.created_at.strftime('%Y-%m-%d') if document.created_at else 'N/A' }}</td>
+        <td>{{ document.employee.full_name() }}</td>
+        <td>{{ document.document_type }}</td>
+        <td><strong>{{ document.subject }}</strong><br>{{ document.related_reference or '' }}<br><small>{{ document.document_id or 'PDF not generated yet' }}</small></td>
+        <td>{{ document.status }}{% if document.acknowledged_at %}<br><small>Acknowledged: {{ document.acknowledged_at.strftime('%Y-%m-%d') }}</small>{% endif %}</td>
+        <td>{% if document.response_due_date %}Due: {{ document.response_due_date }}<br>{% endif %}{% if document.effective_date %}Effective: {{ document.effective_date }}{% endif %}</td>
+        <td>{{ document.employee_response or 'No response yet' }}</td>
+        <td>
+          <a class="btn" href="{{ url_for('download_hr_document', document_id=document.id) }}">Download PDF</a>
+          {% if not is_admin %}
+          <form method="POST"><input type="hidden" name="action" value="acknowledge"><input type="hidden" name="document_id" value="{{ document.id }}"><button class="btn" type="submit">Acknowledge</button></form>
+          <form method="POST"><input type="hidden" name="action" value="respond"><input type="hidden" name="document_id" value="{{ document.id }}"><textarea name="employee_response" placeholder="Submit explanation or response"></textarea><button class="btn" type="submit">Submit Response</button></form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No HR documents found.</td></tr>
+      {% endfor %}
+    </table></div>
+  </section>
+
+  <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</main>
+</body>
+</html>

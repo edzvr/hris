@@ -468,3 +468,27 @@ class EmployeeDocument(db.Model):
     retention_years = db.Column(db.Integer, nullable=True)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     employee = db.relationship("Employee", backref="employee_documents")
+
+
+class HRDocument(db.Model):
+    __tablename__ = "hr_documents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    document_type = db.Column(db.String(60), nullable=False)
+    subject = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    response_due_date = db.Column(db.Date, nullable=True)
+    effective_date = db.Column(db.Date, nullable=True)
+    related_reference = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="Draft")
+    employee_response = db.Column(db.Text, nullable=True)
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    issued_at = db.Column(db.DateTime, nullable=True)
+    document_id = db.Column(db.String(32), nullable=True)
+
+    employee = db.relationship("Employee", foreign_keys=[employee_id], backref="hr_documents")
+    creator = db.relationship("Employee", foreign_keys=[created_by])

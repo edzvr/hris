@@ -213,6 +213,7 @@
             <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">📝 Monthly Peer Evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
             <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}" class="btn btn-primary">⭐ Merit / Demerit</a>
             <a href="{{ url_for('employee_liabilities') }}" class="btn btn-primary">🧾 My Liabilities</a>
+            <a href="{{ url_for('hr_documents') }}" class="btn btn-primary">📄 My HR Documents</a>
             <a href="{{ url_for('profile', user_id=current_user.id) }}" class="btn btn-primary">👤 My Profile</a>
             <a href="{{ url_for('bulletin') }}" class="btn btn-primary">📢 Company Bulletin</a>
             <a href="{{ url_for('company_files') }}" class="btn btn-primary">📁 Company Files</a>

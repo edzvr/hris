@@ -263,6 +263,7 @@ from models import (
     IncidentReport,
     MeritDemerit,
     EmployeeDocument,
+    HRDocument,
     PasswordResetToken,
     OTApplication,
     AuditLog,
@@ -738,6 +739,33 @@ def ensure_employee_liability_schema():
     db.session.commit()
 
 
+def ensure_hr_document_schema():
+    inspector = inspect(db.engine)
+    if "hr_documents" in inspector.get_table_names():
+        return
+    db.session.execute(text("""
+        CREATE TABLE hr_documents (
+            id INTEGER PRIMARY KEY,
+            employee_id INTEGER NOT NULL REFERENCES employees(id),
+            document_type VARCHAR(60) NOT NULL,
+            subject VARCHAR(180) NOT NULL,
+            body TEXT NOT NULL,
+            response_due_date DATE,
+            effective_date DATE,
+            related_reference VARCHAR(120),
+            status VARCHAR(30) NOT NULL DEFAULT 'Draft',
+            employee_response TEXT,
+            acknowledged_at DATETIME,
+            created_by INTEGER REFERENCES employees(id),
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            issued_at DATETIME,
+            document_id VARCHAR(32)
+        )
+    """))
+    db.session.commit()
+
+
 def ensure_loan_tracking_columns():
     loan_columns = {column["name"] for column in inspect(db.engine).get_columns("loans")}
     if "loan_type" not in loan_columns:
@@ -892,6 +920,7 @@ with app.app_context():
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
     ensure_employee_liability_schema()
+    ensure_hr_document_schema()
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
     ensure_document_verification_columns()
@@ -1028,6 +1057,7 @@ def inject_authenticated_sidebar(response):
             ('attendance_correction', 'Attendance Correction'),
             ('apply_ot', 'Apply for OT'),
             ('employee_liabilities', 'Liabilities'),
+            ('hr_documents', 'My HR Documents'),
             ('bulletin', 'Company Bulletin'),
             ('company_files', 'Company Files'),
         ])
@@ -1039,6 +1069,7 @@ def inject_authenticated_sidebar(response):
             ('admin_files', 'Upload Company Files'),
             ('employee_201_selector', 'Staff 201 Files'),
             ('admin_incidents', 'Incident Reports'),
+            ('hr_documents', 'HR Documents'),
             ('monthly_deductions', 'Monthly Deductions'),
             ('employee_liabilities', 'Liabilities / Shortage'),
             ('tax_reports', 'Tax Reports'),
@@ -3596,6 +3627,152 @@ def build_payslip_verification(employee_id, payroll_id, cutoff_start, cutoff_end
         cutoff_end=cutoff_end,
         net_pay=net_pay,
     )
+
+
+HR_DOCUMENT_TYPES = {
+    'NTE': 'Notice to Explain',
+    'NDE': 'Notice of Decision',
+    'Memo': 'Company Memo',
+    'Resolution': 'Case Resolution',
+    'Contract': 'Employment Contract / Agreement',
+    'Warning': 'Written Warning',
+    'Suspension': 'Suspension Notice',
+    'Return to Work': 'Return to Work Order',
+    'Liability Agreement': 'Recoverable Deduction / Liability Agreement',
+    'COE': 'Certificate of Employment',
+    'Policy Acknowledgment': 'Policy Acknowledgment',
+}
+
+
+def default_hr_document_body(document_type, employee):
+    employee_name = employee.full_name() if employee else '[Employee Name]'
+    templates = {
+        'NTE': f'Dear {employee_name},\n\nYou are hereby required to submit a written explanation regarding the matter stated below. Please explain your side and provide supporting details or documents on or before the response due date.\n\nFacts / Details:\n[Describe incident, date, policy, and relevant facts.]\n\nThis notice is issued for documentation and due process purposes.',
+        'NDE': f'Dear {employee_name},\n\nAfter review of the records, explanation, and available evidence, management has reached the following decision.\n\nDecision / Action:\n[State decision, corrective action, warning, suspension, or closure.]\n\nThis document forms part of the employee record.',
+        'Memo': 'This memo is issued to document the following company instruction, reminder, or announcement.\n\nDetails:\n[Write memo details here.]',
+        'Resolution': 'This resolution records the findings and closure/action for the matter referenced below.\n\nFindings:\n[State findings.]\n\nResolution:\n[State action or closure.]',
+        'Contract': f'This agreement is entered into by the company and {employee_name}.\n\nTerms and Conditions:\n[Write agreed terms here.]\n\nBoth parties acknowledge and agree to the terms stated in this document.',
+        'Liability Agreement': f'This recoverable deduction/liability agreement documents an employee accountability or uncollected company receivable involving {employee_name}.\n\nThe deduction shall follow the agreed schedule. If the customer or account pays the outstanding receivable, the corresponding deducted amount shall be refunded or released to the employee based on actual recovery and company records.',
+    }
+    return templates.get(document_type, 'Document details:\n[Write complete details here.]')
+
+
+def hr_document_pdf(document):
+    employee = document.employee
+    verification = build_document_verification(
+        'hr_document', employee.id, f'HRDocument-{document.id}-{document.document_type}',
+        reference_id=None,
+        cutoff_start=document.created_at.date() if document.created_at else datetime.utcnow().date(),
+        cutoff_end=document.response_due_date or document.effective_date or (document.created_at.date() if document.created_at else datetime.utcnow().date()),
+        net_pay=0.0,
+    )
+    if document.document_id != verification['document_id']:
+        document.document_id = verification['document_id']
+        db.session.commit()
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setFont('Helvetica-Bold', 14)
+    pdf.drawString(50, 780, payroll_company_name(employee))
+    pdf.setFont('Helvetica-Bold', 13)
+    pdf.drawString(50, 758, HR_DOCUMENT_TYPES.get(document.document_type, document.document_type).upper())
+    pdf.setFont('Helvetica', 10)
+    pdf.drawString(50, 735, f'Document ID: {verification["document_id"]}')
+    pdf.drawString(50, 720, f'Employee: {employee.full_name()} (ID: {employee.id})')
+    pdf.drawString(50, 705, f'Subject: {document.subject}')
+    pdf.drawString(50, 690, f'Status: {document.status}')
+    y = 660
+    text_object = pdf.beginText(50, y)
+    text_object.setFont('Helvetica', 10)
+    for paragraph in (document.body or '').splitlines():
+        for start in range(0, max(len(paragraph), 1), 92):
+            text_object.textLine(paragraph[start:start + 92])
+            y -= 13
+            if y < 130:
+                pdf.drawText(text_object)
+                pdf.showPage()
+                y = 760
+                text_object = pdf.beginText(50, y)
+                text_object.setFont('Helvetica', 10)
+    if document.employee_response:
+        text_object.textLine('')
+        text_object.textLine('Employee Response / Explanation:')
+        for paragraph in document.employee_response.splitlines():
+            for start in range(0, max(len(paragraph), 1), 92):
+                text_object.textLine(paragraph[start:start + 92])
+    pdf.drawText(text_object)
+    pdf.line(60, 92, 250, 92)
+    pdf.line(330, 92, 520, 92)
+    pdf.drawString(60, 76, 'Employee Signature / Acknowledgment')
+    pdf.drawString(330, 76, 'Authorized Admin / Date')
+    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    if qr_bytes:
+        pdf.drawImage(io.BytesIO(qr_bytes), 455, 12, width=70, height=70)
+    pdf.setFont('Helvetica-Oblique', 8)
+    pdf.drawString(50, 36, 'Scan QR to verify this HRIS-generated document.')
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
+@app.route('/hr-documents', methods=['GET', 'POST'])
+@login_required
+def hr_documents():
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action in {'respond', 'acknowledge'}:
+            document = HRDocument.query.get_or_404(request.form.get('document_id', type=int))
+            if document.employee_id != current_user.id and not is_admin:
+                return 'Access denied', 403
+            if action == 'respond':
+                document.employee_response = request.form.get('employee_response', '').strip() or document.employee_response
+                document.status = 'Responded'
+                flash('Response submitted.', 'success')
+            else:
+                document.acknowledged_at = datetime.utcnow()
+                document.status = 'Acknowledged'
+                flash('Document acknowledged.', 'success')
+            document.updated_at = datetime.utcnow()
+            db.session.commit()
+            return redirect(url_for('hr_documents'))
+        if not is_admin:
+            return 'Access denied', 403
+        employee = Employee.query.get_or_404(request.form.get('employee_id', type=int))
+        document_type = request.form.get('document_type') or 'Memo'
+        document = HRDocument(
+            employee_id=employee.id,
+            document_type=document_type,
+            subject=request.form.get('subject', '').strip() or HR_DOCUMENT_TYPES.get(document_type, document_type),
+            body=request.form.get('body', '').strip() or default_hr_document_body(document_type, employee),
+            response_due_date=datetime.strptime(request.form.get('response_due_date'), '%Y-%m-%d').date() if request.form.get('response_due_date') else None,
+            effective_date=datetime.strptime(request.form.get('effective_date'), '%Y-%m-%d').date() if request.form.get('effective_date') else None,
+            related_reference=request.form.get('related_reference', '').strip() or None,
+            status='Issued' if request.form.get('issue_now') == 'true' else 'Draft',
+            issued_at=datetime.utcnow() if request.form.get('issue_now') == 'true' else None,
+            created_by=current_user.id,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.session.add(document)
+        db.session.commit()
+        flash('HR document saved.', 'success')
+        return redirect(url_for('hr_documents'))
+    if is_admin:
+        documents = HRDocument.query.order_by(HRDocument.created_at.desc()).all()
+        employees = Employee.query.filter(Employee.first_name.isnot(None), Employee.last_name.isnot(None)).order_by(Employee.last_name, Employee.first_name).all()
+    else:
+        documents = HRDocument.query.filter_by(employee_id=current_user.id).order_by(HRDocument.created_at.desc()).all()
+        employees = []
+    return render_template('hr_documents.html', documents=documents, employees=employees, document_types=HR_DOCUMENT_TYPES, is_admin=is_admin)
+
+
+@app.route('/hr-documents/<int:document_id>/download')
+@login_required
+def download_hr_document(document_id):
+    document = HRDocument.query.get_or_404(document_id)
+    if document.employee_id != current_user.id and 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    return send_file(hr_document_pdf(document), as_attachment=True, download_name=f'HR_Document_{document.id}_{document.document_type}.pdf', mimetype='application/pdf')
 
 
 def generate_qr_image_bytes(verify_url, size=140):
