@@ -749,11 +749,11 @@ def ensure_hr_document_schema():
             "related_reference": "ALTER TABLE hr_documents ADD COLUMN related_reference VARCHAR(120)",
             "status": "ALTER TABLE hr_documents ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'Draft'",
             "employee_response": "ALTER TABLE hr_documents ADD COLUMN employee_response TEXT",
-            "acknowledged_at": "ALTER TABLE hr_documents ADD COLUMN acknowledged_at DATETIME",
+            "acknowledged_at": "ALTER TABLE hr_documents ADD COLUMN acknowledged_at TIMESTAMP",
             "created_by": "ALTER TABLE hr_documents ADD COLUMN created_by INTEGER",
-            "created_at": "ALTER TABLE hr_documents ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
-            "updated_at": "ALTER TABLE hr_documents ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
-            "issued_at": "ALTER TABLE hr_documents ADD COLUMN issued_at DATETIME",
+            "created_at": "ALTER TABLE hr_documents ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "ALTER TABLE hr_documents ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "issued_at": "ALTER TABLE hr_documents ADD COLUMN issued_at TIMESTAMP",
             "document_id": "ALTER TABLE hr_documents ADD COLUMN document_id VARCHAR(32)",
         }
         for column_name, statement in missing_columns.items():
@@ -773,11 +773,11 @@ def ensure_hr_document_schema():
             related_reference VARCHAR(120),
             status VARCHAR(30) NOT NULL DEFAULT 'Draft',
             employee_response TEXT,
-            acknowledged_at DATETIME,
+            acknowledged_at TIMESTAMP,
             created_by INTEGER REFERENCES employees(id),
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NOT NULL,
-            issued_at DATETIME,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
+            issued_at TIMESTAMP,
             document_id VARCHAR(32)
         )
     """))
@@ -3677,16 +3677,25 @@ def default_hr_document_body(document_type, employee):
 
 def hr_document_pdf(document):
     employee = document.employee
-    verification = build_document_verification(
-        'hr_document', employee.id, f'HRDocument-{document.id}-{document.document_type}',
-        reference_id=None,
-        cutoff_start=document.created_at.date() if document.created_at else datetime.utcnow().date(),
-        cutoff_end=document.response_due_date or document.effective_date or (document.created_at.date() if document.created_at else datetime.utcnow().date()),
-        net_pay=0.0,
-    )
-    if document.document_id != verification['document_id']:
-        document.document_id = verification['document_id']
-        db.session.commit()
+    try:
+        ensure_document_verification_columns()
+        verification = build_document_verification(
+            'hr_document', employee.id, f'HRDocument-{document.id}-{document.document_type}',
+            reference_id=None,
+            cutoff_start=document.created_at.date() if document.created_at else datetime.utcnow().date(),
+            cutoff_end=document.response_due_date or document.effective_date or (document.created_at.date() if document.created_at else datetime.utcnow().date()),
+            net_pay=0.0,
+        )
+        if document.document_id != verification['document_id']:
+            document.document_id = verification['document_id']
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception('HR document verification failed; generating fallback PDF for document %s', document.id)
+        verification = {
+            'document_id': document.document_id or f'HRD-{document.id:06d}',
+            'verify_url': None,
+        }
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 14)
@@ -3722,7 +3731,7 @@ def hr_document_pdf(document):
     pdf.line(330, 92, 520, 92)
     pdf.drawString(60, 76, 'Employee Signature / Acknowledgment')
     pdf.drawString(330, 76, 'Authorized Admin / Date')
-    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    qr_bytes = generate_qr_image_bytes(verification['verify_url']) if verification.get('verify_url') else None
     if qr_bytes:
         pdf.drawImage(io.BytesIO(qr_bytes), 455, 12, width=70, height=70)
     pdf.setFont('Helvetica-Oblique', 8)
