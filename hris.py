@@ -78,6 +78,17 @@ def evaluation_points(average_rating):
         return 0, 1
     return 0, 0
 
+def actual_evaluation_points(average_rating):
+    if average_rating >= 4.5:
+        return 5, 0
+    if average_rating >= 3.5:
+        return 3, 0
+    if average_rating < 1.5:
+        return 0, 5
+    if average_rating < 2.5:
+        return 0, 3
+    return 0, 0
+
 
 def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
     if value is None:
@@ -5265,7 +5276,10 @@ def evaluation_dashboard():
                 return redirect(url_for('evaluation_dashboard'))
 
             average_rating = sum(evaluation.rating for evaluation in evaluations_to_review) / len(evaluations_to_review)
-            merit_points, demerit_points = evaluation_points(average_rating)
+            if evaluation_type == 'admin':
+                merit_points, demerit_points = actual_evaluation_points(average_rating)
+            else:
+                merit_points, demerit_points = evaluation_points(average_rating)
             employee = db.session.get(Employee, employee_id)
             if employee is None:
                 flash('❌ Employee not found.', 'danger')
