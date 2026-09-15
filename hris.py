@@ -3185,10 +3185,12 @@ def thirteenth_month_pdf(year, rows, verification):
     pdf.drawString(50, 770, '13TH-MONTH PAY REPORT')
     pdf.setFont('Helvetica', 10)
     pdf.drawString(50, 750, f'Calendar Year: {year}')
-    pdf.drawString(50, 735, 'Basis: total basic salary earned during the calendar year divided by 12')
-    pdf.drawString(50, 720, 'Excluded from basis: overtime, allowances, incentives, and deductions')
+    pdf.drawString(50, 735, 'Basis: prorated basic salary earned during the calendar year divided by 12')
+    pdf.drawString(50, 720, 'Unpaid absences, late time, half-day, undertime, and HWOP reduce the basis only')
+    pdf.drawString(50, 705, 'when they reduce earned basic pay; they are not deducted again from 13th-month pay')
+    pdf.drawString(50, 690, 'Excluded from basis: overtime, allowances, incentives, statutory deductions, and loans')
 
-    y = 685
+    y = 655
     pdf.setFont('Helvetica-Bold', 9)
     pdf.drawString(50, y, 'Employee')
     pdf.drawString(300, y, 'Basic Pay Earned')

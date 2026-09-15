@@ -22,7 +22,8 @@
 <main class="page">
     <section class="panel">
         <h1>13th-Month Pay</h1>
-        <p>Computed from basic salary earned during the selected calendar year, divided by 12.</p>
+        <p>Computed from prorated basic salary earned during the selected calendar year, divided by 12.</p>
+        <p>Unpaid absences, late time, half-day, undertime, and holiday without pay reduce the 13th-month basis only when they reduce the employee's earned basic pay; they are not deducted again from the final 13th-month amount. Overtime, allowances, incentives, and statutory or loan deductions are excluded from the basis.</p>
         <form method="get" class="actions">
             <label for="year">Calendar year</label>
             <input id="year" type="number" name="year" min="2000" max="{{ year + 1 }}" value="{{ year }}" required>
