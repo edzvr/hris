@@ -1672,7 +1672,7 @@ def employee_201_pdf(employee_id):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -1996,7 +1996,7 @@ def download_employee_profile(employee_id):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 505, 48, width=55, height=55)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 505, 48, width=55, height=55)
     pdf.drawString(54, 44, f'Generated on {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     pdf.save()
     buffer.seek(0)
@@ -2141,7 +2141,7 @@ def attendance(employee_id):
         if qrcode is not None:
             qr_bytes = generate_qr_image_bytes(verification['verify_url'])
             if qr_bytes:
-                pdf.drawImage(io.BytesIO(qr_bytes), 470, 18, width=70, height=70)
+                pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 470, 18, width=70, height=70)
 
         pdf.save()
         output.seek(0)
@@ -2726,7 +2726,7 @@ def incident_report_pdf(emp_id):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -2821,7 +2821,7 @@ def export_insights_pdf(emp_id):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 485, 10, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -3157,7 +3157,7 @@ def tax_summary_pdf(title, company, period, records):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 485, 10, width=60, height=60)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 485, 10, width=60, height=60)
     pdf.save()
     buffer.seek(0)
     return buffer
@@ -3256,7 +3256,7 @@ def compliance_report_pdf(report_type, year, company, rows, verification):
     pdf.drawString(35, 20, 'Scan QR to verify this HRIS report.')
     qr_bytes = generate_qr_image_bytes(verification['verify_url'])
     if qr_bytes:
-        pdf.drawImage(io.BytesIO(qr_bytes), 700, 10, width=60, height=60)
+        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 700, 10, width=60, height=60)
     pdf.save()
     buffer.seek(0)
     return buffer
@@ -3519,7 +3519,7 @@ def thirteenth_month_pdf(year, rows, verification):
     pdf.drawString(50, 23, 'Scan QR to verify this report.')
     qr_bytes = generate_qr_image_bytes(verification['verify_url'])
     if qr_bytes:
-        pdf.drawImage(io.BytesIO(qr_bytes), 470, 12, width=60, height=60)
+        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 470, 12, width=60, height=60)
     pdf.save()
     buffer.seek(0)
     return buffer
@@ -3611,7 +3611,7 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            pdf.drawImage(io.BytesIO(qr_bytes), 665, 12, width=60, height=60)
+            pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 665, 12, width=60, height=60)
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -4940,7 +4940,7 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(70, y - 35, 'Authorized Person Signature')
     pdf.drawString(330, y - 35, 'Date')
     if qr_bytes:
-        pdf.drawImage(io.BytesIO(qr_bytes), 455, 36, width=90, height=90)
+        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 455, 36, width=90, height=90)
     pdf.setFont('Helvetica-Oblique', 8)
     pdf.drawString(440, 24, f'Official Document ID: {verification["document_id"]}')
     pdf.drawString(440, 14, 'Scan QR to verify.')
