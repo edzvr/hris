@@ -66,9 +66,9 @@
 
     <!-- Export Options -->
     <div style="margin-top:20px;">
-        <a href="{{ url_for('export_data', data_type='merit_demerit_csv') }}" class="btn">Export to CSV</a>
-        <a href="{{ url_for('export_data', data_type='merit_demerit_excel') }}" class="btn">Export to Excel</a>
-        <a href="{{ url_for('export_data', data_type='merit_demerit_pdf') }}" class="btn">Print View (PDF)</a>
+        <a href="{{ url_for('export_data', data_type='merit_demerit_csv', employee_id=employee.id) }}" class="btn">Export to CSV</a>
+        <a href="{{ url_for('export_data', data_type='merit_demerit_excel', employee_id=employee.id) }}" class="btn">Export to Excel</a>
+        <a href="{{ url_for('export_data', data_type='merit_demerit_pdf', employee_id=employee.id) }}" class="btn">Download PDF</a>
     </div>
 
     <!-- Analytics Charts -->

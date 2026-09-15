@@ -5365,6 +5365,42 @@ def leave():
             current_user=current_user,
             generated_at=datetime.now()
         )
+    if export_type == "pdf":
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf.setFont('Helvetica-Bold', 14)
+        pdf.drawString(50, 780, payroll_company_name(current_user))
+        pdf.drawString(50, 760, 'LEAVE RECORDS')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(50, 735, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+        pdf.drawString(50, 720, f'Employee: {"All Employees" if current_user.role.lower() == "admin" else current_user.full_name()}')
+        y = 690
+        pdf.setFont('Helvetica-Bold', 9)
+        for x, label in [(40, 'Employee'), (160, 'Type'), (230, 'Days'), (275, 'Start'), (340, 'End'), (405, 'Status'), (465, 'Paid')]:
+            pdf.drawString(x, y, label)
+        y -= 16
+        pdf.setFont('Helvetica', 9)
+        for leave_record in leaves:
+            if y < 70:
+                pdf.showPage()
+                y = 760
+                pdf.setFont('Helvetica', 9)
+            employee_name = leave_record.employee.full_name() if leave_record.employee else 'N/A'
+            pdf.drawString(40, y, employee_name[:18])
+            pdf.drawString(160, y, str(leave_record.leave_type or '')[:12])
+            pdf.drawRightString(250, y, str(leave_record.days or 0))
+            pdf.drawString(275, y, str(leave_record.start_date or ''))
+            pdf.drawString(340, y, str(leave_record.end_date or ''))
+            pdf.drawString(405, y, str(leave_record.status or ''))
+            pdf.drawString(465, y, 'Yes' if leave_record.is_paid else 'No')
+            y -= 14
+        pdf.line(60, 58, 250, 58)
+        pdf.line(330, 58, 520, 58)
+        pdf.drawString(60, 43, 'Employee / Authorized Signature')
+        pdf.drawString(330, 43, 'Date')
+        pdf.save()
+        buffer.seek(0)
+        return send_file(buffer, as_attachment=True, download_name=f'Leave_Records_{datetime.now():%Y%m%d}.pdf', mimetype='application/pdf')
 
     # --- Default: normal leave page ---
     return render_template("leave.html",
@@ -6650,6 +6686,64 @@ def redemption_dashboard():
 @app.route('/export/<string:data_type>')
 @login_required
 def export_data(data_type):
+    if data_type in {'merit_demerit_csv', 'merit_demerit_excel', 'merit_demerit_pdf'}:
+        employee_id = request.args.get('employee_id', type=int) or current_user.id
+        if current_user.id != employee_id and 'admin' not in str(current_user.role or '').lower():
+            return 'Access denied', 403
+        employee = Employee.query.get_or_404(employee_id)
+        attendance_logs = Attendance.query.filter_by(employee_id=employee_id).order_by(Attendance.date.desc()).all()
+        attendance_merit = sum(1 for log in attendance_logs if log.status == "Present")
+        attendance_demerit = sum(1 for log in attendance_logs if log.status == "Absent")
+        evaluations = Evaluation.query.filter_by(employee_id=employee_id).all()
+        approved_evaluations = [item for item in evaluations if item.approval_status in {'Approved', None}]
+        eval_merit = sum(5 if item.score >= 90 else 3 if item.score >= 75 else 1 for item in approved_evaluations)
+        eval_demerit = sum(2 for item in approved_evaluations if item.score < 60)
+        quizzes = QuizResult.query.filter_by(employee_id=employee_id).all()
+        quiz_merit = sum(3 if item.score >= 90 else 1 if item.score >= 75 else 0 for item in quizzes)
+        quiz_demerit = 0
+        merit_points = attendance_merit + eval_merit + quiz_merit
+        demerit_points = attendance_demerit + eval_demerit + quiz_demerit
+        rows = [
+            ['Category', 'Merit', 'Demerit'],
+            ['Attendance', attendance_merit, attendance_demerit],
+            ['Evaluation', eval_merit, eval_demerit],
+            ['Quiz', quiz_merit, quiz_demerit],
+            ['TOTAL', merit_points, demerit_points],
+        ]
+        if data_type in {'merit_demerit_csv', 'merit_demerit_excel'}:
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Employee', employee.full_name()])
+            writer.writerow(['Generated', datetime.now().strftime('%Y-%m-%d %H:%M')])
+            writer.writerows(rows)
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+            extension = 'csv' if data_type == 'merit_demerit_csv' else 'xls'
+            response.headers['Content-Disposition'] = f'attachment; filename=merit_demerit_{employee.id}.{extension}'
+            return response
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf.setFont('Helvetica-Bold', 14)
+        pdf.drawString(50, 780, payroll_company_name(employee))
+        pdf.drawString(50, 760, 'MERIT / DEMERIT REPORT')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(50, 735, f'Employee: {employee.full_name()} (ID: {employee.id})')
+        pdf.drawString(50, 720, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+        y = 690
+        for row in rows:
+            pdf.setFont('Helvetica-Bold' if row[0] in {'Category', 'TOTAL'} else 'Helvetica', 10)
+            pdf.drawString(70, y, str(row[0]))
+            pdf.drawRightString(260, y, str(row[1]))
+            pdf.drawRightString(380, y, str(row[2]))
+            y -= 20
+        pdf.line(70, 92, 260, 92)
+        pdf.line(330, 92, 520, 92)
+        pdf.drawString(70, 76, 'Employee Signature / Date')
+        pdf.drawString(330, 76, 'Authorized Admin / Date')
+        pdf.save()
+        buffer.seek(0)
+        return send_file(buffer, as_attachment=True, download_name=f'Merit_Demerit_{employee.id}.pdf', mimetype='application/pdf')
+
     return render_template_string('''
     <!DOCTYPE html>
     <html>

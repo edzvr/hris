@@ -113,8 +113,8 @@
 {% if not print_mode %}
     <!-- PDF Export / View -->
     <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
-        <a href="{{ url_for('leave', export='print') }}" class="btn" target="_blank">View PDF</a>
-        <button type="button" class="btn" onclick="window.print()">Download PDF</button>
+        <a href="{{ url_for('leave', export='print') }}" class="btn" target="_blank">View Print Page</a>
+        <a href="{{ url_for('leave', export='pdf') }}" class="btn">Download PDF</a>
     </div>
 
     <!-- Analytics Charts -->
