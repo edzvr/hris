@@ -948,8 +948,6 @@ def audit_authenticated_request(response):
 
 @app.after_request
 def inject_authenticated_sidebar(response):
-    return response
-
     auth_pages = {'login', 'register', 'forgot_password', 'reset_password'}
     if (
         not current_user.is_authenticated
@@ -1019,15 +1017,15 @@ def inject_authenticated_sidebar(response):
     )
     sidebar = f'''
 <style id="hris-global-sidebar-style">
-    body.hris-sidebar-page {{ padding-left: 0 !important; padding-top: 124px !important; }}
-    #hris-global-sidebar {{ position: fixed; z-index: 10000; inset: 0 0 auto 0; width: 100vw; height: auto; box-sizing: border-box; display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 48px); grid-auto-columns: max-content; align-items: stretch; gap: 8px 10px; padding: 10px 14px 12px; background: #122c3b; color: #f4f7f6; box-shadow: 0 3px 14px rgba(7,25,36,.28); font-family: Arial, sans-serif; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x; }}
-    #hris-global-sidebar h2 {{ grid-row: 1 / span 2; align-self: center; margin: 0 10px 0 0; font-size: 24px; line-height: 28px; letter-spacing: .2px; white-space: nowrap; }}
+    body.hris-sidebar-page {{ --hris-topbar-row-height: 48px; --hris-topbar-font-size: 17px; --hris-topbar-title-size: 24px; padding-left: 0 !important; padding-top: calc((var(--hris-topbar-row-height) * 2) + 28px) !important; }}
+    #hris-global-sidebar {{ position: fixed; z-index: 10000; inset: 0 0 auto 0; width: 100% !important; max-width: 100vw; height: auto; box-sizing: border-box; display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, var(--hris-topbar-row-height)); grid-auto-columns: max-content; align-items: stretch; gap: 8px 10px; padding: 10px 14px 12px; background: #122c3b; color: #f4f7f6; box-shadow: 0 3px 14px rgba(7,25,36,.28); font-family: Arial, sans-serif; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x; }}
+    #hris-global-sidebar h2 {{ grid-row: 1 / span 2; align-self: center; margin: 0 10px 0 0; font-size: var(--hris-topbar-title-size); line-height: 1.2; letter-spacing: .2px; white-space: nowrap; }}
     #hris-global-sidebar p {{ display: none; }}
-    #hris-global-sidebar a {{ display: flex !important; align-items: center; justify-content: center; box-sizing: border-box; width: auto !important; height: 48px !important; min-height: 48px !important; min-width: max-content; padding: 12px 18px !important; margin: 0 !important; color: #f4f7f6; text-decoration: none; border-left: 0; border-bottom: 3px solid transparent; border-radius: 7px; font-size: 17px !important; line-height: 22px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis; }}
+    #hris-global-sidebar a {{ display: flex !important; align-items: center; justify-content: center; box-sizing: border-box; width: auto !important; height: var(--hris-topbar-row-height) !important; min-height: var(--hris-topbar-row-height) !important; min-width: max-content; padding: 12px 18px !important; margin: 0 !important; color: #f4f7f6; text-decoration: none; border-left: 0; border-bottom: 3px solid transparent; border-radius: 7px; font-size: var(--hris-topbar-font-size) !important; line-height: 1.25 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis; }}
     #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible {{ background: #1e5266; border-bottom-color: #f2c14e; }}
     #hris-global-sidebar a[href="{request.path}"] {{ background: #1e5266; border-bottom-color: #f2c14e; }}
     #hris-global-sidebar .sidebar-logout {{ margin-top: 0 !important; border-top: 0; padding-top: 9px !important; }}
-    @media (max-width: 760px), (max-device-width: 920px) {{ body.hris-sidebar-page {{ padding-top: 112px !important; }} #hris-global-sidebar {{ grid-template-rows: repeat(2, 42px); gap: 6px 7px; padding: 8px 10px 10px; }} #hris-global-sidebar h2 {{ margin-right: 4px; font-size: 18px; line-height: 22px; }} #hris-global-sidebar a {{ height: 42px !important; min-height: 42px !important; padding: 10px 13px !important; font-size: 15px !important; }} }}
+    @media (max-width: 760px), (max-device-width: 920px) {{ body.hris-sidebar-page {{ --hris-topbar-row-height: 42px; --hris-topbar-font-size: 15px; --hris-topbar-title-size: 18px; }} #hris-global-sidebar {{ gap: 6px 7px; padding: 8px 10px 10px; }} #hris-global-sidebar h2 {{ margin-right: 4px; }} #hris-global-sidebar a {{ padding: 10px 13px !important; }} }}
 </style>
 <aside id="hris-global-sidebar">
     <h2>HRIS</h2>
@@ -1035,6 +1033,7 @@ def inject_authenticated_sidebar(response):
     {link_markup}
     <a class="sidebar-logout" href="{url_for('logout')}">Sign out</a>
 </aside>
+<script>(function() {{ const sizes={{small:['40px','14px','20px'],medium:['48px','17px','24px'],large:['56px','19px','28px']}}; const apply=()=>{{ const selected=localStorage.getItem('hrisTopbarSize')||'medium'; const size=sizes[selected]||sizes.medium; document.body.style.setProperty('--hris-topbar-row-height',size[0]); document.body.style.setProperty('--hris-topbar-font-size',size[1]); document.body.style.setProperty('--hris-topbar-title-size',size[2]); }}; apply(); window.addEventListener('storage',event=>{{ if(event.key==='hrisTopbarSize') apply(); }}); }})();</script>
 '''
     if '<body class="' in html:
         html = html.replace('<body class="', '<body class="hris-sidebar-page ', 1)

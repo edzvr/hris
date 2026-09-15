@@ -73,8 +73,8 @@
 
         .dashboard-links {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          gap: 12px;
+          grid-template-columns: repeat(var(--staff-buttons-per-row, 3), minmax(0, 1fr));
+          gap: var(--staff-button-gap, 12px);
           margin-top: 15px;
           align-items: stretch;
         }
@@ -83,12 +83,22 @@
           display:flex;
           align-items:center;
           justify-content:center;
-          min-height:76px;
+          min-height: var(--staff-button-height, 76px);
           box-sizing:border-box;
           margin:0;
-          padding:14px 12px;
+          padding: var(--staff-button-padding, 14px) 12px;
+          font-size: var(--staff-button-font-size, 20px);
           line-height:1.25;
         }
+        .staff-dashboard-settings {
+          display:grid;
+          grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
+          gap:12px;
+          align-items:end;
+        }
+        .staff-dashboard-settings label { font-weight:700; }
+        .staff-dashboard-settings select, .staff-dashboard-settings input { box-sizing:border-box; width:100%; padding:10px; margin-top:6px; font:inherit; }
+        .staff-dashboard-settings .btn { margin:0; }
 
         @media (max-width: 760px) {
           body { font-size: 16px; }
@@ -97,7 +107,7 @@
           header { padding: 14px; }
           header h1 { font-size: 24px; }
           header p { font-size: 15px; }
-          .dashboard-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+          .dashboard-links { grid-template-columns: repeat(min(var(--staff-buttons-per-row, 2), 2), minmax(0, 1fr)); gap: 8px; }
           .dashboard-links a { min-height:64px; font-size:14px; padding:10px 8px; }
           .btn { padding: 12px 14px; font-size: 15px; margin: 4px; }
           .brand-header { margin: 10px 0; }
@@ -201,6 +211,39 @@
             <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
         </div>
     </div>
+
+        <div class="container card dashboard-section">
+          <h2>Dashboard Settings</h2>
+          <div class="staff-dashboard-settings">
+            <label>Top bar size
+              <select id="staffTopbarSize">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
+            <label>Button color
+              <input type="color" id="staffButtonColor" value="#1f7fdf">
+            </label>
+            <label>Button size
+              <select id="staffButtonSize">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
+            <label>Buttons per row
+              <select id="staffButtonsPerRow">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </label>
+            <button type="button" class="btn btn-primary" onclick="saveStaffDashboardSettings()">Save Settings</button>
+            <button type="button" class="btn btn-red" onclick="resetStaffDashboardSettings()">Reset Layout</button>
+          </div>
+        </div>
 
     <div class="container card dashboard-section">
         <h2>Dashboard Summary</h2>
@@ -431,7 +474,61 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', enableStaffButtonDrag);
+  function applyStaffDashboardSettings(settings) {
+    const sizes = {
+      small: { height: '58px', padding: '10px', fontSize: '15px' },
+      medium: { height: '76px', padding: '14px', fontSize: '20px' },
+      large: { height: '96px', padding: '18px', fontSize: '23px' }
+    };
+    const size = sizes[settings.buttonSize] || sizes.medium;
+    document.documentElement.style.setProperty('--staff-button-height', size.height);
+    document.documentElement.style.setProperty('--staff-button-padding', size.padding);
+    document.documentElement.style.setProperty('--staff-button-font-size', size.fontSize);
+    document.documentElement.style.setProperty('--staff-buttons-per-row', settings.buttonsPerRow || '3');
+    document.documentElement.style.setProperty('--staff-button-gap', settings.buttonGap || '12px');
+    document.querySelectorAll('.dashboard-links .btn-primary').forEach(button => {
+      button.style.backgroundColor = settings.buttonColor || '#1f7fdf';
+    });
+    localStorage.setItem('hrisTopbarSize', settings.topbarSize || 'medium');
+    const topbarSizes = {
+      small: { row: '40px', font: '14px', title: '20px' },
+      medium: { row: '48px', font: '17px', title: '24px' },
+      large: { row: '56px', font: '19px', title: '28px' }
+    };
+    const topbarSize = topbarSizes[settings.topbarSize] || topbarSizes.medium;
+    document.body.style.setProperty('--hris-topbar-row-height', topbarSize.row);
+    document.body.style.setProperty('--hris-topbar-font-size', topbarSize.font);
+    document.body.style.setProperty('--hris-topbar-title-size', topbarSize.title);
+  }
+
+  function saveStaffDashboardSettings() {
+    const settings = {
+      topbarSize: document.getElementById('staffTopbarSize').value,
+      buttonColor: document.getElementById('staffButtonColor').value,
+      buttonSize: document.getElementById('staffButtonSize').value,
+      buttonsPerRow: document.getElementById('staffButtonsPerRow').value
+    };
+    localStorage.setItem('hrisStaffDashboardSettings', JSON.stringify(settings));
+    applyStaffDashboardSettings(settings);
+    alert('Settings saved.');
+  }
+
+  function resetStaffDashboardSettings() {
+    localStorage.removeItem('hrisStaffDashboardSettings');
+    localStorage.removeItem('hrisStaffActionOrder');
+    localStorage.removeItem('hrisTopbarSize');
+    window.location.reload();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const storedSettings = JSON.parse(localStorage.getItem('hrisStaffDashboardSettings') || '{}');
+    document.getElementById('staffTopbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
+    document.getElementById('staffButtonColor').value = storedSettings.buttonColor || '#1f7fdf';
+    document.getElementById('staffButtonSize').value = storedSettings.buttonSize || 'medium';
+    document.getElementById('staffButtonsPerRow').value = storedSettings.buttonsPerRow || '3';
+    applyStaffDashboardSettings(storedSettings);
+    enableStaffButtonDrag();
+  });
 
   // Light/Dark Mode Toggle
   const themeBtn = document.getElementById('toggleThemeBtn');
