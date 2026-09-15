@@ -2704,6 +2704,8 @@ def holiday_multiplier(attendance):
 def regular_day_pay(attendance, daily_rate):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
     employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
+    regular_hours = min(max(float(attendance.hours or 0), 0.0), 8.0)
+    prorated_daily_rate = daily_rate * (regular_hours / 8.0) if regular_hours else 0.0
     is_trece_sunday = (
         attendance.date.weekday() == 6
         and employee
@@ -2712,17 +2714,17 @@ def regular_day_pay(attendance, daily_rate):
     is_restday = attendance.date.weekday() == 6 and not is_trece_sunday
     if holiday and holiday.holiday_type == 'Regular Holiday':
         if is_restday:
-            return daily_rate * 2.6
-        return daily_rate * 2.0
+            return prorated_daily_rate * 2.6
+        return prorated_daily_rate * 2.0
     if holiday:
         if is_restday:
-            return daily_rate * 1.5
-        return daily_rate * 1.3
+            return prorated_daily_rate * 1.5
+        return prorated_daily_rate * 1.3
     if attendance.date.weekday() == 6 and not is_trece_sunday:
         return 0.0
     if is_trece_sunday:
-        return daily_rate * 0.5
-    return daily_rate
+        return prorated_daily_rate * 0.5
+    return prorated_daily_rate
 
 
 def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
