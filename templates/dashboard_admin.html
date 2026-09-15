@@ -518,14 +518,15 @@
       document.body.classList.toggle('admin-dark-mode', settings.theme === 'dark');
       localStorage.setItem('hrisTopbarSize', settings.topbarSize || 'medium');
       const topbarSizes = {
-        small: { row: '40px', font: '14px', title: '20px' },
-        medium: { row: '48px', font: '17px', title: '24px' },
-        large: { row: '56px', font: '19px', title: '28px' }
+        small: { row: '46px', font: '16px', title: '22px', column: '154px' },
+        medium: { row: '54px', font: '18px', title: '26px', column: '176px' },
+        large: { row: '62px', font: '20px', title: '30px', column: '204px' }
       };
       const topbarSize = topbarSizes[settings.topbarSize] || topbarSizes.medium;
       document.body.style.setProperty('--hris-topbar-row-height', topbarSize.row);
       document.body.style.setProperty('--hris-topbar-font-size', topbarSize.font);
       document.body.style.setProperty('--hris-topbar-title-size', topbarSize.title);
+      document.body.style.setProperty('--hris-topbar-column-width', topbarSize.column);
       document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#86a9cf');
       document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#6f94be');
       const sizes = {
