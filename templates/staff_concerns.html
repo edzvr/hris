@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staff Concerns</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#eef3f1; margin:0; padding:24px; color:#263238; }
+    main { max-width:1100px; margin:0 auto; }
+    .panel { background:#fff; padding:20px; margin-bottom:18px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+    .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:14px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end; }
+    label { font-weight:700; }
+    input, select, textarea { box-sizing:border-box; width:100%; padding:9px; margin-top:6px; font:inherit; }
+    textarea { min-height:90px; }
+    table { width:100%; border-collapse:collapse; margin-top:14px; }
+    th, td { border:1px solid #d8e0dc; padding:9px; text-align:left; vertical-align:top; }
+    th { background:#2879ad; color:#fff; }
+    .btn { display:inline-block; padding:9px 13px; margin-top:6px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; }
+    .table-wrap { overflow-x:auto; }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>{{ 'Staff Concerns / Suggestions' if is_admin else 'Suggestions / Clarification / Hinaing' }}</h1>
+    <p class="notice"><strong>Paalala:</strong> Gamitin ito para sa maayos na tanong, suggestion, clarification, o hinaing sa Admin/HR. Hindi ito kapalit ng emergency report; para sa urgent incident, gamitin ang Incident Report o magsabi agad sa supervisor.</p>
+  </section>
+
+  {% if not is_admin %}
+  <section class="panel">
+    <h2>Submit to Admin/HR</h2>
+    <form method="POST">
+      <div class="grid">
+        <label>Type
+          <select name="concern_type">
+            {% for type in concern_types %}<option value="{{ type }}">{{ type }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Subject
+          <input type="text" name="subject" required>
+        </label>
+      </div>
+      <label>Message
+        <textarea name="message" required placeholder="Isulat nang malinaw ang tanong, suggestion, clarification, o hinaing."></textarea>
+      </label>
+      <button class="btn" type="submit">Submit</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Records</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Date</th>{% if is_admin %}<th>Employee</th>{% endif %}<th>Type</th><th>Subject / Message</th><th>Status</th><th>Admin Response</th>{% if is_admin %}<th>Action</th>{% endif %}</tr>
+      {% for concern in concerns %}
+      <tr>
+        <td>{{ concern.created_at.strftime('%Y-%m-%d %H:%M') if concern.created_at else 'N/A' }}</td>
+        {% if is_admin %}<td>{{ concern.employee.full_name() }}</td>{% endif %}
+        <td>{{ concern.concern_type }}</td>
+        <td><strong>{{ concern.subject }}</strong><br>{{ concern.message }}</td>
+        <td>{{ concern.status }}</td>
+        <td>{{ concern.admin_response or 'No response yet' }}{% if concern.responded_at %}<br><small>{{ concern.responded_at.strftime('%Y-%m-%d %H:%M') }}</small>{% endif %}</td>
+        {% if is_admin %}
+        <td><form method="POST"><input type="hidden" name="action" value="respond"><input type="hidden" name="concern_id" value="{{ concern.id }}"><textarea name="admin_response" placeholder="Admin/HR response" required>{{ concern.admin_response or '' }}</textarea><select name="status"><option value="Responded">Responded</option><option value="Under Review">Under Review</option><option value="Closed">Closed</option></select><button class="btn" type="submit">Save Response</button></form></td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No records found.</td></tr>
+      {% endfor %}
+    </table></div>
+  </section>
+  <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</main>
+</body>
+</html>

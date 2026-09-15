@@ -492,3 +492,21 @@ class HRDocument(db.Model):
 
     employee = db.relationship("Employee", foreign_keys=[employee_id], backref="hr_documents")
     creator = db.relationship("Employee", foreign_keys=[created_by])
+
+
+class StaffConcern(db.Model):
+    __tablename__ = "staff_concerns"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    concern_type = db.Column(db.String(40), nullable=False, default="Clarification")
+    subject = db.Column(db.String(180), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(30), nullable=False, default="Open")
+    admin_response = db.Column(db.Text, nullable=True)
+    responded_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    responded_at = db.Column(db.DateTime, nullable=True)
+
+    employee = db.relationship("Employee", foreign_keys=[employee_id], backref="staff_concerns")
+    responder = db.relationship("Employee", foreign_keys=[responded_by])

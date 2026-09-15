@@ -264,6 +264,7 @@ from models import (
     MeritDemerit,
     EmployeeDocument,
     HRDocument,
+    StaffConcern,
     PasswordResetToken,
     OTApplication,
     AuditLog,
@@ -784,6 +785,42 @@ def ensure_hr_document_schema():
     db.session.commit()
 
 
+def ensure_staff_concern_schema():
+    inspector = inspect(db.engine)
+    if "staff_concerns" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("staff_concerns")}
+        missing_columns = {
+            "concern_type": "ALTER TABLE staff_concerns ADD COLUMN concern_type VARCHAR(40) NOT NULL DEFAULT 'Clarification'",
+            "subject": "ALTER TABLE staff_concerns ADD COLUMN subject VARCHAR(180) NOT NULL DEFAULT 'Staff Concern'",
+            "message": "ALTER TABLE staff_concerns ADD COLUMN message TEXT NOT NULL DEFAULT ''",
+            "status": "ALTER TABLE staff_concerns ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'Open'",
+            "admin_response": "ALTER TABLE staff_concerns ADD COLUMN admin_response TEXT",
+            "responded_by": "ALTER TABLE staff_concerns ADD COLUMN responded_by INTEGER",
+            "created_at": "ALTER TABLE staff_concerns ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "responded_at": "ALTER TABLE staff_concerns ADD COLUMN responded_at TIMESTAMP",
+        }
+        for column_name, statement in missing_columns.items():
+            if column_name not in columns:
+                db.session.execute(text(statement))
+        db.session.commit()
+        return
+    db.session.execute(text("""
+        CREATE TABLE staff_concerns (
+            id INTEGER PRIMARY KEY,
+            employee_id INTEGER NOT NULL REFERENCES employees(id),
+            concern_type VARCHAR(40) NOT NULL DEFAULT 'Clarification',
+            subject VARCHAR(180) NOT NULL,
+            message TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'Open',
+            admin_response TEXT,
+            responded_by INTEGER REFERENCES employees(id),
+            created_at TIMESTAMP NOT NULL,
+            responded_at TIMESTAMP
+        )
+    """))
+    db.session.commit()
+
+
 def ensure_loan_tracking_columns():
     loan_columns = {column["name"] for column in inspect(db.engine).get_columns("loans")}
     if "loan_type" not in loan_columns:
@@ -939,6 +976,7 @@ with app.app_context():
     ensure_payroll_columns()
     ensure_employee_liability_schema()
     ensure_hr_document_schema()
+    ensure_staff_concern_schema()
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
     ensure_document_verification_columns()
@@ -1076,6 +1114,7 @@ def inject_authenticated_sidebar(response):
             ('apply_ot', 'Apply for OT'),
             ('employee_liabilities', 'Liabilities'),
             ('hr_documents', 'My HR Documents'),
+            ('staff_concerns', 'Suggestions / Hinaing'),
             ('bulletin', 'Company Bulletin'),
             ('company_files', 'Company Files'),
         ])
@@ -1088,6 +1127,7 @@ def inject_authenticated_sidebar(response):
             ('employee_201_selector', 'Staff 201 Files'),
             ('admin_incidents', 'Incident Reports'),
             ('hr_documents', 'HR Documents'),
+            ('staff_concerns', 'Staff Concerns'),
             ('monthly_deductions', 'Monthly Deductions'),
             ('employee_liabilities', 'Liabilities / Shortage'),
             ('tax_reports', 'Tax Reports'),
@@ -3654,6 +3694,7 @@ HR_DOCUMENT_TYPES = {
     'Resolution': 'Case Resolution',
     'Contract': 'Employment Contract / Agreement',
     'Warning': 'Written Warning',
+    'PIP': 'Performance Improvement Plan',
     'Suspension': 'Suspension Notice',
     'Return to Work': 'Return to Work Order',
     'Liability Agreement': 'Recoverable Deduction / Liability Agreement',
@@ -3669,6 +3710,7 @@ def default_hr_document_body(document_type, employee):
         'NDE': f'Dear {employee_name},\n\nAfter review of the records, explanation, and available evidence, management has reached the following decision.\n\nDecision / Action:\n[State decision, corrective action, warning, suspension, or closure.]\n\nThis document forms part of the employee record.',
         'Memo': 'This memo is issued to document the following company instruction, reminder, or announcement.\n\nDetails:\n[Write memo details here.]',
         'Resolution': 'This resolution records the findings and closure/action for the matter referenced below.\n\nFindings:\n[State findings.]\n\nResolution:\n[State action or closure.]',
+        'PIP': f'Performance Improvement Plan for {employee_name}\n\nReason / Evaluation Result:\n[State failed evaluation score, performance gap, attendance issue, or policy concern.]\n\nSupport and Coaching Provided:\n[State coaching, training, mentoring, reminders, tools, or schedule support given by the company.]\n\nImprovement Targets:\n1. [Target 1]\n2. [Target 2]\n3. [Target 3]\n\nReview Period and Check-ins:\n[State start date, review dates, and final review date.]\n\nExpected Outcome:\nThe employee is given an opportunity to improve and meet company standards. Progress will be reviewed fairly based on documented performance, attendance, behavior, and policy compliance.',
         'Contract': f'This agreement is entered into by the company and {employee_name}.\n\nTerms and Conditions:\n[Write agreed terms here.]\n\nBoth parties acknowledge and agree to the terms stated in this document.',
         'Liability Agreement': f'This recoverable deduction/liability agreement documents an employee accountability or uncollected company receivable involving {employee_name}.\n\nThe deduction shall follow the agreed schedule. If the customer or account pays the outstanding receivable, the corresponding deducted amount shall be refunded or released to the employee based on actual recovery and company records.',
     }
@@ -3677,6 +3719,7 @@ def default_hr_document_body(document_type, employee):
 
 def hr_document_pdf(document):
     employee = document.employee
+    prepared_by = document.creator.full_name() if document.creator else 'Admin / HR'
     try:
         ensure_document_verification_columns()
         verification = build_document_verification(
@@ -3707,7 +3750,15 @@ def hr_document_pdf(document):
     pdf.drawString(50, 720, f'Employee: {employee.full_name()} (ID: {employee.id})')
     pdf.drawString(50, 705, f'Subject: {document.subject}')
     pdf.drawString(50, 690, f'Status: {document.status}')
-    y = 660
+    pdf.drawString(300, 735, f'Prepared by: {prepared_by[:34]}')
+    pdf.drawString(300, 720, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+    if document.issued_at:
+        pdf.drawString(300, 705, f'Issued: {document.issued_at.strftime("%Y-%m-%d %H:%M")}')
+    if document.acknowledged_at:
+        pdf.drawString(300, 690, f'Acknowledged: {document.acknowledged_at.strftime("%Y-%m-%d %H:%M")}')
+    if document.employee_response:
+        pdf.drawString(300, 675, f'Responded: {document.updated_at.strftime("%Y-%m-%d %H:%M") if document.updated_at else "Recorded"}')
+    y = 640
     text_object = pdf.beginText(50, y)
     text_object.setFont('Helvetica', 10)
     for paragraph in (document.body or '').splitlines():
@@ -3727,10 +3778,14 @@ def hr_document_pdf(document):
             for start in range(0, max(len(paragraph), 1), 92):
                 text_object.textLine(paragraph[start:start + 92])
     pdf.drawText(text_object)
-    pdf.line(60, 92, 250, 92)
-    pdf.line(330, 92, 520, 92)
-    pdf.drawString(60, 76, 'Employee Signature / Acknowledgment')
-    pdf.drawString(330, 76, 'Authorized Admin / Date')
+    pdf.setFont('Helvetica', 8)
+    pdf.drawString(50, 112, 'Acknowledgment confirms receipt only and does not automatically mean admission of fault unless expressly stated.')
+    pdf.line(45, 92, 205, 92)
+    pdf.line(225, 92, 385, 92)
+    pdf.line(405, 92, 555, 92)
+    pdf.drawString(45, 76, 'Employee Signature / Date')
+    pdf.drawString(225, 76, 'Authorized Employer Signature / Date')
+    pdf.drawString(405, 76, 'HR / Witness Signature / Date')
     qr_bytes = generate_qr_image_bytes(verification['verify_url']) if verification.get('verify_url') else None
     if qr_bytes:
         pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 455, 12, width=70, height=70)
@@ -3801,6 +3856,53 @@ def download_hr_document(document_id):
         return 'Access denied', 403
     download_name = secure_filename(f'HR_Document_{document.id}_{document.document_type}.pdf') or f'HR_Document_{document.id}.pdf'
     return send_file(hr_document_pdf(document), as_attachment=True, download_name=download_name, mimetype='application/pdf')
+
+
+CONCERN_TYPES = ['Suggestion', 'Clarification', 'Hinaing / Grievance', 'Payroll Question', 'Policy Question', 'Other']
+
+
+@app.route('/staff-concerns', methods=['GET', 'POST'])
+@login_required
+def staff_concerns():
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    if request.method == 'POST':
+        action = request.form.get('action', 'create')
+        if action == 'respond':
+            if not is_admin:
+                return 'Access denied', 403
+            concern = StaffConcern.query.get_or_404(request.form.get('concern_id', type=int))
+            concern.admin_response = request.form.get('admin_response', '').strip()
+            concern.status = request.form.get('status') or 'Responded'
+            concern.responded_by = current_user.id
+            concern.responded_at = datetime.utcnow()
+            db.session.commit()
+            flash('Response saved.', 'success')
+            return redirect(url_for('staff_concerns'))
+
+        if is_admin:
+            flash('Use the response form to reply to staff concerns.', 'warning')
+            return redirect(url_for('staff_concerns'))
+        concern = StaffConcern(
+            employee_id=current_user.id,
+            concern_type=request.form.get('concern_type') if request.form.get('concern_type') in CONCERN_TYPES else 'Clarification',
+            subject=request.form.get('subject', '').strip(),
+            message=request.form.get('message', '').strip(),
+            created_at=datetime.utcnow(),
+        )
+        if not concern.subject or not concern.message:
+            flash('Subject and message are required.', 'danger')
+            return redirect(url_for('staff_concerns'))
+        db.session.add(concern)
+        db.session.commit()
+        flash('Your concern was submitted to Admin/HR.', 'success')
+        return redirect(url_for('staff_concerns'))
+
+    concerns = (
+        StaffConcern.query.order_by(StaffConcern.created_at.desc()).all()
+        if is_admin
+        else StaffConcern.query.filter_by(employee_id=current_user.id).order_by(StaffConcern.created_at.desc()).all()
+    )
+    return render_template('staff_concerns.html', concerns=concerns, concern_types=CONCERN_TYPES, is_admin=is_admin)
 
 
 def generate_qr_image_bytes(verify_url, size=140):
