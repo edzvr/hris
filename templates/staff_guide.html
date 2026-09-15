@@ -54,7 +54,7 @@
             <ul>
                 <li>Open Take Quiz when a quiz is available.</li>
                 <li>Review the question and submit your answer before leaving the page.</li>
-                <li>A score of 75% or higher earns merit points. A lower score adds demerit points under the current system rules.</li>
+                <li>A score of 75% or higher on the official monthly quiz earns merit points. A lower score does not automatically add demerit points; Admin review is required.</li>
                 <li>Use Assessments to check available assessment activities and results.</li>
             </ul>
             <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Take Quiz</a>
@@ -68,16 +68,19 @@
                 <li>Give ratings based on actual work performance, teamwork, and conduct.</li>
                 <li>Submit before the end of the month so the evaluation is included in the monthly review.</li>
                 <li>Do not evaluate yourself.</li>
+                <li>Peer Evaluation is support feedback. Actual/Admin Evaluation is the official company evaluation and carries higher points.</li>
+                <li>You can download your approved evaluation results from Assessments.</li>
             </ul>
             <a class="btn" href="{{ url_for('peer_evaluation') }}">Open Peer Evaluation</a>
+            <a class="btn" href="{{ url_for('assessment', action='evaluation') }}">View / Download Evaluation Results</a>
         </section>
 
         <section>
             <h2>Merit And Demerit</h2>
             <ul>
-                <li>Merit points recognize good attendance, passing quiz scores, and evaluation results.</li>
-                <li>Perfect recorded attendance for the month gives 10 merit points.</li>
-                <li>Each Late record adds 2 demerit points; each Absent record adds 5 demerit points.</li>
+                <li>Merit points recognize recorded attendance, passing official quiz scores, approved evaluations, and approved compliments.</li>
+                <li>Current attendance summary counts recorded Present days as merit references and Absent days as demerit references.</li>
+                <li>Peer Evaluation points are lower; Actual/Admin Evaluation points are higher because they are the official company evaluation.</li>
                 <li>Use the page to review your current points and understand the result.</li>
             </ul>
             <a class="btn" href="{{ url_for('merit_demerit', employee_id=current_user.id) }}">View Merit / Demerit</a>

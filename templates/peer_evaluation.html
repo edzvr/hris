@@ -27,6 +27,7 @@
         <p class="notice"><strong>Monthly reminder:</strong> Complete your peer-to-peer evaluation before the end of the month. Feedback is anonymous to staff and reviewed by Admin.</p>
         <p>Mag-rate ng coworker para sa {{ month_start.strftime('%B %Y') }}. Gamitin ang 1 bilang pinakamababa at 5 bilang pinakamataas na rating.</p>
         <p class="notice">Nakakatulong ang sagot mo sa teamwork at suporta sa trabaho. Hindi puwedeng isumite ulit ang parehong coworker sa loob ng isang buwan.</p>
+        <p class="notice"><strong>Paalala:</strong> Ang Peer Evaluation ay support feedback lamang. Ang Actual/Admin Evaluation ang mas mahalagang official evaluation ng kompanya at mas mataas ang points. Dapat patas, totoo, at base sa aktwal na trabaho ang rating.</p>
         <p><strong>Gabay sa rating:</strong> 1 = Kailangan ng malaking improvement; 2 = Kailangan ng improvement; 3 = Pasok sa inaasahan; 4 = Madalas na higit sa inaasahan; 5 = Palaging mahusay.</p>
 
         <form method="POST">
@@ -55,6 +56,7 @@
             <textarea id="remarks" name="remarks" placeholder="Magbigay ng maayos at makabuluhang feedback..."></textarea>
             <button type="submit" class="btn">Isumite ang Monthly Evaluation</button>
         </form>
+        <a class="btn" href="{{ url_for('assessment', action='evaluation') }}">View / Download My Evaluation Results</a>
         <a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a>
     </div>
 </body>

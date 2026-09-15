@@ -21,6 +21,8 @@
     <div class="card">
         <h2>Monthly Peer Evaluation Check</h2>
         <p>Questionnaire completion for {{ month_start.strftime('%B %Y') }}.</p>
+        <p style="border-left:5px solid #e5b85c;background:#fff7e3;padding:12px;"><strong>Evaluation guidelines:</strong> Peer Evaluation is supporting coworker feedback. Actual/Admin Evaluation is the official company evaluation and carries higher points. Handbook alignment: final score below 75% is considered not passing; on the 1-5 HRIS scale, 75% is equivalent to 3.75 average. Review fairness before approving points.</p>
+        <p style="border-left:5px solid #1976d2;background:#eef6ff;padding:12px;"><strong>Points guide:</strong> Peer average 4.5+ = +2 merit, 3.5+ = +1 merit, below 2.5 = +1 demerit, below 1.5 = +2 demerit. Actual/Admin average 4.5+ = +5 merit, 3.5+ = +3 merit, below 2.5 = +3 demerit, below 1.5 = +5 demerit.</p>
         <a href="{{ url_for('manage_questions') }}" class="btn">Edit / Approve Questionnaire</a>
         <a href="{{ url_for('evaluation_results_export', file_format='pdf') }}" class="btn">Download All Results PDF</a>
         <a href="{{ url_for('evaluation_results_export', file_format='csv') }}" class="btn">Download All Results CSV</a>
@@ -81,7 +83,7 @@
     <!-- Employee Evaluation Form -->
     <div class="card">
         <h2>Employee Evaluation</h2>
-        <p>Rate employees on each active question (1 = Lowest, 5 = Highest). Add remarks if needed.</p>
+        <p>Actual/Admin Evaluation: rate employees on each active question (1 = Lowest, 5 = Highest). Add remarks if needed. This is the official evaluation and carries higher merit/demerit points than peer feedback.</p>
         <form method="POST">
             <table>
                 <tr>
