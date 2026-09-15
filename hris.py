@@ -3733,7 +3733,7 @@ def hr_document_pdf(document):
     pdf.drawString(330, 76, 'Authorized Admin / Date')
     qr_bytes = generate_qr_image_bytes(verification['verify_url']) if verification.get('verify_url') else None
     if qr_bytes:
-        pdf.drawImage(io.BytesIO(qr_bytes), 455, 12, width=70, height=70)
+        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 455, 12, width=70, height=70)
     pdf.setFont('Helvetica-Oblique', 8)
     pdf.drawString(50, 36, 'Scan QR to verify this HRIS-generated document.')
     pdf.save()
