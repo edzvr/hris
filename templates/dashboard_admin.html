@@ -192,7 +192,7 @@
       <a href="{{ url_for('leave') }}" class="btn">Leave requests: {{ pending_leaves }} pending</a>
       <a href="{{ url_for('loan') }}" class="btn">Loan requests: {{ pending_loans }} pending</a>
       <a href="{{ url_for('evaluation_dashboard') }}" class="btn">Evaluation review: {{ pending_evaluations }} pending</a>
-      <a href="{{ url_for('payroll_dashboard') }}" class="btn">Friday 10 PM: review 6-day payroll and approved OT</a>
+      <a href="{{ url_for('payroll_dashboard') }}" class="btn">Friday 10 PM: review payroll and approved OT</a>
     </div>
   </div>
 
@@ -316,7 +316,7 @@
           <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
           <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
           <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
-          <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
+          <td><a href="{{ url_for('attendance', employee_id=emp.id) }}" class="btn">Attendance</a> <form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" style="display:inline" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
       </table>
@@ -334,7 +334,7 @@
           <td>{{ attendance_item.record.clock_in.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_in else '—' }}</td>
           <td>{{ attendance_item.record.clock_out.strftime('%I:%M %p') if attendance_item and attendance_item.record and attendance_item.record.clock_out else '—' }}</td>
           <td>{{ attendance_item.status if attendance_item else 'No Record' }}</td>
-          <td><form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
+          <td><a href="{{ url_for('attendance', employee_id=emp.id) }}" class="btn">Attendance</a> <form method="POST" action="{{ url_for('delete_employee', employee_id=emp.id) }}" style="display:inline" onsubmit="return confirm('Delete this employee and all related HRIS records?');"><button type="submit" class="btn btn-danger">Delete</button></form></td>
         </tr>
         {% endfor %}
       </table>
@@ -357,6 +357,7 @@
       <a href="{{ url_for('hr_documents') }}" class="btn">📄 HR Documents</a>
       <a href="{{ url_for('staff_concerns') }}" class="btn">💬 Staff Concerns</a>
       <a href="{{ url_for('payroll_dashboard') }}" class="btn">💰 Payroll</a>
+      <a href="{{ url_for('thirteenth_month') }}" class="btn">💰 13th-Month Pay</a>
       <a href="{{ url_for('monthly_deductions') }}" class="btn">📋 Monthly Deductions</a>
       <a href="{{ url_for('employee_liabilities') }}" class="btn">🧾 Liabilities / Shortage</a>
       <a href="{{ url_for('audit_logs') }}" class="btn">🔎 Activity Logs</a>

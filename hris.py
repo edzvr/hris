@@ -2010,7 +2010,16 @@ def attendance(employee_id):
     if current_user.id != emp.id and 'admin' not in current_user.role.lower():
         flash("❌ You can only view your own attendance record.", "danger")
         return redirect(url_for('dashboard_staff'))
-    history = Attendance.query.filter_by(employee_id=employee_id).order_by(Attendance.date.desc()).all()
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('attendance', employee_id=employee_id))
+    history = Attendance.query.filter(
+        Attendance.employee_id == employee_id,
+        Attendance.date >= cutoff_start,
+        Attendance.date < cutoff_end,
+    ).order_by(Attendance.date.asc()).all()
 
     # --- Summary metrics ---
     total_present = sum(1 for log in history if log.status == "Present")
@@ -2050,9 +2059,28 @@ def attendance(employee_id):
         motivation = "❌ Attendance is affecting performance. Let's work on discipline and consistency."
 
     # --- DTR Records ---
+    attendance_by_date = {log.date: log for log in history}
     dtr_records = []
-    for log in history:
-        hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
+    for offset in range((cutoff_end - cutoff_start).days):
+        record_date = cutoff_start + timedelta(days=offset)
+        log = attendance_by_date.get(record_date)
+        is_rest_day = (
+            record_date.weekday() == 6
+            and not str(emp.company or '').lower().startswith('trece')
+        )
+        if log is None:
+            dtr_records.append({
+                "date": record_date.strftime('%Y-%m-%d'),
+                "clock_in": "N/A",
+                "clock_out": "N/A",
+                "status": "Rest Day" if is_rest_day else "Absent",
+                "hours": 0,
+                "undertime_hours": 0,
+                "ot": "",
+                "branch": "N/A",
+            })
+            continue
+        hours_worked = (log.clock_out - log.clock_in).total_seconds() / 3600 if log.clock_in and log.clock_out else 0
         expected_end = time(12, 0) if (
             log.date.weekday() == 6
             and str(emp.company or '').lower().startswith('trece')
@@ -2061,23 +2089,28 @@ def attendance(employee_id):
             (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
             0,
         ) if log.clock_out else 0
+        missing_clock_status = (
+            "No In / No Out" if not log.clock_in and not log.clock_out
+            else "No In" if not log.clock_in
+            else "No Out" if not log.clock_out
+            else log.status
+        )
         dtr_records.append({
             "date": log.date.strftime('%Y-%m-%d'),
             "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
             "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
-            "status": log.status,
+            "status": missing_clock_status,
             "hours": hours_worked,
             "undertime_hours": undertime_hours,
+            "ot": (
+                f"{log.ot_status} ({float(log.overtime_hours or 0):.2f} h)"
+                if float(log.overtime_hours or 0) > 0 else ""
+            ),
             "branch": getattr(log, "company", "N/A")  # ginamit ko 'company' field para consistent
         })
 
     # --- Date range ---
-    if history:
-        start_date = history[-1].date.strftime('%B %Y')
-        end_date = history[0].date.strftime('%B %Y')
-        date_range = f"{start_date} – {end_date}"
-    else:
-        date_range = datetime.today().strftime('%B %Y')
+    date_range = f"{cutoff_start:%b %d, %Y} - {(cutoff_end - timedelta(days=1)):%b %d, %Y}"
 
     # --- DOWNLOAD HANDLING ---
     format = request.args.get("format")
@@ -2181,6 +2214,7 @@ def attendance(employee_id):
                            performance_score=performance_score,
                            motivation=motivation,
                            date_range=date_range,
+                           cutoff_start=cutoff_start,
                            months=list(range(1,13)),
                            years=[datetime.today().year, datetime.today().year-1, datetime.today().year-2])
 
@@ -3398,9 +3432,10 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             cutoff_end=cutoff_end - timedelta(days=1)
         ).first()
         loan = float(payroll_record.loan or 0) if payroll_record else 0.0
+        liability_deduction = liability_cutoff_deduction(emp.id)
         monthly_taxable_income = (gross_income * 4) - ((deductions['sss'] + deductions['philhealth'] + deductions['pagibig']) * 4)
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
-        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + withholding_tax
+        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + liability_deduction + withholding_tax
         rows.append({
             'employee': emp,
             'worked_days': len(attendance),
@@ -3409,6 +3444,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             'philhealth': deductions['philhealth'],
             'pagibig': deductions['pagibig'],
             'loan': loan,
+            'liability_deduction': liability_deduction,
             'withholding_tax': withholding_tax,
             'total_deductions': total_deductions,
             'net_pay': gross_income - total_deductions,
@@ -4837,6 +4873,13 @@ def bulk_finalize_payroll():
         if payroll_record is None:
             continue
         if not payroll_record.is_paid:
+            if not payroll_record.loan_deduction_applied:
+                employee = db.session.get(Employee, int(employee_id))
+                employee.loan_balance = max(
+                    float(employee.loan_balance or 0) - float(payroll_record.loan or 0),
+                    0,
+                )
+                payroll_record.loan_deduction_applied = True
             if not payroll_record.liability_deduction_applied:
                 apply_liability_deduction(int(employee_id), payroll_record.liability_deduction)
                 payroll_record.liability_deduction_applied = True
@@ -5046,39 +5089,16 @@ def payroll_dashboard():
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
         ot_records = [
-            attendance for attendance in Attendance.query.filter(
-                Attendance.employee_id == emp.id,
-                Attendance.clock_out != None,
-                Attendance.clock_in >= start_cutoff,
-                Attendance.clock_in < end_cutoff
-            ).all()
-            if (
-                attendance.is_weekday_ot or attendance.is_restday_ot or attendance.is_holiday_ot
-                or (
-                    attendance.clock_out
-                    and (
-                        attendance.clock_out.hour > 17
-                        or (attendance.clock_out.hour == 17 and attendance.clock_out.minute > 0)
-                    )
-                )
-            )
+            attendance for attendance in paid_attendance
+            if float(attendance.overtime_hours or 0) > 0
         ]
         ot_hours = sum(
             float(attendance.overtime_hours or 0)
-            if attendance.overtime_hours
-            else max((attendance.clock_out.hour - 17) + attendance.clock_out.minute / 60, 0)
             for attendance in ot_records
         )
         approved_ot_hours = sum(
-            hours for attendance, hours in [
-                (
-                    attendance,
-                    float(attendance.overtime_hours or 0)
-                    if attendance.overtime_hours
-                    else max((attendance.clock_out.hour - 17) + attendance.clock_out.minute / 60, 0)
-                )
-                for attendance in ot_records
-            ]
+            float(attendance.overtime_hours or 0)
+            for attendance in ot_records
             if attendance.ot_status == 'Approved'
         )
         approved_ot_pay = sum(

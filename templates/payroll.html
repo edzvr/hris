@@ -109,12 +109,12 @@
 </div>
 
 <div class="section">
-    <h3>6-Day Payslips {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
+    <h3>Saturday-to-Friday Payslips {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
     {% if current_user.role.lower() == 'staff' and latest_finalized_payslip %}
     <p>
         <strong>Latest finalized cutoff:</strong>
         {{ latest_finalized_payslip.cutoff_start }} to {{ latest_finalized_payslip.cutoff_end }}
-        <a class="btn" href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=latest_finalized_payslip.id) }}">Download Latest 6-Day Payslip</a>
+        <a class="btn" href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=latest_finalized_payslip.id) }}">Download Latest Payslip</a>
     </p>
     {% endif %}
     <table>
@@ -131,7 +131,7 @@
             <td>
                 {% if current_user.role.lower() == 'admin' or record.is_paid %}
                 <a href="{{ url_for('payslip', emp_id=emp.id, payroll_id=record.id) }}">View</a>
-                <a href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=record.id) }}">Download 6-Day PDF</a>
+                <a href="{{ url_for('download_payslip', emp_id=emp.id, payroll_id=record.id) }}">Download PDF</a>
                 {% else %}
                 Awaiting Admin finalization
                 {% endif %}
@@ -145,7 +145,7 @@
 
 <div class="section">
     <h3>Monthly Payslip Summary</h3>
-    <p>This is optional and separate from the 6-day cutoff payslip above.</p>
+    <p>This is optional and separate from the Saturday-to-Friday cutoff payslip above.</p>
     <form method="get" action="{{ url_for('monthly_payroll', employee_id=emp.id) }}">
         <label for="monthly-period">Monthly Summary:</label>
         <input id="monthly-period" type="month" name="month" required>
