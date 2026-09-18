@@ -2252,6 +2252,23 @@ def attendance(employee_id):
         month_start = datetime.today().date().replace(day=1)
     monthly_summary = monthly_attendance_summary(emp, month_start)
 
+    daily_date_value = request.args.get('attendance_date')
+    try:
+        selected_attendance_date = (
+            datetime.strptime(daily_date_value, '%Y-%m-%d').date()
+            if daily_date_value else None
+        )
+    except ValueError:
+        selected_attendance_date = None
+    daily_attendance_record = (
+        build_cutoff_attendance_rows(
+            emp,
+            selected_attendance_date,
+            selected_attendance_date + timedelta(days=1),
+        )[0]
+        if selected_attendance_date else None
+    )
+
     # --- Summary metrics ---
     dtr_records = build_cutoff_attendance_rows(emp, cutoff_start, cutoff_end)
     total_present = sum(record["status"] == "Present" for record in dtr_records)
@@ -2398,6 +2415,8 @@ def attendance(employee_id):
                            cutoff_start=cutoff_start,
                            month_start=month_start,
                            monthly_summary=monthly_summary,
+                           selected_attendance_date=selected_attendance_date,
+                           daily_attendance_record=daily_attendance_record,
                            months=list(range(1,13)),
                            years=[datetime.today().year, datetime.today().year-1, datetime.today().year-2])
 
@@ -3239,7 +3258,7 @@ def regular_day_pay(attendance, daily_rate):
     if attendance.date.weekday() == 6 and not is_trece_sunday:
         return 0.0
     if is_trece_sunday:
-        return prorated_daily_rate * 1.3
+        return daily_rate * 0.5 * 1.3
     return prorated_daily_rate
 
 

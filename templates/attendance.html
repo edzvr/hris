@@ -45,6 +45,28 @@
         </div>
     </form>
 
+    <form method="get" class="row g-3 mb-4">
+        <div class="col-md-6">
+            <label for="attendance-date" class="form-label">Daily Attendance</label>
+            <input type="date" id="attendance-date" name="attendance_date" value="{{ selected_attendance_date or '' }}" class="form-control" required>
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+            <button type="submit" class="btn btn-outline-secondary w-100">View Selected Day</button>
+        </div>
+    </form>
+
+    {% if daily_attendance_record %}
+    <div class="card mb-4">
+        <div class="card-header fw-bold">Daily Attendance: {{ daily_attendance_record.date }}</div>
+        <div class="card-body p-0">
+            <table class="table table-striped mb-0">
+                <thead><tr><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Hours</th><th>Undertime</th><th>OT</th></tr></thead>
+                <tbody><tr><td>{{ daily_attendance_record.clock_in }}</td><td>{{ daily_attendance_record.clock_out }}</td><td>{{ daily_attendance_record.status }}</td><td>{{ daily_attendance_record.hours|round(2) }}</td><td>{{ daily_attendance_record.undertime_hours|round(2) }}</td><td>{{ daily_attendance_record.ot or '—' }}</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Summary Cards -->
     <div class="row mb-4">
         <div class="col-md-3">

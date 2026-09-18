@@ -57,7 +57,7 @@ def test_trece_sunday_regular_shift_pays_half_day_rest_day_premium():
     attendance = SimpleNamespace(
         employee=SimpleNamespace(company="Trece-Uno"),
         date=date(2026, 9, 13),
-        hours=4,
+        hours=9,
     )
 
     with app.app_context(), patch("hris.Holiday.query") as holidays:
