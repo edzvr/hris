@@ -5172,6 +5172,11 @@ def holiday_ot_dashboard():
     if current_user.role.lower() != "admin":
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('login'))
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.values.get("cutoff_start"))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
 
     # --- Handle Approve/Reject actions ---
     if request.method == 'POST':
@@ -5191,7 +5196,7 @@ def holiday_ot_dashboard():
             db.session.commit()
             result = "approved" if action == "bulk_approve" else "rejected"
             flash(f"✅ {processed_count} overtime record(s) {result}.", "success")
-            return redirect(url_for('holiday_ot_dashboard'))
+            return redirect(url_for('holiday_ot_dashboard', cutoff_start=cutoff_start))
         if att_id and action:
             att = Attendance.query.get_or_404(att_id)
             if action == "approve":
@@ -5201,10 +5206,14 @@ def holiday_ot_dashboard():
                 att.ot_status = "Rejected"
                 flash(f"❌ Overtime #{att.id} rejected.", "danger")
             db.session.commit()
-            return redirect(url_for('holiday_ot_dashboard'))
+            return redirect(url_for('holiday_ot_dashboard', cutoff_start=cutoff_start))
 
     # --- Query lahat ng attendance na may OT OR lumabas beyond 6 PM ---
-    query = Attendance.query.filter(Attendance.clock_out != None)
+    query = Attendance.query.filter(
+        Attendance.clock_out != None,
+        Attendance.date >= cutoff_start,
+        Attendance.date < cutoff_end,
+    )
     records = [
         attendance for attendance in query.order_by(Attendance.date.desc()).all()
         if (
@@ -5231,6 +5240,10 @@ def holiday_ot_dashboard():
     ]
 
     applications = OTApplication.query.order_by(OTApplication.ot_date.desc()).all()
+    applications = OTApplication.query.filter(
+        OTApplication.ot_date >= cutoff_start,
+        OTApplication.ot_date < cutoff_end,
+    ).order_by(OTApplication.ot_date.desc()).all()
 
     # --- Optional filter by status ---
     filter_status = request.args.get("status")
@@ -5270,6 +5283,8 @@ def holiday_ot_dashboard():
                            applications=applications,
                            holidays=holidays,
                            filter_status=filter_status,
+                           cutoff_start=cutoff_start,
+                           cutoff_end=cutoff_end - timedelta(days=1),
                            time=time)
 
 

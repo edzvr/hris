@@ -33,13 +33,16 @@
         <!-- Filter dropdown -->
         <div class="filter">
             <form method="GET">
+                <label for="cutoff-start">Cutoff Start (Saturday):</label>
+                <input id="cutoff-start" type="date" name="cutoff_start" value="{{ cutoff_start }}" required>
                 <label for="status">Filter by Status:</label>
-                <select name="status" onchange="this.form.submit()">
+                <select id="status" name="status">
                     <option value="">All</option>
                     <option value="Pending" {% if filter_status == 'Pending' %}selected{% endif %}>Pending</option>
                     <option value="Approved" {% if filter_status == 'Approved' %}selected{% endif %}>Approved</option>
                     <option value="Rejected" {% if filter_status == 'Rejected' %}selected{% endif %}>Rejected</option>
                 </select>
+                <button type="submit" class="btn">Load Cutoff</button>
             </form>
         </div>
 
@@ -67,6 +70,7 @@
         </table>
 
         <form id="bulk-ot-approval-form" method="POST" style="margin: 16px 0 8px;">
+            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
             <label><input type="checkbox" id="select-all-overtime"> Select all pending OT</label>
             <button type="submit" name="action" value="bulk_approve" class="btn">Approve Selected</button>
             <button type="submit" name="action" value="bulk_reject" class="btn btn-reject">Reject Selected</button>
@@ -116,11 +120,13 @@
                         <form method="POST" style="display:inline;">
                             <input type="hidden" name="att_id" value="{{ att.id }}">
                             <input type="hidden" name="action" value="approve">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
                             <button type="submit" class="btn">Approve</button>
                         </form>
                         <form method="POST" style="display:inline;">
                             <input type="hidden" name="att_id" value="{{ att.id }}">
                             <input type="hidden" name="action" value="reject">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
                             <button type="submit" class="btn btn-reject">Reject</button>
                         </form>
                     {% else %}
@@ -133,7 +139,7 @@
         </div>
         <br>
         <!-- Export button -->
-        <a href="{{ url_for('holiday_ot_dashboard', export='csv') }}" class="btn">⬇ Export CSV</a>
+        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, export='csv') }}" class="btn">⬇ Export CSV</a>
         <!-- Back to Admin Dashboard -->
         <div style="text-align:center;">
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>
