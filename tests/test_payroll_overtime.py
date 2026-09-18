@@ -2,7 +2,7 @@ from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from hris import app, apply_overtime_details, regular_day_pay
+from hris import app, apply_overtime_details, payroll_attendance_records, regular_day_pay
 
 
 def test_trece_sunday_does_not_create_automatic_overtime():
@@ -65,3 +65,27 @@ def test_trece_sunday_regular_shift_pays_half_day_rest_day_premium():
         pay = regular_day_pay(attendance, 695)
 
     assert pay == 451.75
+
+
+def test_payroll_counts_only_one_completed_attendance_per_date():
+    earlier_record = SimpleNamespace(id=1, date=date(2026, 9, 12))
+    later_record = SimpleNamespace(id=2, date=date(2026, 9, 12))
+    employee = SimpleNamespace(id=1, company='Auto Expert')
+
+    with app.app_context(), patch("hris.Attendance.query") as attendance_query:
+        attendance_query.filter.return_value.order_by.return_value.all.return_value = [later_record, earlier_record]
+        records = payroll_attendance_records(employee, date(2026, 9, 12), date(2026, 9, 19))
+
+    assert records == [later_record]
+
+
+def test_auto_expert_sunday_attendance_is_not_paid_in_payroll():
+    saturday_record = SimpleNamespace(id=1, date=date(2026, 9, 12))
+    sunday_record = SimpleNamespace(id=2, date=date(2026, 9, 13))
+    employee = SimpleNamespace(id=1, company='Auto Expert')
+
+    with app.app_context(), patch("hris.Attendance.query") as attendance_query:
+        attendance_query.filter.return_value.order_by.return_value.all.return_value = [sunday_record, saturday_record]
+        records = payroll_attendance_records(employee, date(2026, 9, 12), date(2026, 9, 19))
+
+    assert records == [saturday_record]

@@ -3303,6 +3303,24 @@ def payroll_cutoff_from_request(value=None):
     return completed_cutoff()
 
 
+def payroll_attendance_records(employee, cutoff_start, cutoff_end):
+    records = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.clock_out != None,
+        Attendance.clock_in >= datetime.combine(cutoff_start, time.min),
+        Attendance.clock_in < datetime.combine(cutoff_end, time.min),
+    ).order_by(Attendance.clock_out.desc()).all()
+    records_by_date = {}
+    for record in records:
+        if (
+            record.date.weekday() == 6
+            and not str(employee.company or '').lower().startswith('trece')
+        ):
+            continue
+        records_by_date.setdefault(record.date, record)
+    return list(records_by_date.values())
+
+
 def payroll_company_name(employee):
     if str(employee.company or '').lower().startswith('trece'):
         return 'TRECE-UNO AUTO SUPPLY'
@@ -3619,12 +3637,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
     ).all()
     rows = []
     for emp in employees:
-        attendance = Attendance.query.filter(
-            Attendance.employee_id == emp.id,
-            Attendance.clock_out != None,
-            Attendance.clock_in >= datetime.combine(cutoff_start, time.min),
-            Attendance.clock_in < datetime.combine(cutoff_end, time.min)
-        ).all()
+        attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(record, daily_rate) for record in attendance)
         overtime_pay = sum(
@@ -4783,12 +4796,7 @@ def payroll(employee_id):
         return redirect(url_for('payroll', employee_id=employee_id))
 
     # Compute payroll
-    paid_attendance = Attendance.query.filter(
-        Attendance.employee_id == employee_id,
-        Attendance.clock_out != None,
-        Attendance.clock_in >= start_cutoff,
-        Attendance.clock_in < end_cutoff
-    ).all()
+    paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
     worked_days_count = len(paid_attendance)
 
     approved_overtime_hours = db.session.query(
@@ -5337,12 +5345,7 @@ def payroll_dashboard():
     }
 
     for emp in employees:
-        paid_attendance = Attendance.query.filter(
-            Attendance.employee_id == emp.id,
-            Attendance.clock_out != None,
-            Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in < end_cutoff
-        ).all()
+        paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
         worked_days_count = len(paid_attendance)
 
         daily_rate = float(emp.daily_rate or 0)
