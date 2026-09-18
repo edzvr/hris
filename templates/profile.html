@@ -160,12 +160,26 @@
 
     <div id="attendance" class="tab-content">
         <h2>Attendance</h2>
+        <form method="get" action="{{ url_for('profile', user_id=emp.id) }}#attendance" class="form-grid" style="margin-bottom:16px;">
+            <label class="form-field">Cutoff Start (Saturday)<input type="date" name="cutoff_start" value="{{ cutoff_start }}" required></label>
+            <div class="form-field"><span>Cutoff End</span><strong>{{ cutoff_end }}</strong><button type="submit" class="btn" style="margin-top:0;">Load Cutoff</button></div>
+        </form>
+        <form method="get" action="{{ url_for('profile', user_id=emp.id) }}#attendance" class="form-grid" style="margin-bottom:16px;">
+            <label class="form-field">Monthly Attendance KPI<input type="month" name="month" value="{{ attendance_month.strftime('%Y-%m') }}" required></label>
+            <div class="form-field"><span>Monthly Report</span><strong>{{ attendance_month.strftime('%B %Y') }}</strong><button type="submit" class="btn" style="margin-top:0;">Load Monthly KPI</button></div>
+        </form>
+        <div style="margin-bottom:16px; max-width:720px;"><canvas id="profileAttendanceChart" height="120"></canvas></div>
+        <p>
+            Present: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Present')|list|length }}</strong>
+            | Late: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Late')|list|length }}</strong>
+            | Absent: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Absent')|list|length }}</strong>
+        </p>
         <table>
-            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>OT</th></tr></thead>
             <tbody>
-            {% for record in emp.attendances|sort(attribute='date', reverse=true) %}
-                <tr><td>{{ record.date }}</td><td>{{ record.clock_in or 'N/A' }}</td><td>{{ record.clock_out or 'N/A' }}</td><td>{{ '%.2f'|format(record.hours or 0) }}</td><td>{{ record.status or 'N/A' }}</td></tr>
-            {% else %}<tr><td colspan="5">No attendance records found.</td></tr>{% endfor %}
+            {% for record in profile_attendance_records %}
+                <tr><td>{{ record.date }}</td><td>{{ record.clock_in }}</td><td>{{ record.clock_out }}</td><td>{{ '%.2f'|format(record.hours) }}</td><td>{{ record.status }}</td><td>{{ record.ot or '—' }}</td></tr>
+            {% else %}<tr><td colspan="6">No attendance records found.</td></tr>{% endfor %}
             </tbody>
         </table>
     </div>
@@ -190,6 +204,7 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     function showTab(tabId) {
         document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
@@ -207,6 +222,21 @@
         form.style.display = editing ? 'none' : 'block';
         view.style.display = editing ? 'grid' : 'none';
     }
+
+    if (window.location.hash === '#attendance') showTab('attendance');
+
+    new Chart(document.getElementById('profileAttendanceChart'), {
+        type: 'bar',
+        data: {
+            labels: ['Present', 'Late', 'Half-day', 'Absent', 'No In/Out'],
+            datasets: [{
+                label: 'Days',
+                data: [{{ profile_monthly_summary.present }}, {{ profile_monthly_summary.late }}, {{ profile_monthly_summary.half_day }}, {{ profile_monthly_summary.absent }}, {{ profile_monthly_summary.incomplete }}],
+                backgroundColor: ['#198754', '#f0ad4e', '#0d6efd', '#dc3545', '#6c757d']
+            }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
 </script>
 </body>
 </html>

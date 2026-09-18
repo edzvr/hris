@@ -1473,6 +1473,80 @@ def register():
 
 
 # ------------------ PROFILE (SELF / ADMIN) ------------------
+def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
+    history = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date >= cutoff_start,
+        Attendance.date < cutoff_end,
+    ).order_by(Attendance.date.asc()).all()
+    attendance_by_date = {log.date: log for log in history}
+    rows = []
+    for offset in range((cutoff_end - cutoff_start).days):
+        record_date = cutoff_start + timedelta(days=offset)
+        log = attendance_by_date.get(record_date)
+        is_rest_day = (
+            record_date.weekday() == 6
+            and not str(employee.company or '').lower().startswith('trece')
+        )
+        if log is None:
+            rows.append({
+                "date": record_date.strftime('%Y-%m-%d'),
+                "clock_in": "N/A",
+                "clock_out": "N/A",
+                "status": "Rest Day" if is_rest_day else "Absent",
+                "hours": 0,
+                "undertime_hours": 0,
+                "ot": "",
+                "branch": "N/A",
+            })
+            continue
+        expected_end = time(12, 0) if (
+            log.date.weekday() == 6
+            and str(employee.company or '').lower().startswith('trece')
+        ) else time(17, 0)
+        hours_worked = (
+            (log.clock_out - log.clock_in).total_seconds() / 3600
+            if log.clock_in and log.clock_out else 0
+        )
+        attendance_status = (
+            "No In / No Out" if not log.clock_in and not log.clock_out
+            else "No In" if not log.clock_in
+            else "No Out" if not log.clock_out
+            else f"{log.status} / Half-day" if log.status == "Late" and hours_worked < 4
+            else "Half-day" if hours_worked < 4
+            else log.status
+        )
+        rows.append({
+            "date": log.date.strftime('%Y-%m-%d'),
+            "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
+            "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
+            "status": attendance_status,
+            "hours": hours_worked,
+            "undertime_hours": max(
+                (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
+                0,
+            ) if log.clock_out else 0,
+            "ot": (
+                f"{log.ot_status} ({float(log.overtime_hours or 0):.2f} h)"
+                if float(log.overtime_hours or 0) > 0 else ""
+            ),
+            "branch": getattr(log, "company", "N/A"),
+        })
+    return rows
+
+
+def monthly_attendance_summary(employee, month_start):
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    rows = build_cutoff_attendance_rows(employee, month_start, month_end)
+    return {
+        "present": sum(row["status"] == "Present" for row in rows),
+        "late": sum("Late" in row["status"] for row in rows),
+        "half_day": sum("Half-day" in row["status"] for row in rows),
+        "absent": sum(row["status"] == "Absent" for row in rows),
+        "incomplete": sum(row["status"].startswith("No ") for row in rows),
+    }
+
+
 @app.route('/profile/<int:user_id>', methods=['GET', 'POST'])
 @login_required
 def profile(user_id):
@@ -1538,10 +1612,28 @@ def profile(user_id):
         else:
             flash("❌ You cannot edit another user's profile unless you're admin.", "danger")
 
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('profile', user_id=user_id))
+    profile_attendance_records = build_cutoff_attendance_rows(emp, cutoff_start, cutoff_end)
+    month_value = request.args.get('month')
+    try:
+        attendance_month = datetime.strptime(month_value, '%Y-%m').date() if month_value else datetime.today().date().replace(day=1)
+    except ValueError:
+        attendance_month = datetime.today().date().replace(day=1)
+    profile_monthly_summary = monthly_attendance_summary(emp, attendance_month)
+
     return render_template(
         "profile.html",
         emp=emp,
         viewer=current_user,
+        cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1),
+        profile_attendance_records=profile_attendance_records,
+        attendance_month=attendance_month,
+        profile_monthly_summary=profile_monthly_summary,
         bulletins=Bulletin.query.order_by(Bulletin.created_at.desc()).limit(10).all()
     )
 
@@ -2021,11 +2113,19 @@ def attendance(employee_id):
         Attendance.date < cutoff_end,
     ).order_by(Attendance.date.asc()).all()
 
+    month_value = request.args.get("month")
+    try:
+        month_start = datetime.strptime(month_value, "%Y-%m").date() if month_value else datetime.today().date().replace(day=1)
+    except ValueError:
+        month_start = datetime.today().date().replace(day=1)
+    monthly_summary = monthly_attendance_summary(emp, month_start)
+
     # --- Summary metrics ---
-    total_present = sum(1 for log in history if log.status == "Present")
-    total_late = sum(1 for log in history if log.status == "Late")
-    total_absent = sum(1 for log in history if log.status == "Absent")
-    total_days = len(history)
+    dtr_records = build_cutoff_attendance_rows(emp, cutoff_start, cutoff_end)
+    total_present = sum(record["status"] == "Present" for record in dtr_records)
+    total_late = sum("Late" in record["status"] for record in dtr_records)
+    total_absent = sum(record["status"] == "Absent" for record in dtr_records)
+    total_days = sum(record["status"] != "Rest Day" for record in dtr_records)
 
     total_hours = sum(((log.clock_out - log.clock_in).seconds / 3600)
                       for log in history if log.clock_in and log.clock_out)
@@ -2057,57 +2157,6 @@ def attendance(employee_id):
         motivation = "⚠️ Needs improvement. Focus on being on time and completing full shifts."
     else:
         motivation = "❌ Attendance is affecting performance. Let's work on discipline and consistency."
-
-    # --- DTR Records ---
-    attendance_by_date = {log.date: log for log in history}
-    dtr_records = []
-    for offset in range((cutoff_end - cutoff_start).days):
-        record_date = cutoff_start + timedelta(days=offset)
-        log = attendance_by_date.get(record_date)
-        is_rest_day = (
-            record_date.weekday() == 6
-            and not str(emp.company or '').lower().startswith('trece')
-        )
-        if log is None:
-            dtr_records.append({
-                "date": record_date.strftime('%Y-%m-%d'),
-                "clock_in": "N/A",
-                "clock_out": "N/A",
-                "status": "Rest Day" if is_rest_day else "Absent",
-                "hours": 0,
-                "undertime_hours": 0,
-                "ot": "",
-                "branch": "N/A",
-            })
-            continue
-        hours_worked = (log.clock_out - log.clock_in).total_seconds() / 3600 if log.clock_in and log.clock_out else 0
-        expected_end = time(12, 0) if (
-            log.date.weekday() == 6
-            and str(emp.company or '').lower().startswith('trece')
-        ) else time(17, 0)
-        undertime_hours = max(
-            (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
-            0,
-        ) if log.clock_out else 0
-        missing_clock_status = (
-            "No In / No Out" if not log.clock_in and not log.clock_out
-            else "No In" if not log.clock_in
-            else "No Out" if not log.clock_out
-            else log.status
-        )
-        dtr_records.append({
-            "date": log.date.strftime('%Y-%m-%d'),
-            "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
-            "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
-            "status": missing_clock_status,
-            "hours": hours_worked,
-            "undertime_hours": undertime_hours,
-            "ot": (
-                f"{log.ot_status} ({float(log.overtime_hours or 0):.2f} h)"
-                if float(log.overtime_hours or 0) > 0 else ""
-            ),
-            "branch": getattr(log, "company", "N/A")  # ginamit ko 'company' field para consistent
-        })
 
     # --- Date range ---
     date_range = f"{cutoff_start:%b %d, %Y} - {(cutoff_end - timedelta(days=1)):%b %d, %Y}"
@@ -2215,6 +2264,8 @@ def attendance(employee_id):
                            motivation=motivation,
                            date_range=date_range,
                            cutoff_start=cutoff_start,
+                           month_start=month_start,
+                           monthly_summary=monthly_summary,
                            months=list(range(1,13)),
                            years=[datetime.today().year, datetime.today().year-1, datetime.today().year-2])
 
