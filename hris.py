@@ -3239,7 +3239,7 @@ def regular_day_pay(attendance, daily_rate):
     if attendance.date.weekday() == 6 and not is_trece_sunday:
         return 0.0
     if is_trece_sunday:
-        return prorated_daily_rate * 0.5
+        return prorated_daily_rate
     return prorated_daily_rate
 
 

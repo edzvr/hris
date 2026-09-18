@@ -2,7 +2,7 @@ from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from hris import app, apply_overtime_details
+from hris import app, apply_overtime_details, regular_day_pay
 
 
 def test_manual_approval_calculates_trece_sunday_overtime():
@@ -51,3 +51,17 @@ def test_weekday_overtime_requires_six_pm_clock_out():
     assert attendance.overtime_hours == 0
     assert attendance.is_weekday_ot is False
     assert attendance.ot_status is None
+
+
+def test_trece_sunday_regular_shift_pays_half_daily_rate():
+    attendance = SimpleNamespace(
+        employee=SimpleNamespace(company="Trece-Uno"),
+        date=date(2026, 9, 13),
+        hours=4,
+    )
+
+    with app.app_context(), patch("hris.Holiday.query") as holidays:
+        holidays.filter_by.return_value.first.return_value = None
+        pay = regular_day_pay(attendance, 800)
+
+    assert pay == 400
