@@ -5,7 +5,7 @@ from unittest.mock import patch
 from hris import app, apply_overtime_details, regular_day_pay
 
 
-def test_manual_approval_calculates_trece_sunday_overtime():
+def test_trece_sunday_does_not_create_automatic_overtime():
     attendance = SimpleNamespace(
         employee_id=1,
         employee=SimpleNamespace(company="Trece-Uno"),
@@ -24,9 +24,9 @@ def test_manual_approval_calculates_trece_sunday_overtime():
         holidays.filter_by.return_value.first.return_value = None
         apply_overtime_details(attendance, force_approved=True)
 
-    assert attendance.overtime_hours == 3.5
-    assert attendance.is_weekday_ot is True
-    assert attendance.ot_status == "Approved"
+    assert attendance.overtime_hours == 0
+    assert attendance.is_weekday_ot is False
+    assert attendance.ot_status is None
 
 
 def test_weekday_overtime_requires_six_pm_clock_out():
@@ -53,7 +53,7 @@ def test_weekday_overtime_requires_six_pm_clock_out():
     assert attendance.ot_status is None
 
 
-def test_trece_sunday_regular_shift_pays_half_daily_rate():
+def test_trece_sunday_regular_shift_pays_half_day_rest_day_premium():
     attendance = SimpleNamespace(
         employee=SimpleNamespace(company="Trece-Uno"),
         date=date(2026, 9, 13),
@@ -62,6 +62,6 @@ def test_trece_sunday_regular_shift_pays_half_daily_rate():
 
     with app.app_context(), patch("hris.Holiday.query") as holidays:
         holidays.filter_by.return_value.first.return_value = None
-        pay = regular_day_pay(attendance, 800)
+        pay = regular_day_pay(attendance, 695)
 
-    assert pay == 400
+    assert pay == 451.75

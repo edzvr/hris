@@ -3140,7 +3140,7 @@ def apply_overtime_details(attendance, force_approved=False):
     is_regular_weekday = attendance.date.weekday() != 6 and not holiday
     overtime_start = datetime.combine(
         attendance.date,
-        time(12, 0) if is_trece_sunday else time(18, 0) if is_regular_weekday else time(17, 0)
+        time(18, 0) if is_regular_weekday else time(17, 0)
     )
     attendance.overtime_hours = round(
         max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
@@ -3239,7 +3239,7 @@ def regular_day_pay(attendance, daily_rate):
     if attendance.date.weekday() == 6 and not is_trece_sunday:
         return 0.0
     if is_trece_sunday:
-        return prorated_daily_rate
+        return prorated_daily_rate * 1.3
     return prorated_daily_rate
 
 
