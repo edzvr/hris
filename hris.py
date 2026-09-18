@@ -704,8 +704,28 @@ def ensure_payroll_columns():
         statements.append("ALTER TABLE payrolls ADD COLUMN loan_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
     if "liability_deduction" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction FLOAT DEFAULT 0")
+    if "sss_override" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN sss_override FLOAT")
+    if "philhealth_override" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN philhealth_override FLOAT")
+    if "pagibig_override" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN pagibig_override FLOAT")
     if "liability_deduction_applied" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
+    for statement in statements:
+        db.session.execute(text(statement))
+    db.session.commit()
+
+
+def ensure_biometric_access_columns():
+    employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    statements = []
+    if "biometric_id" not in employee_columns:
+        statements.append("ALTER TABLE employees ADD COLUMN biometric_id VARCHAR(50)")
+    if "payroll_preparation_access" not in employee_columns:
+        statements.append(
+            "ALTER TABLE employees ADD COLUMN payroll_preparation_access BOOLEAN NOT NULL DEFAULT FALSE"
+        )
     for statement in statements:
         db.session.execute(text(statement))
     db.session.commit()
@@ -974,6 +994,7 @@ with app.app_context():
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
+    ensure_biometric_access_columns()
     ensure_employee_liability_schema()
     ensure_hr_document_schema()
     ensure_staff_concern_schema()
