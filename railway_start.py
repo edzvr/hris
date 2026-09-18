@@ -6,6 +6,8 @@ from sqlalchemy import inspect, text
 
 from hris import app, db
 
+CURRENT_SCHEMA_BASELINE = 'b2c3d4e5f6a7'
+
 
 def run_flask_db(*arguments):
     subprocess.run(
@@ -16,17 +18,17 @@ def run_flask_db(*arguments):
 
 with app.app_context():
     inspector = inspect(db.engine)
-    needs_baseline = not inspector.has_table('hris_alembic_baseline')
+    current_revision = None
+    if inspector.has_table('alembic_version'):
+        current_revision = db.session.execute(
+            text('SELECT version_num FROM alembic_version')
+        ).scalar()
+    needs_baseline = current_revision != CURRENT_SCHEMA_BASELINE
 
 if needs_baseline:
     # Existing Railway tables were created by db.create_all before Alembic was enabled.
     # They already contain the current schema, so do not replay historical migrations.
-    run_flask_db('stamp', 'head')
-    with app.app_context():
-        db.session.execute(text(
-            'CREATE TABLE hris_alembic_baseline (id INTEGER PRIMARY KEY)'
-        ))
-        db.session.commit()
+    run_flask_db('stamp', CURRENT_SCHEMA_BASELINE)
 
 run_flask_db('upgrade')
 os.execvp(
