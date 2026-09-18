@@ -39,6 +39,7 @@ class Employee(db.Model, UserMixin):
     bank_name = db.Column(db.String(100), nullable=True)
     bank_account_name = db.Column(db.String(150), nullable=True)
     bank_account_number = db.Column(db.String(100), nullable=True)
+    biometric_id = db.Column(db.String(50), nullable=True, unique=True)
     emergency_person = db.Column(db.String(100))
     emergency_contact = db.Column(db.String(100))
     emergency_address = db.Column(db.String(200))
@@ -58,6 +59,7 @@ class Employee(db.Model, UserMixin):
     incentives = db.Column(db.Float, default=0.0)
     loan_balance = db.Column(db.Float, default=0.0)
     sl_credits = db.Column(db.Integer, default=5)
+    payroll_preparation_access = db.Column(db.Boolean, nullable=False, default=False)
 
     # Relationships
     attendances = db.relationship("Attendance", back_populates="employee", lazy=True)
@@ -350,6 +352,9 @@ class Payroll(db.Model):
     sss = db.Column(db.Float, default=0.0)
     philhealth = db.Column(db.Float, default=0.0)
     pagibig = db.Column(db.Float, default=0.0)
+    sss_override = db.Column(db.Float, nullable=True)
+    philhealth_override = db.Column(db.Float, nullable=True)
+    pagibig_override = db.Column(db.Float, nullable=True)
     withholding_tax = db.Column(db.Float, default=0.0)
     loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)

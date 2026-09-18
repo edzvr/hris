@@ -147,9 +147,9 @@
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>
                     <td>₱{{ p.gross_income|currency }}</td>
-                    <td>₱{{ p.sss|currency }}</td>
-                    <td>₱{{ p.philhealth|currency }}</td>
-                    <td>₱{{ p.pagibig|currency }}</td>
+                    <td><input type="number" min="0" step="0.01" name="sss_{{ p.emp.id }}" value="{{ p.sss|round(2) }}"></td>
+                    <td><input type="number" min="0" step="0.01" name="philhealth_{{ p.emp.id }}" value="{{ p.philhealth|round(2) }}"></td>
+                    <td><input type="number" min="0" step="0.01" name="pagibig_{{ p.emp.id }}" value="{{ p.pagibig|round(2) }}"></td>
                     <td>₱{{ p.withholding_tax|currency }}</td>
                     <td>₱{{ p.liability_deduction|currency }}</td>
                     <td>₱{{ p.deductions|currency }}</td>

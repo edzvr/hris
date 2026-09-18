@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ company }} Payroll Summary</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 24px; color: #1d2b36; }
+        table { border-collapse: collapse; width: 100%; margin-top: 18px; }
+        th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: center; }
+        th { background: #2879ad; color: white; }
+        h1 { margin-bottom: 4px; }
+        .header-line { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; flex-wrap: wrap; }
+        .muted { color: #475569; }
+    </style>
+</head>
+<body>
+    <div class="header-line">
+        <div>
+            <h1>{{ company.upper() }} PAYROLL SUMMARY</h1>
+            <div class="muted">Cutoff: {{ cutoff_start }} to {{ cutoff_end }}</div>
+        </div>
+        <div class="muted">Address: Trece Martires Cavite, Philippines<br>Prepared by: Admin</div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Days</th>
+                <th>Gross</th>
+                <th>SSS</th>
+                <th>PhilHealth</th>
+                <th>Pag-IBIG</th>
+                <th>Tax</th>
+                <th>Loan</th>
+                <th>Deductions</th>
+                <th>Net Pay</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.employee.full_name() }}</td>
+                <td>{{ row.worked_days }}</td>
+                <td>₱{{ row.gross_income|currency }}</td>
+                <td>₱{{ row.sss|currency }}</td>
+                <td>₱{{ row.philhealth|currency }}</td>
+                <td>₱{{ row.pagibig|currency }}</td>
+                <td>₱{{ row.withholding_tax|currency }}</td>
+                <td>₱{{ row.loan|currency }}</td>
+                <td>₱{{ row.total_deductions|currency }}</td>
+                <td>₱{{ row.net_pay|currency }}</td>
+                <td>{{ 'PAID' if row.payroll_record and row.payroll_record.is_paid else 'UNPAID' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

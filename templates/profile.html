@@ -119,6 +119,8 @@
                 <label class="form-field">Bank Name<input type="text" name="bank_name" value="{{ emp.bank_name or '' }}"></label>
                 <label class="form-field">Bank Account Name<input type="text" name="bank_account_name" value="{{ emp.bank_account_name or '' }}"></label>
                 <label class="form-field">Bank Account Number<input type="text" name="bank_account_number" value="{{ emp.bank_account_number or '' }}"></label>
+                <label class="form-field">Biometric ID<input type="text" name="biometric_id" value="{{ emp.biometric_id or '' }}"></label>
+                <label class="form-field"><span>Payroll Preparation Access</span><input type="checkbox" name="payroll_preparation_access" value="1" {% if emp.payroll_preparation_access %}checked{% endif %}></label>
                 {% endif %}
                 <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>

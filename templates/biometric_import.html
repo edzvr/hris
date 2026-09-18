@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QC Biometric Import</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #263238; }
+        main { max-width: 1200px; margin: auto; }
+        .panel { background: #f8faf9; border: 1px solid #d8e0dc; padding: 20px; margin-bottom: 18px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+        th, td { border: 1px solid #d8e0dc; padding: 9px; text-align: left; }
+        th { background: #2879ad; color: #fff; }
+        .btn { padding: 10px 14px; background: #2879ad; color: #fff; border: 0; cursor: pointer; text-decoration: none; }
+        .ready { color: #18794e; font-weight: 700; } .problem { color: #b42318; font-weight: 700; }
+    </style>
+</head>
+<body><main>
+    <section class="panel">
+        <h1>Biometric Attendance Import</h1>
+        <p>Upload one NGTeco Timecard Report CSV for all staff. The system matches each row using the Biometric ID, skips duplicates and unmatched IDs, and excludes the 12:00 PM to 1:00 PM lunch break from worked hours.</p>
+        <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="preview">
+            <input type="file" name="biometric_file" accept=".csv" required>
+            <button class="btn" type="submit">Preview Import</button>
+        </form>
+    </section>
+    {% if preview_rows %}
+    <section class="panel">
+        <h2>Import Preview</h2>
+        <table><thead><tr><th>Biometric ID</th><th>Device Name</th><th>HRIS Employee</th><th>Date</th><th>IN</th><th>OUT</th><th>Result</th></tr></thead><tbody>
+        {% for row in preview_rows %}<tr><td>{{ row.biometric_id }}</td><td>{{ row.employee_name }}</td><td>{{ row.employee }}</td><td>{{ row.date }}</td><td>{{ row.clock_in or 'Missing' }}</td><td>{{ row.clock_out or 'Missing' }}</td><td class="{{ 'ready' if row.status == 'Ready' else 'problem' }}">{{ row.status }}</td></tr>{% endfor %}
+        </tbody></table>
+        <form method="post" style="margin-top:16px;"><input type="hidden" name="action" value="import"><button class="btn" type="submit">Import Ready Records</button></form>
+    </section>{% endif %}
+    <a href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a>
+</main></body></html>

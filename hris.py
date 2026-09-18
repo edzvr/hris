@@ -1,5 +1,5 @@
 # ------------------ HRIS MAIN APP ------------------
-import os, random, logging, re, hashlib
+import os, random, logging, re, hashlib, csv
 import secrets
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
@@ -1580,6 +1580,8 @@ def profile(user_id):
                 emp.bank_name = request.form.get('bank_name') or None
                 emp.bank_account_name = request.form.get('bank_account_name') or None
                 emp.bank_account_number = request.form.get('bank_account_number') or None
+                emp.biometric_id = request.form.get('biometric_id', '').strip() or None
+                emp.payroll_preparation_access = request.form.get('payroll_preparation_access') == '1'
                 probation_end_date = request.form.get('probation_end_date')
                 regularization_date = request.form.get('regularization_date')
                 emp.probation_end_date = datetime.strptime(probation_end_date, '%Y-%m-%d').date() if probation_end_date else None
@@ -1636,6 +1638,115 @@ def profile(user_id):
         profile_monthly_summary=profile_monthly_summary,
         bulletins=Bulletin.query.order_by(Bulletin.created_at.desc()).limit(10).all()
     )
+
+
+def parse_ngteco_timecard(upload):
+    lines = upload.stream.read().decode('utf-8-sig', errors='replace').splitlines()
+    rows = []
+    biometric_match = None
+    employee_name = None
+    for raw_line in lines:
+        values = next(csv.reader([raw_line]))
+        values = [value.strip() for value in values]
+        if values and values[0] == 'Employee':
+            employee_match = re.search(r'^(.*?)\s*\(([^)]+)\)\s*$', values[3] if len(values) > 3 else '')
+            employee_name = employee_match.group(1).strip() if employee_match else None
+            biometric_match = employee_match.group(2).strip() if employee_match else None
+            continue
+        if not biometric_match or len(values) < 5 or not re.fullmatch(r'\d{8}', values[1] if len(values) > 1 else ''):
+            continue
+        try:
+            record_date = datetime.strptime(values[1], '%Y%m%d').date()
+            clock_in = datetime.strptime(f'{values[1]} {values[2]}', '%Y%m%d %I:%M %p') if values[2] else None
+            clock_out = datetime.strptime(f'{values[1]} {values[3]}', '%Y%m%d %I:%M %p') if values[3] else None
+        except ValueError:
+            continue
+        rows.append({
+            'biometric_id': biometric_match,
+            'employee_name': employee_name,
+            'date': record_date.isoformat(),
+            'clock_in': clock_in.isoformat() if clock_in else None,
+            'clock_out': clock_out.isoformat() if clock_out else None,
+            'note': values[6] if len(values) > 6 else '',
+        })
+    return rows
+
+
+def biometric_work_hours(clock_in, clock_out):
+    if not clock_in or not clock_out:
+        return None
+    lunch_start = datetime.combine(clock_in.date(), time(12, 0))
+    lunch_end = datetime.combine(clock_in.date(), time(13, 0))
+    lunch_overlap = max(
+        min(clock_out, lunch_end) - max(clock_in, lunch_start),
+        timedelta(),
+    )
+    return round(max((clock_out - clock_in - lunch_overlap).total_seconds(), 0) / 3600, 2)
+
+
+def can_prepare_payroll(user):
+    return (
+        'admin' in str(user.role or '').lower()
+        or bool(user.payroll_preparation_access)
+    )
+
+
+@app.route('/admin/biometric-import', methods=['GET', 'POST'])
+@login_required
+def biometric_import():
+    if not can_prepare_payroll(current_user):
+        return 'Access denied', 403
+    preview_rows = session.get('biometric_import_rows', [])
+    if request.method == 'POST' and request.form.get('action') == 'preview':
+        upload = request.files.get('biometric_file')
+        if not upload or not upload.filename.lower().endswith('.csv'):
+            flash('Upload an NGTeco CSV timecard report.', 'danger')
+            return redirect(url_for('biometric_import'))
+        parsed_rows = parse_ngteco_timecard(upload)
+        if not parsed_rows:
+            flash('No NGTeco attendance rows were found in the uploaded file.', 'danger')
+            return redirect(url_for('biometric_import'))
+        biometric_ids = {row['biometric_id'] for row in parsed_rows}
+        employees = Employee.query.filter(
+            Employee.biometric_id.in_(biometric_ids),
+        ).all()
+        employees_by_biometric_id = {employee.biometric_id: employee for employee in employees}
+        for row in parsed_rows:
+            employee = employees_by_biometric_id.get(row['biometric_id'])
+            row['employee_id'] = employee.id if employee else None
+            row['employee'] = employee.full_name() if employee else 'Unmatched biometric ID'
+            row['status'] = (
+                'Unmatched' if employee is None
+                else 'Duplicate' if Attendance.query.filter_by(employee_id=employee.id, date=date.fromisoformat(row['date'])).first()
+                else 'Ready'
+            )
+        session['biometric_import_rows'] = parsed_rows
+        preview_rows = parsed_rows
+    elif request.method == 'POST' and request.form.get('action') == 'import':
+        imported = 0
+        for row in preview_rows:
+            if row['status'] != 'Ready':
+                continue
+            clock_in = datetime.fromisoformat(row['clock_in']) if row['clock_in'] else None
+            clock_out = datetime.fromisoformat(row['clock_out']) if row['clock_out'] else None
+            attendance = Attendance(
+                employee_id=row['employee_id'],
+                date=date.fromisoformat(row['date']),
+                clock_in=clock_in,
+                clock_out=clock_out,
+                status=attendance_status(clock_in) if clock_in else 'No In / No Out',
+                hours=biometric_work_hours(clock_in, clock_out),
+                company='Auto Expert',
+            )
+            if clock_out:
+                apply_overtime_details(attendance)
+            db.session.add(attendance)
+            imported += 1
+        db.session.commit()
+        session.pop('biometric_import_rows', None)
+        flash(f'{imported} biometric attendance record(s) imported. Unmatched and duplicate rows were skipped.', 'success')
+        return redirect(url_for('biometric_import'))
+    return render_template('biometric_import.html', preview_rows=preview_rows)
 
 
 @app.route('/profile/<int:user_id>/resume')
@@ -3118,6 +3229,16 @@ def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
     return min(balance, requested)
 
 
+def payroll_statutory_deductions(payroll_record, calculated_deductions):
+    """Use saved admin overrides when present; otherwise use the calculated amount."""
+    if payroll_record is None:
+        return calculated_deductions
+    return {
+        key: float(getattr(payroll_record, f'{key}_override') or calculated_deductions[key])
+        for key in ('sss', 'philhealth', 'pagibig')
+    }
+
+
 def completed_cutoff(today=None):
     """Return the available Saturday-through-Friday payroll cutoff."""
     current_time = (
@@ -4066,7 +4187,7 @@ def verify_payslip(verification_id):
 @app.route('/payroll/summary')
 @login_required
 def payroll_summary():
-    if 'admin' not in current_user.role.lower():
+    if not can_prepare_payroll(current_user):
         return 'Access denied', 403
     company = request.args.get('company', 'Trece-Uno')
     if company not in {'Trece-Uno', 'Auto Expert'}:
@@ -4656,9 +4777,6 @@ def payroll(employee_id):
         if cutoff_salary > 0
         else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
     )
-    sss = deductions["sss"]
-    philhealth = deductions["philhealth"]
-    pagibig = deductions["pagibig"]
 
     finalize = request.args.get("finalize") == "true"
     payroll_record = Payroll.query.filter_by(
@@ -4666,6 +4784,10 @@ def payroll(employee_id):
         cutoff_start=start_cutoff.date(),
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
+    deductions = payroll_statutory_deductions(payroll_record, deductions)
+    sss = deductions["sss"]
+    philhealth = deductions["philhealth"]
+    pagibig = deductions["pagibig"]
     loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
     liability_deduction = liability_cutoff_deduction(emp.id)
 
@@ -4888,6 +5010,27 @@ def finalize_payroll(employee_id):
             payroll_record.loan = loan_cutoff_deduction(
                 employee.loan_balance, float(loan_deduction)
             )
+        statutory_values = {
+            'sss': request.form.get(f'sss_{employee_id}'),
+            'philhealth': request.form.get(f'philhealth_{employee_id}'),
+            'pagibig': request.form.get(f'pagibig_{employee_id}'),
+        }
+        if any(value is not None and value.strip() != '' for value in statutory_values.values()):
+            payroll_record = payroll_record or Payroll.query.filter_by(
+                employee_id=employee_id,
+                cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1),
+            ).first()
+            if payroll_record is None:
+                payroll_record = Payroll(
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start,
+                    cutoff_end=cutoff_end - timedelta(days=1),
+                )
+                db.session.add(payroll_record)
+            for key, value in statutory_values.items():
+                if value is not None and value.strip() != '':
+                    setattr(payroll_record, f'{key}_override', max(float(value), 0))
         db.session.commit()
     except (TypeError, ValueError):
         db.session.rollback()
@@ -5074,11 +5217,15 @@ def payroll_dashboard():
         for emp in Employee.query.order_by(
             Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
         ).all():
+            payroll_record = None
             daily_rate = request.form.get(f'daily_rate_{emp.id}')
             allowance = request.form.get(f'allowance_{emp.id}')
             incentives = request.form.get(f'incentives_{emp.id}')
             loan_balance = request.form.get(f'loan_{emp.id}')
             loan_deduction = request.form.get(f'loan_deduction_{emp.id}')
+            sss_override = request.form.get(f'sss_{emp.id}')
+            philhealth_override = request.form.get(f'philhealth_{emp.id}')
+            pagibig_override = request.form.get(f'pagibig_{emp.id}')
             try:
                 if daily_rate is not None:
                     emp.daily_rate = max(float(daily_rate), 0)
@@ -5105,6 +5252,27 @@ def payroll_dashboard():
                     payroll_record.loan = loan_cutoff_deduction(
                         emp.loan_balance, requested_deduction
                     )
+                statutory_values = {
+                    'sss': sss_override,
+                    'philhealth': philhealth_override,
+                    'pagibig': pagibig_override,
+                }
+                if any(value is not None for value in statutory_values.values()):
+                    payroll_record = payroll_record or Payroll.query.filter_by(
+                        employee_id=emp.id,
+                        cutoff_start=start_cutoff.date(),
+                        cutoff_end=(end_cutoff - timedelta(days=1)).date(),
+                    ).first()
+                    if payroll_record is None:
+                        payroll_record = Payroll(
+                            employee_id=emp.id,
+                            cutoff_start=start_cutoff.date(),
+                            cutoff_end=(end_cutoff - timedelta(days=1)).date(),
+                        )
+                        db.session.add(payroll_record)
+                    for key, value in statutory_values.items():
+                        if value is not None and value.strip() != '':
+                            setattr(payroll_record, f'{key}_override', max(float(value), 0))
             except (TypeError, ValueError):
                 db.session.rollback()
                 flash('Please enter valid non-negative payroll values.', 'danger')
@@ -5181,6 +5349,11 @@ def payroll_dashboard():
             else 0.0
         )
         liability_deduction = liability_cutoff_deduction(emp.id)
+
+        deduction_values = payroll_statutory_deductions(payroll_record, deduction_values)
+        sss = deduction_values['sss']
+        philhealth = deduction_values['philhealth']
+        pagibig = deduction_values['pagibig']
 
         monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)

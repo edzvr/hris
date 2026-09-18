@@ -201,6 +201,11 @@
       </div>
         <div class="dashboard-links">
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+            {% if current_user.payroll_preparation_access %}
+            <a href="{{ url_for('biometric_import') }}" class="btn btn-primary">📥 Biometric Upload</a>
+            <a href="{{ url_for('payroll_summary', company='Auto Expert') }}" class="btn btn-primary">📄 Download Auto Expert Summary</a>
+            <a href="{{ url_for('payroll_summary', company='Trece-Uno') }}" class="btn btn-primary">📄 Download Trece-Uno Summary</a>
+            {% endif %}
             <a href="{{ url_for('staff_guide') }}" class="btn btn-primary">📘 Staff Guide</a>
             <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Request Attendance Correction</a>
             <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
