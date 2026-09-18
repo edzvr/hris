@@ -66,8 +66,14 @@
             {% endfor %}
         </table>
 
+        <form id="bulk-ot-approval-form" method="POST" style="margin: 16px 0 8px;">
+            <label><input type="checkbox" id="select-all-overtime"> Select all pending OT</label>
+            <button type="submit" name="action" value="bulk_approve" class="btn">Approve Selected</button>
+            <button type="submit" name="action" value="bulk_reject" class="btn btn-reject">Reject Selected</button>
+        </form>
         <table>
             <tr>
+                <th>Select</th>
                 <th>Attendance ID</th>
                 <th>Employee</th>
                 <th>Date</th>
@@ -81,6 +87,11 @@
             </tr>
             {% for att in records %}
             <tr>
+                <td>
+                    {% if att.ot_status != 'Approved' %}
+                    <input type="checkbox" form="bulk-ot-approval-form" name="selected_attendance_ids" value="{{ att.id }}">
+                    {% endif %}
+                </td>
                 <td>{{ att.id }}</td>
                 <td>{{ att.employee.first_name }} {{ att.employee.last_name }}</td>
                 <td>{{ att.date }}</td>
@@ -88,17 +99,15 @@
                 <td>{{ att.status }}</td>
                 <td>{{ att.clock_out }}</td>
                 <td>
-                    {% if att.clock_out and (att.clock_out.hour > 17 or (att.clock_out.hour == 17 and att.clock_out.minute > 0)) %}
-                        {{ (att.clock_out.hour - 17) + (att.clock_out.minute/60) }}
-                    {% else %}
-                        {{ att.overtime_hours or 0 }}
-                    {% endif %}
+                    {{ att.overtime_hours or 0 }}
                 </td>
                 <td>
                     {% if att.is_weekday_ot %}Weekday
                     {% elif att.is_restday_ot %}Rest Day
                     {% elif att.is_holiday_ot %}Holiday
-                    {% elif att.clock_out and (att.clock_out.hour > 17 or (att.clock_out.hour == 17 and att.clock_out.minute > 0)) %}Beyond 5PM
+                    {% elif att.date in holidays %}Holiday
+                    {% elif att.date.weekday() == 6 and not att.employee.company.lower().startswith('trece') %}Rest Day
+                    {% elif att.clock_out and att.clock_out.time() >= time(18, 0) %}Beyond 6PM
                     {% else %}None{% endif %}
                 </td>
                 <td>{{ att.ot_status or 'Pending' }}</td>
@@ -130,5 +139,12 @@
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>
         </div>
     </div>
+    <script>
+        document.getElementById('select-all-overtime').addEventListener('change', function () {
+            document.querySelectorAll('input[name="selected_attendance_ids"]').forEach(function (checkbox) {
+                checkbox.checked = this.checked;
+            }, this);
+        });
+    </script>
 </body>
 </html>

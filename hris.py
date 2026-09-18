@@ -2914,14 +2914,16 @@ def apply_overtime_details(attendance, force_approved=False):
         return
 
     employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
     is_trece_sunday = (
         attendance.date.weekday() == 6
         and employee
         and str(employee.company or '').lower().startswith('trece')
     )
+    is_regular_weekday = attendance.date.weekday() != 6 and not holiday
     overtime_start = datetime.combine(
         attendance.date,
-        time(12, 0) if is_trece_sunday else time(17, 0)
+        time(12, 0) if is_trece_sunday else time(18, 0) if is_regular_weekday else time(17, 0)
     )
     attendance.overtime_hours = round(
         max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
@@ -2932,7 +2934,6 @@ def apply_overtime_details(attendance, force_approved=False):
         ot_date=attendance.date,
         status="Approved"
     ).first()
-    holiday = Holiday.query.filter_by(date=attendance.date).first()
     is_approved = bool(application or force_approved)
     attendance.is_restday_ot = bool(is_approved and attendance.date.weekday() == 6 and not is_trece_sunday)
     attendance.is_holiday_ot = bool(is_approved and holiday)
@@ -5144,7 +5145,7 @@ def payroll_dashboard():
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=(end_cutoff - timedelta(days=1)).date())
 
-# ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 5PM) ------------------
+# ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 6PM) ------------------
 @app.route('/holiday_overtime', methods=['GET','POST'])
 @login_required
 def holiday_ot_dashboard():
@@ -5156,6 +5157,21 @@ def holiday_ot_dashboard():
     if request.method == 'POST':
         att_id = request.form.get("att_id")
         action = request.form.get("action")
+        if action in {"bulk_approve", "bulk_reject"}:
+            selected_ids = request.form.getlist("selected_attendance_ids")
+            processed_count = 0
+            for selected_id in selected_ids:
+                attendance = db.session.get(Attendance, selected_id)
+                if attendance and attendance.ot_status != "Approved":
+                    if action == "bulk_approve":
+                        apply_overtime_details(attendance, force_approved=True)
+                    else:
+                        attendance.ot_status = "Rejected"
+                    processed_count += 1
+            db.session.commit()
+            result = "approved" if action == "bulk_approve" else "rejected"
+            flash(f"✅ {processed_count} overtime record(s) {result}.", "success")
+            return redirect(url_for('holiday_ot_dashboard'))
         if att_id and action:
             att = Attendance.query.get_or_404(att_id)
             if action == "approve":
@@ -5167,7 +5183,7 @@ def holiday_ot_dashboard():
             db.session.commit()
             return redirect(url_for('holiday_ot_dashboard'))
 
-    # --- Query lahat ng attendance na may OT OR lumabas beyond 5 PM ---
+    # --- Query lahat ng attendance na may OT OR lumabas beyond 6 PM ---
     query = Attendance.query.filter(Attendance.clock_out != None)
     records = [
         attendance for attendance in query.order_by(Attendance.date.desc()).all()
@@ -5180,8 +5196,16 @@ def holiday_ot_dashboard():
                 and attendance.clock_out.time() > time(12, 0)
             )
             or (
-                attendance.clock_out.hour > 17
-                or (attendance.clock_out.hour == 17 and attendance.clock_out.minute > 0)
+                attendance.clock_out.time() > time(17, 0)
+                and (
+                    Holiday.query.filter_by(date=attendance.date).first()
+                    or attendance.date.weekday() == 6
+                )
+            )
+            or (
+                attendance.date.weekday() != 6
+                and not Holiday.query.filter_by(date=attendance.date).first()
+                and attendance.clock_out.time() >= time(18, 0)
             )
         )
     ]
@@ -5203,14 +5227,7 @@ def holiday_ot_dashboard():
             data = [['Attendance ID','Employee','Date','Holiday Name','Status','Clock Out','OT Hours','OT Type','OT Status']]
             for att in records:
                 ot_type = "Weekday" if att.is_weekday_ot else "Rest Day" if att.is_restday_ot else "Holiday" if att.is_holiday_ot else "Beyond 5PM"
-                # auto compute OT hours if beyond 5PM
-                if att.clock_out and (
-                    att.clock_out.hour > 17
-                    or (att.clock_out.hour == 17 and att.clock_out.minute > 0)
-                ):
-                    ot_hours = (att.clock_out.hour - 17) + (att.clock_out.minute/60)
-                else:
-                    ot_hours = att.overtime_hours or 0
+                ot_hours = att.overtime_hours or 0
                 row = [
                     att.id,
                     f"{att.employee.first_name} {att.employee.last_name}",
