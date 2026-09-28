@@ -4946,18 +4946,17 @@ def payroll(employee_id):
     c.drawString(50, 760, "Official Payslip")
 
     c.setFont("Helvetica", 10)
-    c.drawString(50, 730, f"Employee ID: {emp.id}")
-    c.drawString(50, 715, f"Employee Name: {emp.first_name} {emp.last_name}")
-    c.drawString(50, 700, f"Position: {emp.role}")
-    c.drawString(210, 730, f"Date Hired: {emp.date_started}")
-    c.drawString(210, 715, f"Department: {emp.company}")
-    c.drawString(210, 700, f"Daily Rate: {float(emp.daily_rate or 0):.2f}")
-    c.drawString(210, 685, f"Cut-off: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
-    c.drawString(50, 685, f"Reference: PAY-{payroll_record.id or 0:06d}")
+    c.setFont("Helvetica", 9)
+    c.drawString(20, 730, f"Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})")
+    c.drawString(20, 714, f"Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
+    c.drawString(20, 698, f"Position: {emp.role}")
+    c.drawString(210, 714, f"Daily Rate: PHP {float(emp.daily_rate or 0):.2f}")
+    c.drawString(210, 698, f"Department: {emp.company}")
+    c.drawString(20, 682, f"Reference: PAY-{payroll_record.id or 0:06d}")
 
     data = weekly_payslip_table_data(payslip)
 
-    table = Table(data, colWidths=[88, 38, 56, 88, 38, 56])
+    table = Table(data, colWidths=[92, 32, 50, 100, 32, 50])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
@@ -4967,8 +4966,9 @@ def payroll(employee_id):
         ('ALIGN', (1,1), (-1,-1), 'CENTER'),
         ('ALIGN', (2,2), (2,-1), 'RIGHT'),
         ('ALIGN', (5,2), (5,-1), 'RIGHT'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
     ]))
     _, table_height = table.wrapOn(c, 50, 600)
     table_y = 675 - table_height
@@ -5268,15 +5268,16 @@ def download_payslip(emp_id, payroll_id):
     pdf.setFont('Helvetica-Bold', 14)
     pdf.drawString(50, 760, 'PAYSLIP')
     pdf.setFont('Helvetica', 10)
-    pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
-    pdf.drawString(50, 715, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
-    pdf.drawString(50, 700, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
-    pdf.drawString(210, 700, f'Reference: {verification["document_id"]}')
-    pdf.drawString(210, 715, f'Position/Department: {employee.role} / {employee.company or "N/A"}')
-    pdf.drawString(50, 685, 'Address: Trece Martires Cavite, Philippines')
-    pdf.drawString(210, 685, 'Prepared by: Admin')
+    pdf.setFont('Helvetica', 9)
+    pdf.drawString(20, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
+    pdf.drawString(20, 714, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
+    pdf.drawString(20, 698, f'Position: {employee.role}')
+    pdf.drawString(210, 714, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
+    pdf.drawString(210, 698, f'Reference: {verification["document_id"]}')
+    pdf.drawString(20, 682, f'Department: {employee.company or "N/A"}')
+    pdf.drawString(210, 682, 'Prepared by: Admin')
     data = weekly_payslip_table_data(payslip)
-    table = Table(data, colWidths=[88, 38, 56, 88, 38, 56])
+    table = Table(data, colWidths=[92, 32, 50, 100, 32, 50])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -5286,8 +5287,9 @@ def download_payslip(emp_id, payroll_id):
         ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
         ('ALIGN', (0, 1), (0, -1), 'LEFT'),
         ('ALIGN', (3, 1), (3, -1), 'LEFT'),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     _, table_height = table.wrapOn(pdf, 50, 650)
     table_y = 675 - table_height
