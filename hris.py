@@ -3658,10 +3658,12 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             for record in attendance
             if record.ot_status == 'Approved'
         )
-        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + overtime_pay
+        rice_exempt, rice_taxable = rice_allowance_breakdown(emp, len(attendance))
+        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + overtime_pay
+        contribution_salary = basic_pay + rice_taxable
         deductions = (
-            compute_weekly_deductions(basic_pay * 4, weeks=4)
-            if basic_pay > 0
+            compute_weekly_deductions(contribution_salary * 4, weeks=4)
+            if contribution_salary > 0
             else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
         )
         payroll_record = Payroll.query.filter_by(
@@ -3685,7 +3687,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             'liability_deduction': liability_deduction,
             'withholding_tax': withholding_tax,
             'total_deductions': total_deductions,
-            'net_pay': gross_income - total_deductions,
+            'net_pay': gross_income + rice_exempt - total_deductions,
             'payroll_record': payroll_record,
         })
     return rows
@@ -4574,6 +4576,18 @@ from sqlalchemy import extract
 import os, io
 
 
+def rice_allowance_breakdown(employee, worked_days, cutoff_count=4):
+    """Return weekly rice allowance split using the employee's monthly ceiling."""
+    amount = max(float(getattr(employee, 'rice_allowance_per_day', 0) or 0), 0.0)
+    total = amount * max(float(worked_days or 0), 0.0)
+    ceiling = max(float(getattr(employee, 'rice_allowance_ceiling', 2500) or 0), 0.0)
+    if getattr(employee, 'rice_allowance_is_de_minimis', True):
+        ceiling = ceiling / max(cutoff_count, 1)
+    else:
+        ceiling = 0.0
+    return split_allowance(total, ceiling, getattr(employee, 'rice_allowance_is_de_minimis', True))
+
+
 def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_pay=0.0):
     """Return an itemized weekly payslip that reconciles to the payroll record."""
     attendance_records = Attendance.query.filter(
@@ -4647,6 +4661,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
     allowance = float(emp.allowance or 0)
+    rice_exempt, rice_taxable = rice_allowance_breakdown(emp, worked_days_count)
     incentives = float(emp.incentives or 0)
     regular_overtime = overtime_amounts["regular_overtime"]
     sunday_overtime = overtime_amounts["sunday_overtime"]
@@ -4655,7 +4670,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     regular_holiday_ot = overtime_amounts["regular_holiday_ot"]
 
     itemized_earnings = (
-        basic_pay + allowance + incentives + rest_day_pay
+        basic_pay + allowance + incentives + rice_taxable + rice_exempt + rest_day_pay
         + special_holiday + regular_holiday + calculated_overtime_pay
         + night_differential
     )
@@ -4673,6 +4688,9 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "actual_worked_days": worked_days_count,
         "basic_pay": basic_pay,
         "allowance": allowance,
+        "rice_allowance": rice_taxable + rice_exempt,
+        "rice_allowance_exempt": rice_exempt,
+        "rice_allowance_taxable": rice_taxable,
         "incentives": incentives,
         "adjustment": adjustment,
         "night_differential": night_differential,
@@ -4708,6 +4726,7 @@ def weekly_payslip_table_data(payslip):
         ["Basic Pay", str(payslip["actual_worked_days"]), amount("basic_pay"), "Tardiness/Absence", "", amount("late_ut")],
         ["Weekly Allowance", "", amount("allowance"), "SSS", "", amount("sss")],
         ["Incentives", "", amount("incentives"), "PhilHealth", "", amount("philhealth")],
+        ["Rice Allowance (Exempt)", "", amount("rice_allowance_exempt"), "", "", ""],
         ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
         ["Regular Holiday Pay", "", amount("regular_holiday"), "Loan Deduction", "", amount("sss_loan")],
@@ -4829,13 +4848,15 @@ def payroll(employee_id):
         for attendance in paid_attendance
         if attendance.ot_status == 'Approved'
     )
+    rice_exempt, rice_taxable = rice_allowance_breakdown(emp, worked_days_count)
 
     cutoff_salary = sum(
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
     )
+    contribution_salary = cutoff_salary + rice_taxable
     deductions = (
-        compute_weekly_deductions(cutoff_salary * 4, weeks=4)
-        if cutoff_salary > 0
+        compute_weekly_deductions(contribution_salary * 4, weeks=4)
+        if contribution_salary > 0
         else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
     )
 
@@ -4852,11 +4873,11 @@ def payroll(employee_id):
     loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
     liability_deduction = liability_cutoff_deduction(emp.id)
 
-    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + approved_overtime_pay
+    gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + rice_taxable + approved_overtime_pay
     monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
     withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
     total_deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
-    net_pay = gross_income - total_deductions
+    net_pay = gross_income + rice_exempt - total_deductions
 
     if payroll_record is None:
         payroll_record = Payroll(
@@ -5281,6 +5302,9 @@ def payroll_dashboard():
             payroll_record = None
             daily_rate = request.form.get(f'daily_rate_{emp.id}')
             allowance = request.form.get(f'allowance_{emp.id}')
+            rice_allowance = request.form.get(f'rice_allowance_{emp.id}')
+            rice_de_minimis = request.form.get(f'rice_de_minimis_{emp.id}')
+            rice_ceiling = request.form.get(f'rice_ceiling_{emp.id}')
             incentives = request.form.get(f'incentives_{emp.id}')
             loan_balance = request.form.get(f'loan_{emp.id}')
             loan_deduction = request.form.get(f'loan_deduction_{emp.id}')
@@ -5292,6 +5316,12 @@ def payroll_dashboard():
                     emp.daily_rate = max(float(daily_rate), 0)
                 if allowance is not None:
                     emp.allowance = max(float(allowance), 0)
+                if rice_allowance is not None:
+                    emp.rice_allowance_per_day = max(float(rice_allowance), 0)
+                if rice_de_minimis is not None:
+                    emp.rice_allowance_is_de_minimis = rice_de_minimis == '1'
+                if rice_ceiling is not None:
+                    emp.rice_allowance_ceiling = max(float(rice_ceiling), 0)
                 if incentives is not None:
                     emp.incentives = max(float(incentives), 0)
                 if loan_balance is not None:
@@ -5381,14 +5411,16 @@ def payroll_dashboard():
             for attendance in ot_records
             if attendance.ot_status == 'Approved'
         )
-        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + approved_ot_pay
+        rice_exempt, rice_taxable = rice_allowance_breakdown(emp, worked_days_count)
+        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + approved_ot_pay
 
         cutoff_salary = sum(
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
         )
+        contribution_salary = cutoff_salary + rice_taxable
         deduction_values = (
-            compute_weekly_deductions(cutoff_salary * 4, weeks=4)
-            if cutoff_salary > 0
+            compute_weekly_deductions(contribution_salary * 4, weeks=4)
+            if contribution_salary > 0
             else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
         )
         sss = deduction_values['sss']
@@ -5414,7 +5446,7 @@ def payroll_dashboard():
         monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
         deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
-        net_pay = gross_income - deductions
+        net_pay = gross_income + rice_exempt - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
         accounting_totals['total_net_pay'] += net_pay
         accounting_totals['admin_net_pay' if is_admin else 'staff_net_pay'] += net_pay

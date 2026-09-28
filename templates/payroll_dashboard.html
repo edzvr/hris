@@ -113,6 +113,9 @@
                     <th>Employee</th>
                     <th>Company</th>
                     <th>Daily Rate</th>
+                    <th>Rice Allowance / Day</th>
+                    <th>Rice De Minimis</th>
+                    <th>Rice Ceiling / Month</th>
                     <th>Worked Days</th>
                     <th>Approved OT Pay</th>
                     <th>Gross Income</th>
@@ -143,6 +146,16 @@
                     <td>{{ p.emp.company }}</td>
                     <td>
                         <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
+                    </td>
+                    <td>
+                        <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 0 }}">
+                    </td>
+                    <td>
+                        <input type="hidden" name="rice_de_minimis_{{ p.emp.id }}" value="0">
+                        <input type="checkbox" name="rice_de_minimis_{{ p.emp.id }}" value="1" {% if p.emp.rice_allowance_is_de_minimis %}checked{% endif %}>
+                    </td>
+                    <td>
+                        <input type="number" min="0" step="0.01" name="rice_ceiling_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_ceiling or 2500 }}">
                     </td>
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>

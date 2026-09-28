@@ -50,6 +50,9 @@
                     <p>Worked Days: {{ payslip.actual_worked_days }}</p>
                     <p>Basic Pay: ₱{{ payslip.basic_pay|currency }}</p>
                     <p>Weekly Allowance: ₱{{ payslip.allowance|currency }}</p>
+                    <p>Rice Allowance (De Minimis): ₱{{ payslip.rice_allowance|currency }}</p>
+                    <p>Rice Allowance Exempt: ₱{{ payslip.rice_allowance_exempt|currency }}</p>
+                    <p>Rice Allowance Taxable: ₱{{ payslip.rice_allowance_taxable|currency }}</p>
                     <p>Incentives: ₱{{ payslip.incentives|currency }}</p>
                     <p>Rest Day Pay: ₱{{ payslip.rest_day_pay|currency }}</p>
                     <p>Special Holiday Pay: ₱{{ payslip.special_holiday|currency }}</p>
