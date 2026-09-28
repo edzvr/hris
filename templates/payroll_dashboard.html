@@ -65,6 +65,15 @@
         .accounting { border-left: 5px solid #8a5c19; background: #fff8e7; }
         .admin-row td { background: #f7f0fa; }
         .section-label td { background: #e6edf2; text-align: left; font-weight: 700; font-size: 15px; }
+        th:first-child, td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            background: #fff;
+            box-shadow: 2px 0 4px rgba(0, 0, 0, .08);
+        }
+        th:first-child { z-index: 4; background-color: #2879ad; }
+        .admin-row td:first-child { background: #f7f0fa; }
     </style>
 </head>
 <body>
@@ -137,7 +146,7 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="20">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label"><td colspan="21">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="{{ 'admin-row' if p.is_admin else '' }}">
                     <td>
@@ -182,6 +191,9 @@
                     </td>
                     <td>
                         <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}">
+                    </td>
+                    <td style="white-space:nowrap; font-weight:600;">
+                        {{ p.emp.first_name }} {{ p.emp.last_name }}
                     </td>
                     <td>
                         <button type="submit"
