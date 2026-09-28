@@ -125,9 +125,16 @@
         <label for="employee-filter">Employee:</label>
         <select id="employee-filter">
             <option value="all">All employees</option>
-            {% for p in payroll_data %}
-            <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
-            {% endfor %}
+            <optgroup label="Trece-Uno">
+                {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('trece') %}
+                <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                {% endfor %}
+            </optgroup>
+            <optgroup label="Auto-Expert">
+                {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('auto') %}
+                <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                {% endfor %}
+            </optgroup>
         </select>
     </section>
 
