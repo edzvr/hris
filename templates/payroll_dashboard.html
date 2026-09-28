@@ -131,6 +131,8 @@
         <label for="employee-filter">Employee:</label>
         <select id="employee-filter">
             <option value="all">All employees</option>
+            <option value="__ready__">Ready only</option>
+            <option value="__review__">Needs Review only</option>
             <optgroup label="Trece-Uno">
                 {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('trece') %}
                 <option value="{{ p.emp.id }}" data-company="trece">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
@@ -268,6 +270,7 @@
             const review = reviewFilter ? reviewFilter.value : 'all';
             const company = companyFilter ? companyFilter.value : 'all';
             const employee = employeeFilter ? employeeFilter.value : 'all';
+            const selectionReview = employee === '__ready__' ? 'ready' : employee === '__review__' ? 'review' : 'all';
             if (employeeFilter) {
                 employeeFilter.querySelectorAll('option[data-company]').forEach(function (option) {
                     option.hidden = company !== 'all' && option.dataset.company !== company;
@@ -277,9 +280,10 @@
                     employeeFilter.value = 'all';
                 }
             }
-            const selectedEmployeeId = employeeFilter ? employeeFilter.value : 'all';
+            const selectedEmployeeId = selectionReview === 'all' ? employee : 'all';
             document.querySelectorAll('.payroll-row').forEach(function (row) {
-                const matchesReview = review === 'all' || row.dataset.review === review;
+                const matchesReview = (review === 'all' || row.dataset.review === review)
+                    && (selectionReview === 'all' || row.dataset.review === selectionReview);
                 const matchesCompany = company === 'all' || row.dataset.company === company;
                 const matchesEmployee = selectedEmployeeId === 'all' || row.dataset.employee === selectedEmployeeId;
                 row.style.display = matchesReview && matchesCompany && matchesEmployee ? '' : 'none';
