@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assessment and Evaluation</title>
+    <title>Performance and Evaluation</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #263238; }
@@ -55,8 +55,8 @@
     </section>
 {% else %}
     <section class="card">
-        <h1>Assessment</h1>
-        <p>Choose an assessment activity from your dashboard.</p>
+        <h1>Performance</h1>
+        <p>Choose a performance activity from your dashboard.</p>
         <a class="btn" href="{{ url_for('assessment', action='evaluation') }}">View Evaluation Results</a>
         <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Take Quiz</a>
     </section>

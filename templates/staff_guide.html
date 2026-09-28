@@ -50,15 +50,15 @@
         </section>
 
         <section>
-            <h2>Quiz And Assessment</h2>
+            <h2>Quiz And Performance</h2>
             <ul>
                 <li>Open Take Quiz when a quiz is available.</li>
                 <li>Review the question and submit your answer before leaving the page.</li>
                 <li>A score of 75% or higher on the official monthly quiz earns merit points. A lower score does not automatically add demerit points; Admin review is required.</li>
-                <li>Use Assessments to check available assessment activities and results.</li>
+                <li>Use Performance to check available activities and results.</li>
             </ul>
             <a class="btn" href="{{ url_for('quiz', employee_id=current_user.id) }}">Take Quiz</a>
-            <a class="btn" href="{{ url_for('assessment', action='menu') }}">Open Assessments</a>
+            <a class="btn" href="{{ url_for('assessment', action='menu') }}">Open Performance</a>
         </section>
 
         <section>
@@ -69,7 +69,7 @@
                 <li>Submit before the end of the month so the evaluation is included in the monthly review.</li>
                 <li>Do not evaluate yourself.</li>
                 <li>Peer Evaluation is support feedback. Actual/Admin Evaluation is the official company evaluation and carries higher points.</li>
-                <li>You can download your approved evaluation results from Assessments.</li>
+                <li>You can download your approved evaluation results from Performance.</li>
             </ul>
             <a class="btn" href="{{ url_for('peer_evaluation') }}">Open Peer Evaluation</a>
             <a class="btn" href="{{ url_for('assessment', action='evaluation') }}">View / Download Evaluation Results</a>

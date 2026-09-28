@@ -214,7 +214,7 @@
             <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
               <a href="{{ url_for('quiz', employee_id=current_user.id) }}" class="btn btn-primary">📝 Take Quiz</a>
               <a href="{{ url_for('apply_ot') }}" class="btn btn-primary">🕒 Apply for OT</a>
-            <a href="{{ url_for('assessment', action='menu') }}" class="btn btn-primary">🧠 Assessments</a>
+            <a href="{{ url_for('assessment', action='menu') }}" class="btn btn-primary">🧠 Performance</a>
             <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">📝 Monthly Peer Evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
             <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}" class="btn btn-primary">⭐ Merit / Demerit</a>
             <a href="{{ url_for('employee_liabilities') }}" class="btn btn-primary">🧾 My Liabilities</a>

@@ -1134,7 +1134,7 @@ def inject_authenticated_sidebar(response):
             ('thirteenth_month', '13th-Month Pay'),
         ]
         links.extend([
-            ('assessment', 'Assessments'),
+            ('assessment', 'Performance'),
             ('peer_evaluation', 'Peer Evaluation'),
             ('merit_demerit', 'Merit / Demerit'),
             ('submit_incident', 'Incident Report'),
