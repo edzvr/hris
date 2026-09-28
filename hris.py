@@ -4933,7 +4933,8 @@ def payroll(employee_id):
 
     # 👉 Generate payslip PDF in memory
     buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
+    half_letter = (letter[0] / 2, letter[1])
+    c = canvas.Canvas(buffer, pagesize=half_letter)
 
     company_display = payroll_company_name(emp)
     company_brand = "TRECE-UNO" if company_display.startswith("TRECE") else "AUTO-EXPERT"
@@ -4948,15 +4949,15 @@ def payroll(employee_id):
     c.drawString(50, 730, f"Employee ID: {emp.id}")
     c.drawString(50, 715, f"Employee Name: {emp.first_name} {emp.last_name}")
     c.drawString(50, 700, f"Position: {emp.role}")
-    c.drawString(300, 730, f"Date Hired: {emp.date_started}")
-    c.drawString(300, 715, f"Department: {emp.company}")
-    c.drawString(300, 700, f"Daily Rate: {float(emp.daily_rate or 0):.2f}")
-    c.drawString(300, 685, f"Cut-off: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
+    c.drawString(210, 730, f"Date Hired: {emp.date_started}")
+    c.drawString(210, 715, f"Department: {emp.company}")
+    c.drawString(210, 700, f"Daily Rate: {float(emp.daily_rate or 0):.2f}")
+    c.drawString(210, 685, f"Cut-off: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
     c.drawString(50, 685, f"Reference: PAY-{payroll_record.id or 0:06d}")
 
     data = weekly_payslip_table_data(payslip)
 
-    table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
+    table = Table(data, colWidths=[88, 38, 56, 88, 38, 56])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
@@ -4969,17 +4970,19 @@ def payroll(employee_id):
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ('TOPPADDING', (0,0), (-1,-1), 6),
     ]))
-    table.wrapOn(c, 50, 600)
-    table.drawOn(c, 50, 350)
+    _, table_height = table.wrapOn(c, 50, 600)
+    table_y = 675 - table_height
+    table.drawOn(c, 20, table_y)
 
-    c.line(50, 330, 550, 330)
+    signature_y = table_y - 20
+    c.line(20, signature_y, 376, signature_y)
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, 315, "Authorized by Admin")
-    c.line(50, 270, 250, 270)
-    c.line(350, 270, 550, 270)
+    c.drawString(50, signature_y - 15, "Authorized by Admin")
+    c.line(20, signature_y - 60, 160, signature_y - 60)
+    c.line(230, signature_y - 60, 376, signature_y - 60)
     c.setFont("Helvetica", 10)
-    c.drawString(50, 255, "Authorized Person Signature")
-    c.drawString(350, 255, "Date")
+    c.drawString(20, signature_y - 75, "Authorized Person Signature")
+    c.drawString(230, signature_y - 75, "Date")
 
     c.showPage()
     c.save()
@@ -5258,7 +5261,8 @@ def download_payslip(emp_id, payroll_id):
     qr_bytes = generate_qr_image_bytes(verification['verify_url'])
 
     buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=letter)
+    half_letter = (letter[0] / 2, letter[1])
+    pdf = canvas.Canvas(buffer, pagesize=half_letter)
     pdf.setFont('Helvetica-Bold', 16)
     pdf.drawString(50, 780, payroll_company_name(employee))
     pdf.setFont('Helvetica-Bold', 14)
@@ -5267,12 +5271,12 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
     pdf.drawString(50, 715, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
     pdf.drawString(50, 700, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
-    pdf.drawString(300, 700, f'Reference: {verification["document_id"]}')
-    pdf.drawString(300, 715, f'Position/Department: {employee.role} / {employee.company or "N/A"}')
+    pdf.drawString(210, 700, f'Reference: {verification["document_id"]}')
+    pdf.drawString(210, 715, f'Position/Department: {employee.role} / {employee.company or "N/A"}')
     pdf.drawString(50, 685, 'Address: Trece Martires Cavite, Philippines')
-    pdf.drawString(300, 685, 'Prepared by: Admin')
+    pdf.drawString(210, 685, 'Prepared by: Admin')
     data = weekly_payslip_table_data(payslip)
-    table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
+    table = Table(data, colWidths=[88, 38, 56, 88, 38, 56])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -5285,19 +5289,20 @@ def download_payslip(emp_id, payroll_id):
         ('TOPPADDING', (0, 0), (-1, -1), 6),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
-    table.wrapOn(pdf, 50, 650)
-    table.drawOn(pdf, 50, 350)
-    y = 325
-    pdf.line(70, y - 20, 260, y - 20)
-    pdf.line(330, y - 20, 500, y - 20)
+    _, table_height = table.wrapOn(pdf, 50, 650)
+    table_y = 675 - table_height
+    table.drawOn(pdf, 20, table_y)
+    y = table_y - 5
+    pdf.line(20, y - 20, 160, y - 20)
+    pdf.line(230, y - 20, 376, y - 20)
     pdf.setFont('Helvetica', 10)
-    pdf.drawString(70, y - 35, 'Authorized Person Signature')
-    pdf.drawString(330, y - 35, 'Date')
+    pdf.drawString(20, y - 35, 'Authorized Person Signature')
+    pdf.drawString(230, y - 35, 'Date')
     if qr_bytes:
-        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 455, 36, width=90, height=90)
+        pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 285, 36, width=75, height=75)
     pdf.setFont('Helvetica-Oblique', 8)
-    pdf.drawString(440, 24, f'Official Document ID: {verification["document_id"]}')
-    pdf.drawString(440, 14, 'Scan QR to verify.')
+    pdf.drawString(210, 24, f'Official Document ID: {verification["document_id"]}')
+    pdf.drawString(210, 14, 'Scan QR to verify.')
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
