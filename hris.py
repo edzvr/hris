@@ -6109,6 +6109,9 @@ def download_loan_statement(employee_id):
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
     account = loan_account_summary(employee)
+    loan_applications = Loan.query.filter_by(
+        employee_id=employee.id
+    ).order_by(Loan.date_filed.asc(), Loan.id.asc()).all()
     buffer = io.BytesIO()
     document = SimpleDocTemplate(
         buffer,
@@ -6130,39 +6133,67 @@ def download_loan_statement(employee_id):
             f'<b>Current Outstanding Balance: PHP {account["outstanding"]:,.2f}</b>',
             styles['Heading3'],
         ),
+        Paragraph(
+            f'Total approved/credited: PHP {account["total_credited"]:,.2f} | '
+            f'Total payroll deductions: PHP {account["total_deducted"]:,.2f}',
+            styles['Normal'],
+        ),
         Spacer(1, 10),
     ]
 
-    rows = [['Type', 'Reference / Period', 'Details', 'Amount']]
-    for loan_record in account['approved_loans']:
-        rows.append([
-            loan_record.loan_type or 'Employee Loan',
+    elements.append(Paragraph('Loan Applications', styles['Heading3']))
+    application_rows = [['Application Date', 'Reference', 'Status', 'Amount', 'Reason']]
+    for loan_record in loan_applications:
+        application_rows.append([
+            loan_record.date_filed.strftime('%Y-%m-%d') if loan_record.date_filed else str(loan_record.date_needed),
             f'LOAN-{loan_record.id:06d}',
-            f'{loan_record.date_needed} | {loan_record.reason}'[:55],
-            f'+{float(loan_record.amount or 0):,.2f}',
+            loan_record.status or 'Pending',
+            f'PHP {float(loan_record.amount or 0):,.2f}',
+            loan_record.reason or '',
         ])
-    for payroll_record in account['deductions']:
-        rows.append([
-            'Payroll Deduction',
-            f'PAY-{payroll_record.id:06d}',
-            f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end}',
-            f'-{float(payroll_record.loan or 0):,.2f}',
-        ])
-    if len(rows) == 1:
-        rows.append(['No transactions', '', '', '0.00'])
+    if len(application_rows) == 1:
+        application_rows.append(['No applications', '', '', 'PHP 0.00', ''])
 
-    table = Table(rows, colWidths=[105, 105, 260, 80], repeatRows=1)
+    table = Table(application_rows, colWidths=[80, 75, 65, 85, 215], repeatRows=1)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('GRID', (0, 0), (-1, -1), 0.75, colors.black),
-        ('ALIGN', (-1, 1), (-1, -1), 'RIGHT'),
+        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 5),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
     elements.append(table)
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph('Payroll Deduction History', styles['Heading3']))
+    deduction_rows = [['Payroll Reference', 'Cutoff Period', 'Total Deduction', 'Remaining Balance']]
+    running_balance = account['total_credited']
+    for payroll_record in sorted(account['deductions'], key=lambda record: (record.cutoff_start, record.id)):
+        deduction_amount = float(payroll_record.loan or 0)
+        running_balance = max(running_balance - deduction_amount, 0.0)
+        deduction_rows.append([
+            f'PAY-{payroll_record.id:06d}',
+            f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end}',
+            f'PHP {deduction_amount:,.2f}',
+            f'PHP {running_balance:,.2f}',
+        ])
+    if len(deduction_rows) == 1:
+        deduction_rows.append(['No deductions', '', 'PHP 0.00', f'PHP {account["outstanding"]:,.2f}'])
+
+    deduction_table = Table(deduction_rows, colWidths=[105, 175, 105, 135], repeatRows=1)
+    deduction_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.75, colors.black),
+        ('ALIGN', (2, 1), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(deduction_table)
     verification = build_document_verification(
         'loan_statement',
         employee.id,
@@ -6175,8 +6206,7 @@ def download_loan_statement(employee_id):
     if qrcode is not None:
         qr_bytes = generate_qr_image_bytes(verification['verify_url'])
         if qr_bytes:
-            qr_img = ImageReader(io.BytesIO(qr_bytes))
-            elements.append(Image(qr_img, width=60, height=60))
+            elements.append(Image(io.BytesIO(qr_bytes), width=60, height=60))
     document.build(elements)
     buffer.seek(0)
     return send_file(
