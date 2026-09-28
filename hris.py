@@ -5480,6 +5480,14 @@ def payroll_dashboard():
         deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
         net_pay = gross_income + rice_exempt - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
+        review_reasons = []
+        if daily_rate <= 0:
+            review_reasons.append('Missing daily rate')
+        if worked_days_count == 0:
+            review_reasons.append('No completed attendance')
+        if any(attendance.ot_status != 'Approved' for attendance in ot_records):
+            review_reasons.append('OT needs approval')
+        review_status = 'Needs Review' if review_reasons else 'Ready'
         accounting_totals['total_net_pay'] += net_pay
         accounting_totals['admin_net_pay' if is_admin else 'staff_net_pay'] += net_pay
 
@@ -5500,7 +5508,9 @@ def payroll_dashboard():
             "gross_income": gross_income,
             "deductions": deductions,
             "net_pay": net_pay,
-            "is_paid": bool(payroll_record and payroll_record.is_paid)
+            "is_paid": bool(payroll_record and payroll_record.is_paid),
+            "review_status": review_status,
+            "review_reasons": review_reasons,
         })
 
     return render_template("payroll_dashboard.html",

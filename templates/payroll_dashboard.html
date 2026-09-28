@@ -74,6 +74,8 @@
         }
         th:first-child { z-index: 4; background-color: #2879ad; }
         .admin-row td:first-child { background: #f7f0fa; }
+        .review-ready { color: #1d7a46; font-weight: 700; }
+        .review-needed { color: #b45309; font-weight: 700; }
     </style>
 </head>
 <body>
@@ -110,6 +112,18 @@
         <strong>Total Cash Requirement: ₱{{ accounting_totals.total_net_pay|currency }}</strong>
     </section>
 
+    <section style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; padding:12px; background:#fff; border:1px solid #cbd7d1; margin:12px 0;">
+        <strong>Payroll Review:</strong>
+        <span class="review-ready">Ready: {{ payroll_data|selectattr('review_status', 'equalto', 'Ready')|list|length }}</span>
+        <span class="review-needed">Needs Review: {{ payroll_data|selectattr('review_status', 'equalto', 'Needs Review')|list|length }}</span>
+        <label for="review-filter">Show:</label>
+        <select id="review-filter">
+            <option value="all">All employees</option>
+            <option value="ready">Ready only</option>
+            <option value="review">Needs Review only</option>
+        </select>
+    </section>
+
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
         <input type="hidden" name="cutoff_start" value="{{ start_cutoff }}">
         <div style="margin: 10px 0 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -123,6 +137,7 @@
                 <tr>
                     <th>Employee</th>
                     <th>Company</th>
+                    <th>Review Status</th>
                     <th>Daily Rate</th>
                     <th>Rice Allowance / Day</th>
                     <th>Rice De Minimis</th>
@@ -146,9 +161,9 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="21">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label"><td colspan="22">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
-                <tr class="{{ 'admin-row' if p.is_admin else '' }}">
+                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
                         <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
@@ -156,6 +171,7 @@
                         </label>
                     </td>
                     <td>{{ p.emp.company }}</td>
+                    <td class="{{ 'review-needed' if p.review_status == 'Needs Review' else 'review-ready' }}" title="{{ p.review_reasons|join(', ') }}">{{ p.review_status }}</td>
                     <td>
                         <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
                     </td>
@@ -223,6 +239,14 @@
                 document.querySelectorAll('input[name="selected_employee_ids"]').forEach(function (checkbox) {
                     checkbox.checked = selectAll.checked;
                 });
+            });
+        }
+        const reviewFilter = document.getElementById('review-filter');
+        if (reviewFilter) {
+            reviewFilter.addEventListener('change', function () {
+                document.querySelectorAll('.payroll-row').forEach(function (row) {
+                    row.style.display = this.value === 'all' || row.dataset.review === this.value ? '' : 'none';
+                }, this);
             });
         }
     });
