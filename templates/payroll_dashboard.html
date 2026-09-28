@@ -70,11 +70,13 @@
 <body>
 <main class="page-shell">
     <h1>Payroll Dashboard</h1>
-    <p>Cutoff: {{ start_cutoff }} to {{ end_cutoff }}</p>
+    <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%B %d, %Y') }} to {{ end_cutoff.strftime('%B %d, %Y') }} <span>(Saturday start date to Friday end date)</span></p>
 
     <form method="GET" style="margin:12px 0;">
-        <label for="cutoff-start">Select Cutoff Start (Saturday; ends Friday):</label>
-        <input id="cutoff-start" type="date" name="cutoff_start" value="{{ start_cutoff }}" required>
+        <label for="cutoff-start">Select payroll cutoff start date (Saturday only):</label>
+        <input id="cutoff-start" type="date" name="cutoff_start" value="{{ start_cutoff }}" required
+               onchange="if (new Date(this.value + 'T00:00:00').getDay() !== 6) { alert('Please select a Saturday start date. The Friday end date is automatic.'); this.value = '{{ start_cutoff }}'; }">
+        <span style="margin-left:8px;">End date is automatic: <strong>{{ end_cutoff.strftime('%B %d, %Y') }}</strong></span>
         <button type="submit">Load Cutoff</button>
     </form>
 
