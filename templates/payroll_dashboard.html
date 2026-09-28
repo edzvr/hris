@@ -122,17 +122,23 @@
             <option value="ready">Ready only</option>
             <option value="review">Needs Review only</option>
         </select>
+        <label for="company-filter">Company:</label>
+        <select id="company-filter">
+            <option value="all">All companies</option>
+            <option value="trece">Trece-Uno</option>
+            <option value="auto">Auto-Expert</option>
+        </select>
         <label for="employee-filter">Employee:</label>
         <select id="employee-filter">
             <option value="all">All employees</option>
             <optgroup label="Trece-Uno">
                 {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('trece') %}
-                <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                <option value="{{ p.emp.id }}" data-company="trece">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
                 {% endfor %}
             </optgroup>
             <optgroup label="Auto-Expert">
                 {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('auto') %}
-                <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                <option value="{{ p.emp.id }}" data-company="auto">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
                 {% endfor %}
             </optgroup>
         </select>
@@ -177,7 +183,7 @@
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
                 <tr class="section-label payroll-section"><td colspan="22">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
-                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
+                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
                         <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
@@ -256,14 +262,27 @@
             });
         }
         const reviewFilter = document.getElementById('review-filter');
+        const companyFilter = document.getElementById('company-filter');
         const employeeFilter = document.getElementById('employee-filter');
         function applyPayrollFilters() {
             const review = reviewFilter ? reviewFilter.value : 'all';
+            const company = companyFilter ? companyFilter.value : 'all';
             const employee = employeeFilter ? employeeFilter.value : 'all';
+            if (employeeFilter) {
+                employeeFilter.querySelectorAll('option[data-company]').forEach(function (option) {
+                    option.hidden = company !== 'all' && option.dataset.company !== company;
+                });
+                const selectedEmployee = employeeFilter.selectedOptions[0];
+                if (selectedEmployee && selectedEmployee.hidden) {
+                    employeeFilter.value = 'all';
+                }
+            }
+            const selectedEmployeeId = employeeFilter ? employeeFilter.value : 'all';
             document.querySelectorAll('.payroll-row').forEach(function (row) {
                 const matchesReview = review === 'all' || row.dataset.review === review;
-                const matchesEmployee = employee === 'all' || row.dataset.employee === employee;
-                row.style.display = matchesReview && matchesEmployee ? '' : 'none';
+                const matchesCompany = company === 'all' || row.dataset.company === company;
+                const matchesEmployee = selectedEmployeeId === 'all' || row.dataset.employee === selectedEmployeeId;
+                row.style.display = matchesReview && matchesCompany && matchesEmployee ? '' : 'none';
             });
             document.querySelectorAll('.payroll-section').forEach(function (row) {
                 row.style.display = employee === 'all' ? '' : 'none';
@@ -271,6 +290,9 @@
         }
         if (reviewFilter) {
             reviewFilter.addEventListener('change', applyPayrollFilters);
+        }
+        if (companyFilter) {
+            companyFilter.addEventListener('change', applyPayrollFilters);
         }
         if (employeeFilter) {
             employeeFilter.addEventListener('change', applyPayrollFilters);
