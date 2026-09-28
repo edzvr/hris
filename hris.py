@@ -271,7 +271,14 @@ from models import (
     PayslipVerification
 )
 
-from utils.helpers import compute_weekly_deductions, compute_withholding_tax, compute_merit_demerit, ai_suggestion
+from utils.helpers import (
+    compute_weekly_deductions,
+    compute_withholding_tax,
+    compute_merit_demerit,
+    ai_suggestion,
+    split_allowance,
+    compute_weekly_payroll,
+)
 
 
 @app.route('/assessment', endpoint='assessment', methods=['GET', 'POST'])
@@ -1275,6 +1282,12 @@ def monthly_deductions():
         'employer_philhealth': sum(row['employer_philhealth'] for row in employer_rows),
         'employer_pagibig': sum(row['employer_pagibig'] for row in employer_rows),
     })
+    totals.update({
+        'portal_sss': totals['sss'] + totals['employer_sss'],
+        'portal_philhealth': totals['philhealth'] + totals['employer_philhealth'],
+        'portal_pagibig': totals['pagibig'] + totals['employer_pagibig'],
+    })
+    totals['portal_total'] = totals['portal_sss'] + totals['portal_philhealth'] + totals['portal_pagibig']
     if request.args.get('download') == 'true':
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=letter)
@@ -1285,13 +1298,13 @@ def monthly_deductions():
         y = 725
         pdf.setFont('Helvetica-Bold', 9)
         pdf.drawString(40, y, 'Employee / Company')
-        pdf.drawString(220, y, 'SSS')
-        pdf.drawString(270, y, 'PhilHealth')
-        pdf.drawString(345, y, 'Pag-IBIG')
+        pdf.drawString(220, y, 'SSS EE')
+        pdf.drawString(270, y, 'PhilHealth EE')
+        pdf.drawString(345, y, 'Pag-IBIG EE')
         pdf.drawString(410, y, 'Tax')
         pdf.drawString(450, y, 'Loan')
         pdf.drawString(500, y, 'Total')
-        pdf.drawString(555, y, 'Employer Share')
+        pdf.drawString(555, y, 'ER Total')
         y -= 18
         pdf.setFont('Helvetica', 8)
         for record, employee in rows:
@@ -1309,12 +1322,12 @@ def monthly_deductions():
         pdf.drawString(40, max(y - 15, 30), 'AUTHORIZED PERSON SIGNATURE: ____________________    DATE: __________')
         employer_y = max(y - 48, 20)
         pdf.setFont('Helvetica-Bold', 9)
-        pdf.drawString(40, employer_y, 'EMPLOYER SHARE - INTERNAL ESTIMATE')
+        pdf.drawString(40, employer_y, 'EMPLOYER SHARE (ER) - PORTAL PAYMENT GUIDE')
         pdf.setFont('Helvetica', 8)
         pdf.drawString(40, employer_y - 14, f'SSS: PHP {totals["employer_sss"]:,.2f}')
         pdf.drawString(180, employer_y - 14, f'PhilHealth: PHP {totals["employer_philhealth"]:,.2f}')
         pdf.drawString(340, employer_y - 14, f'Pag-IBIG: PHP {totals["employer_pagibig"]:,.2f}')
-        pdf.drawString(40, employer_y - 28, 'Separate from employee deductions; validate before official filing.')
+        pdf.drawString(40, employer_y - 28, f'Portal total (EE + ER): PHP {totals["portal_total"]:,.2f}')
         pdf.showPage()
         pdf.save()
         buffer.seek(0)
@@ -3171,7 +3184,7 @@ def apply_overtime_details(attendance, force_approved=False):
         status="Approved"
     ).first()
     is_approved = bool(application or force_approved)
-    attendance.is_restday_ot = bool(is_approved and attendance.date.weekday() == 6 and not is_trece_sunday)
+    attendance.is_restday_ot = bool(is_approved and attendance.date.weekday() == 6 and is_trece_sunday)
     attendance.is_holiday_ot = bool(is_approved and holiday)
     attendance.is_weekday_ot = bool(
         is_approved

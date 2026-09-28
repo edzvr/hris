@@ -68,6 +68,19 @@ def ai_suggestion(total_score):
 
 
 # ------------------ PAYROLL DEDUCTIONS ------------------
+def split_allowance(amount, ceiling=0, is_de_minimis=False):
+    """Split an allowance into exempt and taxable portions."""
+    amount = max(float(amount or 0), 0.0)
+    ceiling = max(float(ceiling or 0), 0.0)
+    if is_de_minimis:
+        exempt = min(amount, ceiling)
+        taxable = max(amount - ceiling, 0.0)
+    else:
+        exempt = 0.0
+        taxable = amount
+    return exempt, taxable
+
+
 SSS_TABLE = [
     (1750, 80), (2250, 100), (2750, 120), (3250, 140),
     (3750, 160), (4250, 180), (4750, 200), (5250, 220),
@@ -144,6 +157,59 @@ def compute_weekly_deductions(monthly_salary: float, weeks: int = 4) -> dict:
         "philhealth": round(deductions["philhealth"] / weeks, 2),
         "pagibig": round(deductions["pagibig"] / weeks, 2),
         "total": round(deductions["total"] / weeks, 2)
+    }
+
+
+def compute_weekly_payroll(
+    daily_rate,
+    worked_days,
+    overtime=0,
+    allowances=None,
+    absences=0,
+    is_mwe=False,
+    weeks=4,
+):
+    """Compute weekly pay with taxable allowances and EE/ER breakdown."""
+    allowances = [] if allowances is None else allowances
+    daily_rate = max(float(daily_rate or 0), 0.0)
+    worked_days = max(float(worked_days or 0), 0.0)
+    absences = max(float(absences or 0), 0.0)
+    weekly_salary = max(daily_rate * (worked_days - absences), 0.0)
+    overtime = max(float(overtime or 0), 0.0)
+
+    taxable_allowances = 0.0
+    exempt_allowances = 0.0
+    for allowance in allowances:
+        exempt, taxable = split_allowance(
+            allowance.get("amount", 0),
+            allowance.get("ceiling", 0),
+            allowance.get("is_de_minimis", False),
+        )
+        exempt_allowances += exempt
+        taxable_allowances += taxable
+
+    gross_income = weekly_salary + overtime + taxable_allowances
+    deductions = compute_weekly_deductions(gross_income * weeks, weeks=weeks)
+    monthly_taxable_income = gross_income * weeks
+    tax = 0.0 if is_mwe else round(compute_withholding_tax(monthly_taxable_income) / weeks, 2)
+    total_deductions = deductions["total"] + tax
+
+    return {
+        "Basic Pay": round(weekly_salary, 2),
+        "Absences": round(daily_rate * absences, 2),
+        "Overtime": round(overtime, 2),
+        "Taxable Allowances": round(taxable_allowances, 2),
+        "Gross Income (taxable)": round(gross_income, 2),
+        "Exempt Allowances": round(exempt_allowances, 2),
+        "SSS EE": deductions["sss"],
+        "SSS ER": deductions["sss"],
+        "PhilHealth EE": deductions["philhealth"],
+        "PhilHealth ER": deductions["philhealth"],
+        "Pag-IBIG EE": deductions["pagibig"],
+        "Pag-IBIG ER": deductions["pagibig"],
+        "Tax": tax,
+        "Total Deductions": round(total_deductions, 2),
+        "Net Pay": round(gross_income + exempt_allowances - total_deductions, 2),
     }
 
 

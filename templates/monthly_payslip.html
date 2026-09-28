@@ -20,7 +20,7 @@
 <body>
     <main class="section">
         <h2>{% if emp.company and emp.company.lower().startswith('trece') %}TRECE-UNO AUTO SUPPLY{% else %}AUTO-EXPERT AUTO SUPPLY{% endif %}</h2>
-        <h3>Monthly Payslip Summary</h3>
+        <h3>Monthly Payslip Summary (Employee Share)</h3>
         <p>{{ emp.first_name }} {{ emp.last_name }} | {{ month_start.strftime('%B %Y') }}</p>
         <form method="get">
             <label for="month">Month:</label>
@@ -31,7 +31,7 @@
     </main>
     <section class="section">
         <table>
-            <tr><th>Finalized Cutoffs</th><th>Gross Income</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Tax</th><th>Loan</th><th>Other</th><th>Total Deductions</th><th>Net Pay</th></tr>
+            <tr><th>Finalized Cutoffs</th><th>Gross Income</th><th>SSS EE</th><th>PhilHealth EE</th><th>Pag-IBIG EE</th><th>Tax</th><th>Loan</th><th>Other</th><th>Total EE Deductions</th><th>Net Pay</th></tr>
             {% for record in records %}
             <tr>
                 <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
