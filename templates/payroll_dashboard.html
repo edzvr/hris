@@ -116,6 +116,7 @@
                     <th>Rice Allowance / Day</th>
                     <th>Rice De Minimis</th>
                     <th>Rice Ceiling / Month</th>
+                    <th>Other De Minimis / Month</th>
                     <th>Worked Days</th>
                     <th>Approved OT Pay</th>
                     <th>Gross Income</th>
@@ -134,7 +135,7 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="16">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label"><td colspan="20">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="{{ 'admin-row' if p.is_admin else '' }}">
                     <td>
@@ -156,6 +157,13 @@
                     </td>
                     <td>
                         <input type="number" min="0" step="0.01" name="rice_ceiling_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_ceiling or 2500 }}">
+                    </td>
+                    <td>
+                        <label>Laundry <input type="number" min="0" step="0.01" name="laundry_allowance_{{ p.emp.id }}" value="{{ p.emp.laundry_allowance or 0 }}"></label>
+                        <label>Medical <input type="number" min="0" step="0.01" name="medical_allowance_{{ p.emp.id }}" value="{{ p.emp.medical_allowance or 0 }}"></label>
+                        <label>Uniform <input type="number" min="0" step="0.01" name="uniform_allowance_{{ p.emp.id }}" value="{{ p.emp.uniform_allowance or 0 }}"></label>
+                        <label>Christmas <input type="number" min="0" step="0.01" name="christmas_gift_allowance_{{ p.emp.id }}" value="{{ p.emp.christmas_gift_allowance or 0 }}"></label>
+                        <label>OT/Night Meal <input type="number" min="0" step="0.01" name="meal_allowance_{{ p.emp.id }}" value="{{ p.emp.meal_allowance or 0 }}"></label>
                     </td>
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>
