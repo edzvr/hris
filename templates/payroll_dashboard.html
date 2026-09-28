@@ -122,6 +122,13 @@
             <option value="ready">Ready only</option>
             <option value="review">Needs Review only</option>
         </select>
+        <label for="employee-filter">Employee:</label>
+        <select id="employee-filter">
+            <option value="all">All employees</option>
+            {% for p in payroll_data %}
+            <option value="{{ p.emp.id }}">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+            {% endfor %}
+        </select>
     </section>
 
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
@@ -161,9 +168,9 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label"><td colspan="22">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label payroll-section"><td colspan="22">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
-                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
+                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
                         <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
@@ -242,12 +249,24 @@
             });
         }
         const reviewFilter = document.getElementById('review-filter');
-        if (reviewFilter) {
-            reviewFilter.addEventListener('change', function () {
-                document.querySelectorAll('.payroll-row').forEach(function (row) {
-                    row.style.display = this.value === 'all' || row.dataset.review === this.value ? '' : 'none';
-                }, this);
+        const employeeFilter = document.getElementById('employee-filter');
+        function applyPayrollFilters() {
+            const review = reviewFilter ? reviewFilter.value : 'all';
+            const employee = employeeFilter ? employeeFilter.value : 'all';
+            document.querySelectorAll('.payroll-row').forEach(function (row) {
+                const matchesReview = review === 'all' || row.dataset.review === review;
+                const matchesEmployee = employee === 'all' || row.dataset.employee === employee;
+                row.style.display = matchesReview && matchesEmployee ? '' : 'none';
             });
+            document.querySelectorAll('.payroll-section').forEach(function (row) {
+                row.style.display = employee === 'all' ? '' : 'none';
+            });
+        }
+        if (reviewFilter) {
+            reviewFilter.addEventListener('change', applyPayrollFilters);
+        }
+        if (employeeFilter) {
+            employeeFilter.addEventListener('change', applyPayrollFilters);
         }
     });
 </script>
