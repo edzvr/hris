@@ -7,6 +7,9 @@
     const text = 1.05 / (luminance + 0.05) >= 4.5 ? '#ffffff' : '#000000';
     document.documentElement.style.setProperty('--workspace-accent', color);
     document.documentElement.style.setProperty('--workspace-accent-text', text);
+    const defaultPalette = color.toLowerCase() === '#2563eb';
+    document.documentElement.style.setProperty('--workspace-button', defaultPalette ? '#fde047' : color);
+    document.documentElement.style.setProperty('--workspace-button-text', defaultPalette ? '#243247' : text);
   }
   window.applyWorkspaceAccent = applyWorkspaceAccent;
   const key = document.body.classList.contains('hris-admin-sidebar-page') ? 'hrisAdminSettings' : 'hrisStaffDashboardSettings';
