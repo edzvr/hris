@@ -31,6 +31,7 @@ def test_forgot_password_sends_case_insensitive_registered_email():
     assert employee_query.filter.called
     assert send_email.called
     assert "https://hris.example.com/reset_password/test-reset-token" in send_email.call_args.args[2]
+    assert 'href="https://hris.example.com/reset_password/test-reset-token"' in send_email.call_args.kwargs["html_body"]
     assert not delete.called
 
 
@@ -103,7 +104,7 @@ def test_brevo_notification_does_not_require_flask_mail_or_smtp():
         assert send_notification_email(["", "staff@example.com"], "Subject", "Body")
     send.assert_called_once_with(
         "test-api-key", "sender@example.com", ["staff@example.com"],
-        "Subject", "Body", None,
+        "Subject", "Body", None, html_body=None,
     )
 
 

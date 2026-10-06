@@ -40,6 +40,18 @@ def test_brevo_missing_configuration_does_not_send():
     send.assert_not_called()
 
 
+def test_brevo_preserves_plain_text_and_clickable_html():
+    html = '<a href="https://hris.example.com/reset_password/test-token">Reset Password</a>'
+    with patch("utils.email_delivery.urlopen", return_value=accepted_response()) as send:
+        assert send_brevo_email(
+            "key", "sender@example.com", ["staff@example.com"],
+            "Reset", "Plain text fallback", html_body=html,
+        )
+    payload = json.loads(send.call_args.args[0].data)
+    assert payload["htmlContent"] == html
+    assert payload["textContent"] == "Plain text fallback"
+
+
 def test_brevo_network_failures_return_false():
     for error in (TimeoutError(), URLError("unreachable"), OSError("connection failed")):
         with patch("utils.email_delivery.urlopen", side_effect=error):

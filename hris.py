@@ -162,7 +162,7 @@ except ImportError:
     logger.warning("Flask-Mail not installed — email features disabled")
 
 
-def send_notification_email(recipients, subject, body, attachments=None):
+def send_notification_email(recipients, subject, body, attachments=None, *, html_body=None):
     """Send an email only when the optional mail service is configured."""
     recipients = [email for email in recipients if email]
     if not recipients:
@@ -177,6 +177,7 @@ def send_notification_email(recipients, subject, body, attachments=None):
             subject,
             body,
             attachments,
+            html_body=html_body,
         )
     if provider != 'smtp':
         logger.error("Email send skipped: unsupported MAIL_PROVIDER.")
@@ -194,6 +195,8 @@ def send_notification_email(recipients, subject, body, attachments=None):
             recipients=recipients,
             body=body
         )
+        if html_body:
+            message.html = html_body
         for filename, content, mimetype in attachments or []:
             message.attach(filename, mimetype, content)
         mail.send(message)
@@ -1482,7 +1485,8 @@ def forgot_password():
                     "Use this link to reset your HRIS password:\n"
                     f"{reset_url}\n\n"
                     "This link expires in 1 hour and can only be used once."
-                )
+                ),
+                html_body=render_template('emails/password_reset.html', reset_url=reset_url),
             )
             if not email_sent:
                 db.session.delete(reset_token)
@@ -1519,7 +1523,7 @@ def reset_password(token):
         reset_token.employee.set_password(password)
         reset_token.used = True
         db.session.commit()
-        flash("Password reset successful. Please login.", "success")
+        flash("Your password has been reset successfully. You can now log in using your new password.", "success")
         return redirect(url_for('login'))
 
     return render_template('reset_password.html', token=token)

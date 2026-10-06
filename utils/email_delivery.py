@@ -10,7 +10,7 @@ BREVO_EMAIL_URL = "https://api.brevo.com/v3/smtp/email"
 EMAIL_API_TIMEOUT_SECONDS = 10
 
 
-def send_brevo_email(api_key, sender, recipients, subject, body, attachments=None):
+def send_brevo_email(api_key, sender, recipients, subject, body, attachments=None, *, html_body=None):
     """Return whether Brevo accepted the email, not whether it reached the inbox."""
     if not api_key or not sender:
         logger.error("Brevo email send skipped: BREVO_API_KEY or MAIL_DEFAULT_SENDER is missing.")
@@ -22,6 +22,8 @@ def send_brevo_email(api_key, sender, recipients, subject, body, attachments=Non
         "subject": subject,
         "textContent": body,
     }
+    if html_body:
+        payload["htmlContent"] = html_body
     if attachments:
         payload["attachment"] = [
             {
