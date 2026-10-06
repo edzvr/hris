@@ -3056,6 +3056,21 @@ def dashboard_staff():
 
 STAFF_HELP_TOPICS = [
     {
+        'keywords': ('settings', 'setting', 'customize', 'customise', 'customization', 'color',
+                     'colour', 'kulay', 'sidebar', 'button size', 'layout'),
+        'title': 'Dashboard settings and colors',
+        'answer': 'Sa sidebar, buksan ang My Account > Settings (sa mobile, buksan muna ang Staff menu). '
+                  'Sa Buttons & sidebar color, pumili ng kulay at pindutin ang Save Settings. '
+                  'Ang custom color ay sabay na ginagamit sa buttons at sidebar; automatic ang readable text color. '
+                  'Ang default company palette ay yellow sidebar, deep-blue buttons na white ang text, at gray background. '
+                  'Puwede ring baguhin ang sidebar text size, button size, at buttons per row. '
+                  'Ang settings ay saved sa browser/device na gamit mo, hindi sa lahat ng devices. '
+                  'Gamitin ang Reset Layout para ibalik ang default colors at layout; hindi nito binubura ang HR records. '
+                  'Red pa rin ang warning/destructive actions tulad ng Clock Out.',
+        'endpoint': 'dashboard_staff',
+        'fragment': '#staffSettingsPanel',
+    },
+    {
         'keywords': ('clock in', 'clockin', 'clock out', 'clockout', 'attendance', 'dtr', 'time record'),
         'title': 'Attendance and DTR',
         'answer': 'Open My Attendance from the sidebar. Use Clock In at the start of work and Clock Out at the end. To download your DTR, open My Attendance and choose the PDF download. If a time is missing or wrong, use Request Attendance Correction and include the correct time and reason.',
@@ -3114,7 +3129,7 @@ def answer_staff_help(question):
             return {'title': topic['title'], 'answer': topic['answer'], 'matched': True, 'topic': topic}
     return {
         'title': 'I need more information',
-        'answer': 'Hindi ko pa alam ang sagot sa tanong na iyan. Subukan ang keywords na attendance, payslip, leave, loan, overtime, profile, bulletin, o download. Kung hindi pa rin malinaw, gamitin ang Staff Guide at mag-submit ng Attendance Correction o Incident Report kung iyon ang concern.',
+        'answer': 'Hindi ko pa alam ang sagot sa tanong na iyan. Subukan ang keywords na settings, kulay, attendance, payslip, leave, loan, overtime, profile, bulletin, o download. Kung hindi pa rin malinaw, gamitin ang Staff Guide at mag-submit ng Attendance Correction o Incident Report kung iyon ang concern.',
         'matched': False,
         'topic': None,
     }
@@ -3140,6 +3155,7 @@ def staff_help():
             topic_url = url_for('loan', employee_id=current_user.id)
         else:
             topic_url = url_for(topic['endpoint'])
+        topic_url += topic.get('fragment', '')
     return render_template('staff_help.html', question=question, help_result=help_result, topic_url=topic_url)
 
 
