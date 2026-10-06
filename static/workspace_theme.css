@@ -1,4 +1,4 @@
-:root { --workspace-accent:#2563eb; --workspace-accent-text:#fff; --workspace-button:#fde047; --workspace-button-text:#243247; }
+:root { --workspace-accent:#faf04b; --workspace-accent-text:#243247; --workspace-button:#1600ad; --workspace-button-text:#fff; }
 body.hris-admin-sidebar-page, body.hris-staff-navigation-page { background:#f1f3f6 !important; color:#243247; }
 #hris-global-sidebar { background:var(--workspace-accent) !important; color:var(--workspace-accent-text) !important; }
 #hris-global-sidebar a, #hris-global-sidebar summary, #hris-global-sidebar .workspace-label { color:var(--workspace-accent-text) !important; }
