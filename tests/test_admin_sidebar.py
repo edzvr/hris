@@ -40,6 +40,7 @@ def test_admin_has_grouped_vertical_navigation_and_all_routes():
     assert "#employees" in html
     assert "#bulletins" in html
     assert "#analytics" in html
+    assert "#request-calendar" in html
     assert 'href="/attendance/123"' in html
     assert 'aria-expanded="false"' in html
 
@@ -48,8 +49,35 @@ def test_staff_navigation_groups_preserve_routes():
     html = navigation_response("staff", "/dashboard_staff")
     assert 'aria-label="Employee navigation"' in html
     assert "hris-admin-sidebar-page" not in html
-    for label in ("Attendance", "Payroll &amp; Reports", "Loan &amp; Leave", "Performance", "Resources &amp; Account"):
+    for label in ("Attendance", "Payroll &amp; Reports", "Loan &amp; Leave", "Performance",
+                  "Documents &amp; Updates", "Help &amp; Concerns", "My Account"):
         assert label in html
+    assert 'Resources &amp; Account' not in html
+    assert 'Staff menu' in html
+    assert 'padding-left:240px' in html
+    from html.parser import HTMLParser
+
+    class GroupParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.inside_group = False
+            self.link_counts = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'details':
+                self.inside_group = True
+                self.link_counts.append(0)
+            elif tag == 'a' and self.inside_group:
+                self.link_counts[-1] += 1
+
+        def handle_endtag(self, tag):
+            if tag == 'details':
+                self.inside_group = False
+
+    parser = GroupParser()
+    parser.feed(html)
+    assert len(parser.link_counts) == 7
+    assert max(parser.link_counts) <= 4
     for path in ("/attendance/123", "/payroll/123", "/profile/123", "/logout", "/peer_evaluation"):
         assert f'href="{path}"' in html
     with app.test_request_context():
@@ -73,7 +101,7 @@ def test_login_and_non_html_do_not_receive_admin_sidebar():
 
 def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     from flask import render_template
-    from hris import dashboard_summary
+    from hris import dashboard_summary, admin_request_calendar
     from html.parser import HTMLParser
 
     class LayoutParser(HTMLParser):
@@ -107,6 +135,7 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
             pending_leaves_list=[], pending_loans_list=[], bulletins=[],
             trend_labels=[], trend_values=[],
             summary=dashboard_summary(),
+            request_calendar=admin_request_calendar(dashboard_summary()['month_start']),
         )
     parser = LayoutParser()
     parser.feed(html)

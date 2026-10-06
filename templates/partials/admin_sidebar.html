@@ -1,6 +1,7 @@
 {% set groups = [
   ('Overview & Account', [
     ('dashboard_admin', 'Dashboard', ''),
+    ('dashboard_admin', 'Request Calendar', '#request-calendar'),
     ('dashboard_admin', 'Employees', '#employees'),
     ('profile', 'My Profile', ''),
     ('attendance', 'My Attendance', ''),
@@ -62,6 +63,8 @@
     #admin-menu-backdrop:not([hidden]) { display: block; position: fixed; inset: 64px 0 0; z-index: 9999; padding: 0; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.35); width: 100%; height: calc(100% - 64px); }
   }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='workspace_theme.css') }}">
+<script src="{{ url_for('static', filename='workspace_theme.js') }}"></script>
 <button id="admin-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Admin menu</button>
 <button id="admin-menu-backdrop" type="button" aria-label="Close admin menu" hidden></button>
 <aside id="hris-global-sidebar" aria-label="Admin workspace">

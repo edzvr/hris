@@ -1261,8 +1261,9 @@ def inject_authenticated_sidebar(response):
             ('Payroll & Reports', {'payroll', 'thirteenth_month', 'employee_liabilities'}),
             ('Loan & Leave', {'loan', 'leave'}),
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
-            ('Resources & Account', {'profile', 'hr_documents', 'staff_concerns', 'bulletin',
-                                     'company_files', 'submit_incident', 'staff_help', 'monthly_reminders'}),
+            ('Documents & Updates', {'hr_documents', 'bulletin', 'company_files', 'monthly_reminders'}),
+            ('Help & Concerns', {'staff_concerns', 'submit_incident', 'staff_help'}),
+            ('My Account', {'profile'}),
         ]
         sidebar = render_template(
             'partials/staff_navigation.html',
@@ -2781,12 +2782,59 @@ def dashboard_summary(employee=None):
     }
 
 
+def admin_request_calendar(month_start):
+    import calendar
+
+    month_end = month_start.replace(day=calendar.monthrange(month_start.year, month_start.month)[1])
+    events = {}
+
+    def add_event(day, label, endpoint, kind):
+        events.setdefault(day, []).append({'label': label, 'url': url_for(endpoint), 'kind': kind})
+
+    leaves = LeaveRequest.query.filter(
+        LeaveRequest.start_date <= month_end, LeaveRequest.end_date >= month_start
+    ).order_by(LeaveRequest.start_date, LeaveRequest.id).all()
+    for leave in leaves:
+        day = max(leave.start_date, month_start)
+        last = min(leave.end_date, month_end)
+        while day <= last:
+            add_event(day, f'{leave.employee.full_name()} - Leave ({leave.status})', 'leave', 'leave')
+            day += timedelta(days=1)
+    loans = Loan.query.filter(
+        Loan.date_needed >= month_start, Loan.date_needed <= month_end
+    ).order_by(Loan.date_needed, Loan.id).all()
+    for loan in loans:
+        add_event(loan.date_needed, f'{loan.employee.full_name()} - Loan needed ({loan.status})', 'loan', 'loan')
+    for day_number in range(1, month_end.day + 1):
+        day = month_start.replace(day=day_number)
+        if day.weekday() == 4:
+            add_event(day, '10 PM - Payroll / approved OT review reminder', 'payroll_dashboard', 'deadline')
+    add_event(month_end, 'Month-end - Staff quiz and peer evaluation deadline', 'evaluation_dashboard', 'deadline')
+    return {
+        'month': month_start, 'weeks': calendar.Calendar().monthdatescalendar(month_start.year, month_start.month),
+        'events': events,
+        'previous': (month_start - timedelta(days=1)).strftime('%Y-%m'),
+        'next': (month_end + timedelta(days=1)).strftime('%Y-%m'),
+        'today': datetime.now(ZoneInfo('Asia/Manila')).date(),
+    }
+
+
 @app.route('/dashboard_admin', methods=['GET','POST'])
 @login_required
 def dashboard_admin():
     if current_user.role.lower() != "admin":
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('login'))
+
+    calendar_month = datetime.now(ZoneInfo('Asia/Manila')).date().replace(day=1)
+    if request.args.get('calendar_month'):
+        try:
+            calendar_month = datetime.strptime(request.args['calendar_month'], '%Y-%m').date()
+            if not 1901 <= calendar_month.year <= 9998:
+                raise ValueError('Calendar year is out of range')
+        except ValueError:
+            flash('Invalid calendar month. Choose a valid month between 1901 and 9998.', 'danger')
+            return redirect(url_for('dashboard_admin'))
 
     # Profile update
     if request.method == 'POST' and 'first_name' in request.form:
@@ -2914,7 +2962,8 @@ def dashboard_admin():
         trend_labels=trend_labels,
         trend_values=trend_values,
         admin=current_user,
-        summary=dashboard_summary()
+        summary=dashboard_summary(),
+        request_calendar=admin_request_calendar(calendar_month)
     )
 
 

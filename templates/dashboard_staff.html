@@ -248,18 +248,18 @@
     </div>
 
           <div id="staffSettingsPanel" class="container card dashboard-section">
-          <p>Summaries appear first. All staff tools remain available here and in the grouped navigation menus. Button customization applies to the tools below; topbar size adjusts menu text.</p>
+          <p>Summaries appear first. All tools remain available here and in the sidebar (Staff menu on mobile). Color settings update both buttons and the sidebar; navigation size adjusts sidebar text.</p>
           <h2>Dashboard Settings</h2>
           <div class="staff-dashboard-settings">
-            <label>Top bar size
+            <label>Sidebar text size
               <select id="staffTopbarSize">
                 <option value="small">Small</option>
                 <option value="medium">Medium</option>
                 <option value="large">Large</option>
               </select>
             </label>
-            <label>Button color
-              <input type="color" id="staffButtonColor" value="#1f7fdf">
+            <label>Buttons &amp; sidebar color
+              <input type="color" id="staffButtonColor" value="#2563eb">
             </label>
             <label>Button size
               <select id="staffButtonSize">
@@ -535,6 +535,7 @@
     document.querySelectorAll('.dashboard-links .btn-primary').forEach(button => {
       button.style.backgroundColor = settings.buttonColor || '#1f7fdf';
     });
+    applyWorkspaceAccent(settings.buttonColor || '#2563eb');
     localStorage.setItem('hrisTopbarSize', settings.topbarSize || 'medium');
     const topbarSizes = {
       small: { row: '46px', font: '16px', title: '22px', column: '154px' },
@@ -570,7 +571,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     const storedSettings = JSON.parse(localStorage.getItem('hrisStaffDashboardSettings') || '{}');
     document.getElementById('staffTopbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
-    document.getElementById('staffButtonColor').value = storedSettings.buttonColor || '#1f7fdf';
+    document.getElementById('staffButtonColor').value = storedSettings.buttonColor || '#2563eb';
     document.getElementById('staffButtonSize').value = storedSettings.buttonSize || 'medium';
     document.getElementById('staffButtonsPerRow').value = storedSettings.buttonsPerRow || '3';
     applyStaffDashboardSettings(storedSettings);

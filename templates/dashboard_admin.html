@@ -195,6 +195,7 @@
 
   {% set dashboard_is_admin = true %}
   {% include 'partials/dashboard_summary.html' %}
+  {% include 'partials/admin_calendar.html' %}
 
   <details class="card" style="border-left:4px solid #238b63;">
     <summary>Review queue &amp; reminders</summary>
@@ -566,8 +567,9 @@
       document.body.style.setProperty('--hris-topbar-font-size', topbarSize.font);
       document.body.style.setProperty('--hris-topbar-title-size', topbarSize.title);
       document.body.style.setProperty('--hris-topbar-column-width', topbarSize.column);
-      document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#557760');
-      document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#42604c');
+      document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#2563eb');
+      document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#1d4ed8');
+      applyWorkspaceAccent(settings.buttonColor || '#2563eb');
       const sizes = {
         small: { height: '70px', padding: '12px', fontSize: '18px' },
         medium: { height: '94px', padding: '20px', fontSize: '23px' },
@@ -627,7 +629,7 @@
       document.getElementById('themeSelect').value = storedSettings.theme || 'light';
       document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
       document.getElementById('topbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
-      document.getElementById('buttonColor').value = storedSettings.buttonColor || '#557760';
+      document.getElementById('buttonColor').value = storedSettings.buttonColor || '#2563eb';
       document.getElementById('buttonSize').value = storedSettings.buttonSize || 'medium';
       document.getElementById('buttonsPerRow').value = storedSettings.buttonsPerRow || '3';
       applyAdminSettings(storedSettings);
@@ -660,7 +662,8 @@
         <br><br>
         <label><input type="checkbox" id="notifications"> Enable Notifications</label>
         <br><br>
-        <label>Staff top bar size:
+        <p>The selected accent color applies to dashboard buttons and the sidebar, and stays saved on this browser when opening other routes.</p>
+        <label>Staff navigation text size:
           <select id="topbarSize">
             <option value="small">Small</option>
             <option value="medium">Medium</option>
@@ -668,7 +671,7 @@
           </select>
         </label>
         <br><br>
-        <label>Button color: <input type="color" id="buttonColor" value="#557760"></label>
+        <label>Buttons &amp; sidebar color: <input type="color" id="buttonColor" value="#2563eb"></label>
         <br><br>
         <label>Quick action button size:
           <select id="buttonSize">
@@ -686,7 +689,7 @@
             <option value="4">4</option>
           </select>
         </label>
-        <p>Admin routes are grouped in the sidebar by workflow. On smaller screens, use Admin menu to open navigation. The top bar size setting applies to staff navigation.</p>
+        <p>Admin routes are grouped in the sidebar by workflow. On smaller screens, use Admin menu to open navigation. The navigation text size setting applies to the staff sidebar on this browser.</p>
         <p>On phones, cards stack and wide tables scroll inside their own panel. Quick Actions can be expanded below the employee tables.</p>
         <p>Drag the Quick Actions buttons to arrange them. Your arrangement is saved on this browser.</p>
         <br><br>

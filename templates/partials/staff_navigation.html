@@ -1,53 +1,75 @@
 <style id="hris-global-sidebar-style">
-  body.hris-staff-navigation-page { padding-top: 76px; }
-  #hris-global-sidebar { position: fixed; inset: 0 0 auto; z-index: 10000; display: flex; flex-wrap: wrap; gap: 8px; align-items: start; padding: 10px 14px; background: #34483e; color: #fff; font: 15px Arial,sans-serif; }
-  #hris-global-sidebar > a, #hris-global-sidebar summary { display: block; padding: 12px; min-height: 44px; box-sizing: border-box; color: #fff; cursor: pointer; text-decoration: none; font-size:var(--hris-topbar-font-size,15px); }
-  #hris-global-sidebar details { position: relative; }
-  #hris-global-sidebar .navigation-items { position: absolute; top: 100%; right: 0; width: 240px; max-height: 65vh; overflow-y: auto; background: #34483e; padding: 8px; box-shadow: 0 4px 12px #0003; }
-  #hris-global-sidebar .navigation-items a { display: block; color: #fff; padding: 12px; text-decoration: none; line-height: 1.4; }
-  #hris-global-sidebar a:hover, #hris-global-sidebar summary:hover { background: #506c59; }
-  @media(min-width:901px) {
-    #hris-global-sidebar details:not(:last-child) .navigation-items { left:0; right:auto; }
-  }
+  body.hris-staff-navigation-page { padding-left:240px !important; padding-top:0 !important; box-sizing:border-box; }
+  #hris-global-sidebar { position:fixed; inset:0 auto 0 0; width:240px; z-index:10000; padding:20px 12px; box-sizing:border-box; overflow-y:auto; font:15px Arial,sans-serif; }
+  #hris-global-sidebar h2 { margin:0; font-size:26px; }
+  #hris-global-sidebar summary, #hris-global-sidebar a { display:block; padding:12px; min-height:44px; box-sizing:border-box; cursor:pointer; text-decoration:none; font-size:var(--hris-topbar-font-size,14px); line-height:1.4; overflow-wrap:anywhere; border-radius:6px; }
+  #hris-global-sidebar summary { font-weight:600; }
+  #staff-menu-toggle, #staff-menu-backdrop { display:none; }
   @media(max-width:900px) {
-    body.hris-staff-navigation-page { padding-top: 130px; }
-    #hris-global-sidebar { gap: 0; }
-    #hris-global-sidebar > a, #hris-global-sidebar details { flex: 1 0 30%; }
-    #hris-global-sidebar summary { font-size: 13px; padding: 10px 6px; }
-    #hris-global-sidebar .navigation-items { position:fixed; top:var(--staff-nav-bottom,120px); left:14px; right:14px; width:auto; box-sizing:border-box; }
+    body.hris-staff-navigation-page { padding-left:0 !important; padding-top:64px !important; }
+    #staff-menu-toggle { display:block; position:fixed; top:10px; left:12px; z-index:10001; padding:10px 16px; min-height:44px; border:0; border-radius:6px; cursor:pointer; font-size:16px; }
+    #hris-global-sidebar { top:64px; width:min(280px,85vw); visibility:hidden; }
+    #hris-global-sidebar.menu-open { visibility:visible; }
+    #staff-menu-backdrop:not([hidden]) { display:block; position:fixed; inset:64px 0 0; z-index:9999; width:100%; height:calc(100% - 64px); background:#0006; border:0; padding:0; margin:0; }
   }
 </style>
-<nav id="hris-global-sidebar" aria-label="Employee navigation">
-  <a href="{{ url_for('dashboard_staff') }}">Dashboard</a>
-  {% for title, endpoints in navigation_groups %}
-    <details>
-      <summary>{{ title }}</summary>
-      <div class="navigation-items">
-        {% if title == 'Resources & Account' %}<a href="{{ url_for('staff_guide') }}">Staff Guide</a>{% endif %}
-        {% for endpoint, label in navigation_links if endpoint in endpoints %}
-          {% set href = url_for(endpoint, employee_id=navigation_user_id) if endpoint in ['payroll', 'attendance', 'quiz', 'merit_demerit'] else url_for(endpoint, user_id=navigation_user_id) if endpoint == 'profile' else url_for(endpoint) %}
-          <a href="{{ href }}">{{ label }}</a>
-        {% endfor %}
-        {% if title == 'Resources & Account' %}
-          <a href="{{ url_for('dashboard_staff') }}#staffSettingsPanel">Settings</a>
-          <a href="{{ url_for('logout') }}">Sign out</a>
-        {% endif %}
-      </div>
-    </details>
-  {% endfor %}
-</nav>
+<link rel="stylesheet" href="{{ url_for('static', filename='workspace_theme.css') }}">
+<script src="{{ url_for('static', filename='workspace_theme.js') }}"></script>
+<button id="staff-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Staff menu</button>
+<button id="staff-menu-backdrop" type="button" aria-label="Close staff menu" hidden></button>
+<aside id="hris-global-sidebar" aria-label="Staff workspace">
+  <h2>HRIS</h2><p class="workspace-label">Staff workspace</p>
+  <nav aria-label="Employee navigation">
+    <a href="{{ url_for('dashboard_staff') }}">Dashboard</a>
+    {% for title, endpoints in navigation_groups %}
+      <details>
+        <summary>{{ title }}</summary>
+        <div class="navigation-items">
+          {% if title == 'Help & Concerns' %}<a href="{{ url_for('staff_guide') }}">Staff Guide</a>{% endif %}
+          {% for endpoint, label in navigation_links if endpoint in endpoints %}
+            {% set href = url_for(endpoint, employee_id=navigation_user_id) if endpoint in ['payroll', 'attendance', 'quiz', 'merit_demerit'] else url_for(endpoint, user_id=navigation_user_id) if endpoint == 'profile' else url_for(endpoint) %}
+            <a href="{{ href }}">{{ label }}</a>
+          {% endfor %}
+          {% if title == 'My Account' %}
+            <a href="{{ url_for('dashboard_staff') }}#staffSettingsPanel">Settings</a>
+            <a href="{{ url_for('logout') }}">Sign out</a>
+          {% endif %}
+        </div>
+      </details>
+    {% endfor %}
+  </nav>
+</aside>
 <script>
   (function () {
     const nav = document.getElementById('hris-global-sidebar');
-    const groups = nav.querySelectorAll('details');
-    groups.forEach(group => group.addEventListener('toggle', () => {
-      if (group.open) groups.forEach(other => { if (other !== group) other.open = false; });
-    }));
-    document.addEventListener('click', event => {
-      if (!nav.contains(event.target)) groups.forEach(group => { group.open = false; });
+    const toggle = document.getElementById('staff-menu-toggle');
+    const backdrop = document.getElementById('staff-menu-backdrop');
+    function closeMenu() {
+      nav.classList.remove('menu-open');
+      toggle.setAttribute('aria-expanded', 'false');
+      backdrop.hidden = true;
+    }
+    toggle.addEventListener('click', () => {
+      const open = nav.classList.toggle('menu-open');
+      toggle.setAttribute('aria-expanded', String(open));
+      backdrop.hidden = !open;
+    });
+    backdrop.addEventListener('click', closeMenu);
+    window.matchMedia('(max-width:900px)').addEventListener('change', closeMenu);
+    nav.querySelectorAll('a').forEach(link => {
+      const url = new URL(link.href);
+      if (url.pathname === location.pathname && url.hash === location.hash) {
+        link.setAttribute('aria-current', 'page');
+        const group = link.closest('details');
+        if (group) group.open = true;
+      }
+      link.addEventListener('click', closeMenu);
     });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape') groups.forEach(group => { group.open = false; });
+      if (event.key === 'Escape' && nav.classList.contains('menu-open')) {
+        closeMenu();
+        toggle.focus();
+      }
     });
     function openSettings() {
       if (location.hash === '#staffSettingsPanel') {
@@ -61,11 +83,7 @@
     }
     window.addEventListener('hashchange', openSettings);
     openSettings();
-    const observer = new ResizeObserver(() => {
-      const height = nav.getBoundingClientRect().height;
-      document.body.style.paddingTop = `${height + 12}px`;
-      nav.style.setProperty('--staff-nav-bottom', `${height}px`);
-    });
-    observer.observe(nav);
+    const sizes = { small:'14px', medium:'16px', large:'18px' };
+    document.body.style.setProperty('--hris-topbar-font-size', sizes[localStorage.getItem('hrisTopbarSize')] || '16px');
   })();
 </script>

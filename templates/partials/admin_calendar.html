@@ -1,0 +1,30 @@
+<section class="card request-calendar" id="request-calendar" aria-label="Leave, loan and deadline calendar">
+  <div class="calendar-toolbar">
+    <h2>Request Calendar - {{ request_calendar.month.strftime('%B %Y') }}</h2>
+    <div>
+      <a class="btn" href="{{ url_for('dashboard_admin', calendar_month=request_calendar.previous) }}#request-calendar" aria-label="Previous month">Previous</a>
+      <a class="btn" href="{{ url_for('dashboard_admin') }}#request-calendar">Today</a>
+      <a class="btn" href="{{ url_for('dashboard_admin', calendar_month=request_calendar.next) }}#request-calendar" aria-label="Next month">Next</a>
+    </div>
+  </div>
+  <p>Leave dates and loan date-needed are shown with request status. Blue entries are existing payroll review and month-end reminders, not statutory filing deadlines.</p>
+  <form method="GET" class="calendar-toolbar">
+    <label>Choose month <input type="month" name="calendar_month" value="{{ request_calendar.month.strftime('%Y-%m') }}" min="1901-01" max="9998-12" required></label>
+    <button type="submit" class="btn">Go</button>
+  </form>
+  <div class="calendar-scroll" tabindex="0" role="region" aria-label="Monthly calendar; scroll horizontally on small screens">
+    <div class="calendar-grid">
+      {% for weekday in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}<div class="calendar-weekday">{{ weekday }}</div>{% endfor %}
+      {% for week in request_calendar.weeks %}
+        {% for day in week %}
+          <section class="calendar-day{% if day.month != request_calendar.month.month %} outside-month{% endif %}{% if day == request_calendar.today %} calendar-today{% endif %}" aria-label="{{ day.strftime('%B %d, %Y') }}">
+            <time datetime="{{ day.isoformat() }}">{{ day.day }}</time>
+            {% for event in request_calendar.events.get(day, []) %}
+              <a class="calendar-event calendar-{{ event.kind }}" href="{{ event.url }}">{{ event.label }}</a>
+            {% endfor %}
+          </section>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

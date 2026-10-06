@@ -2,7 +2,7 @@
   font-size: 15px;
   line-height: 1.5;
   color: #2f4037;
-  background: #f1f5f2 !important;
+  background: #f1f3f6 !important;
 }
 .admin-dashboard-page *, .admin-dashboard-page *::before, .admin-dashboard-page *::after { box-sizing: border-box; }
 .admin-dashboard-page h2 { font-size: 21px; margin: 0 0 14px; }
@@ -41,7 +41,7 @@
   font-size: 14px;
   border-radius: 6px;
   margin: 4px;
-  background: var(--admin-button-color, #557760);
+  background: var(--admin-button-color, #2563eb);
 }
 .admin-dashboard-page .admin-actions-grid { grid-template-columns: repeat(var(--admin-buttons-per-row, 3), minmax(0, 1fr)); gap: 10px; }
 .admin-dashboard-page .admin-actions-grid .btn { min-height: 48px; padding: 12px; font-size: 14px; line-height: 1.4; text-align: left; justify-content: flex-start; }
