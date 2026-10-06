@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename 
+from utils.email_delivery import send_brevo_email
 
 try:
     from dotenv import load_dotenv
@@ -138,6 +139,8 @@ app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == '
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+app.config['MAIL_PROVIDER'] = os.environ.get('MAIL_PROVIDER', 'smtp').strip().lower()
+app.config['BREVO_API_KEY'] = os.environ.get('BREVO_API_KEY', '')
 instance_dir = os.path.join(basedir, 'instance')
 os.makedirs(instance_dir, exist_ok=True)
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
@@ -162,14 +165,27 @@ except ImportError:
 def send_notification_email(recipients, subject, body, attachments=None):
     """Send an email only when the optional mail service is configured."""
     recipients = [email for email in recipients if email]
+    if not recipients:
+        logger.warning("Email send skipped: no recipients provided.")
+        return False
+    provider = app.config.get('MAIL_PROVIDER', 'smtp')
+    if provider == 'brevo':
+        return send_brevo_email(
+            app.config.get('BREVO_API_KEY'),
+            app.config.get('MAIL_DEFAULT_SENDER'),
+            recipients,
+            subject,
+            body,
+            attachments,
+        )
+    if provider != 'smtp':
+        logger.error("Email send skipped: unsupported MAIL_PROVIDER.")
+        return False
     if not mail:
         logger.warning("Email send skipped: Flask-Mail is not available.")
         return False
     if not app.config.get('MAIL_SERVER'):
         logger.warning("Email send skipped: MAIL_SERVER is not configured.")
-        return False
-    if not recipients:
-        logger.warning("Email send skipped: no recipients provided.")
         return False
     try:
         message = Message(
