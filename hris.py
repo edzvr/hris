@@ -1270,6 +1270,7 @@ def inject_authenticated_sidebar(response):
             navigation_groups=navigation_groups,
             navigation_links=links,
             navigation_user_id=current_user.id,
+            navigation_company=current_user.company,
         )
         if '<body class="' in html:
             html = html.replace('<body class="', '<body class="hris-staff-navigation-page ', 1)

@@ -18,6 +18,9 @@
 <button id="staff-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Staff menu</button>
 <button id="staff-menu-backdrop" type="button" aria-label="Close staff menu" hidden></button>
 <aside id="hris-global-sidebar" aria-label="Staff workspace">
+  {% set branding_is_admin = false %}
+  {% set branding_company = navigation_company %}
+  {% include 'partials/company_branding.html' %}
   <h2>HRIS</h2><p class="workspace-label">Staff workspace</p>
   <nav aria-label="Employee navigation">
     <a href="{{ url_for('dashboard_staff') }}">Dashboard</a>

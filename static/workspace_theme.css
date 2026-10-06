@@ -1,4 +1,9 @@
 :root { --workspace-accent:#faf04b; --workspace-accent-text:#243247; --workspace-button:#1600ad; --workspace-button-text:#fff; }
+.company-branding { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; max-width:100%; }
+.company-branding img { display:block; width:180px; max-width:100%; height:58px; object-fit:contain; background:#fff; border-radius:6px; padding:6px; box-sizing:border-box; }
+#hris-global-sidebar .company-branding { margin-bottom:18px; }
+#hris-global-sidebar .company-branding img { width:100%; }
+.admin-workspace-header { flex-wrap:wrap; }
 body.hris-admin-sidebar-page, body.hris-staff-navigation-page { background:#f1f3f6 !important; color:#243247; }
 #hris-global-sidebar { background:var(--workspace-accent) !important; color:var(--workspace-accent-text) !important; }
 #hris-global-sidebar a, #hris-global-sidebar summary, #hris-global-sidebar .workspace-label { color:var(--workspace-accent-text) !important; }

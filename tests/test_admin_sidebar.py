@@ -6,8 +6,8 @@ from flask import Response
 from hris import app, inject_authenticated_sidebar
 
 
-def navigation_response(role, path="/dashboard_admin"):
-    user = SimpleNamespace(id=123, role=role, is_authenticated=True)
+def navigation_response(role, path="/dashboard_admin", company="Trece-Uno"):
+    user = SimpleNamespace(id=123, role=role, company=company, is_authenticated=True)
     with app.test_request_context(path), patch("hris.current_user", user):
         response = inject_authenticated_sidebar(
             Response("<html><head></head><body><main>Content</main></body></html>", mimetype="text/html")
@@ -89,6 +89,22 @@ def test_staff_navigation_groups_preserve_routes():
             assert f'href="{url_for(endpoint)}"' in html
         for endpoint in ("quiz", "merit_demerit"):
             assert f'href="{url_for(endpoint, employee_id=123)}"' in html
+
+
+def test_company_logos_follow_role_and_employee_company():
+    admin_html = navigation_response('admin')
+    assert 'images/autoxpertlogo.jpg' in admin_html
+    assert 'images/trece-uno-logo.jpg' in admin_html
+    for company in ('Trece', 'Trece-Uno'):
+        html = navigation_response('staff', '/dashboard_staff', company)
+        assert 'images/trece-uno-logo.jpg' in html
+        assert 'images/autoxpertlogo.jpg' not in html
+    html = navigation_response('staff', '/dashboard_staff', 'Auto Expert')
+    assert 'images/autoxpertlogo.jpg' in html
+    assert 'images/trece-uno-logo.jpg' not in html
+    html = navigation_response('staff', '/dashboard_staff', None)
+    assert 'Company not assigned' in html
+    assert '<img ' not in html
 
 
 def test_login_and_non_html_do_not_receive_admin_sidebar():

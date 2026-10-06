@@ -166,8 +166,9 @@
 </head>
 <body>
     <div class="brand-header">
-        <img src="{{ url_for('static', filename='images/autoxpertlogo.jpg') }}" alt="Auto-Expert Logo">
-        <img src="{{ url_for('static', filename='images/trece-uno-logo.jpg') }}" alt="Trece-Uno Logo">
+        {% set branding_is_admin = false %}
+        {% set branding_company = current_user.company %}
+        {% include 'partials/company_branding.html' %}
     </div>
 
     <header>

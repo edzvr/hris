@@ -178,6 +178,8 @@
 <body class="admin-dashboard-page">
   <!-- Welcome -->
   <header class="admin-workspace-header">
+    {% set branding_is_admin = true %}
+    {% include 'partials/company_branding.html' %}
     <div><strong>Dashboard</strong><span>HRIS admin workspace</span></div>
     <a class="btn" href="{{ url_for('payroll_dashboard') }}">Review payroll</a>
   </header>
