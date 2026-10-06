@@ -47,6 +47,7 @@
   #hris-global-sidebar h2 { margin: 0; font-size: 26px; }
   #hris-global-sidebar .workspace-label { margin: 4px 0 18px; font-size: 15px; color: #b9d4df; }
   #hris-global-sidebar h3 { margin: 20px 10px 8px; font-size: 11px; color: #c4d6c9; text-transform: uppercase; letter-spacing: .6px; }
+  #hris-global-sidebar summary { padding: 12px 8px; min-height:44px; box-sizing:border-box; font-size:13px; color:#c4d6c9; cursor:pointer; font-weight:600; }
   #hris-global-sidebar a { display: block; padding: 10px 12px; margin: 2px 0; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #f4f7f6; text-decoration: none; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background: #506c59; outline-offset: 2px; }
   #hris-global-sidebar .sidebar-logout { margin-top: 24px; border-top: 1px solid #48616f; }
@@ -68,13 +69,13 @@
   <p class="workspace-label">Admin workspace</p>
   <nav aria-label="Admin navigation">
     {% for title, items in groups %}
-      <section aria-label="{{ title }}">
-        <h3>{{ title }}</h3>
+      <details aria-label="{{ title }}"{% if loop.first %} open{% endif %}>
+        <summary>{{ title }}</summary>
         {% for endpoint, label, fragment in items %}
           {% set href = url_for(endpoint, user_id=sidebar_user_id) if endpoint == 'profile' else url_for(endpoint, employee_id=sidebar_user_id) if endpoint == 'attendance' else url_for(endpoint) %}
           <a href="{{ href }}{{ fragment }}"{% if request.endpoint == endpoint and not fragment %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
-      </section>
+      </details>
     {% endfor %}
     <a class="sidebar-logout" href="{{ url_for('logout') }}">Sign out</a>
   </nav>
@@ -106,6 +107,7 @@
       });
     }
     updateCurrentLink();
+    sidebar.querySelectorAll('a[aria-current="page"]').forEach(link => { link.closest('details').open = true; });
     window.addEventListener('hashchange', updateCurrentLink);
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && sidebar.classList.contains('menu-open')) {
@@ -120,6 +122,7 @@
         if (url.pathname === location.pathname && url.hash && typeof showTab === 'function') {
           const target = document.getElementById(url.hash.slice(1));
           if (target && target.classList.contains('tab-content')) showTab(target.id);
+          if (target && target.tagName === 'DETAILS') target.open = true;
         }
         closeMenu();
       });

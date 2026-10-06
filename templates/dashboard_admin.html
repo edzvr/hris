@@ -173,6 +173,7 @@
   </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='admin_dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard_summary.css') }}">
 </head>
 <body class="admin-dashboard-page">
   <!-- Welcome -->
@@ -187,13 +188,16 @@
 
   <div class="stats">
     <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
-    <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
+    <div><h3>Latest Finalized Cutoff Net Pay</h3><p><b>₱{{ "%.2f"|format(summary.net_pay) }}</b></p></div>
     <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
     <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
   </div>
 
-  <div class="card" style="border-left:4px solid #238b63;">
-    <h2>Admin Reminders</h2>
+  {% set dashboard_is_admin = true %}
+  {% include 'partials/dashboard_summary.html' %}
+
+  <details class="card" style="border-left:4px solid #238b63;">
+    <summary>Review queue &amp; reminders</summary>
     <p>Review these items regularly so attendance, payroll, and employee requests stay updated.</p>
     <div class="admin-actions-grid">
       <a href="#attendance-corrections" class="btn">Attendance corrections: {{ pending_attendance_corrections|length }} pending</a>
@@ -203,7 +207,7 @@
       <a href="{{ url_for('evaluation_dashboard') }}" class="btn">Evaluation review: {{ pending_evaluations }} pending</a>
       <a href="{{ url_for('payroll_dashboard') }}" class="btn">Friday 10 PM: review payroll and approved OT</a>
     </div>
-  </div>
+  </details>
 
  <!-- Admin Profile -->
 <details class="profile">
@@ -281,8 +285,8 @@
     <button onclick="showTab('settings')">Settings</button>
   </div>
 
-  <div class="card" id="attendance-corrections">
-    <h2>Pending Attendance Corrections</h2>
+  <details class="card" id="attendance-corrections">
+    <summary>Pending Attendance Corrections ({{ pending_attendance_corrections|length }})</summary>
     <div class="admin-table-scroll" role="region" aria-label="Attendance corrections table" tabindex="0">
     <table>
       <tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
@@ -303,9 +307,11 @@
       {% endfor %}
     </table>
     </div>
-  </div>
+  </details>
   <!-- Employees Tab -->
   <div id="employees" class="tab-content active">
+    <details class="card">
+    <summary>Employee directory &amp; attendance records</summary>
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
       <div class="admin-table-scroll" role="region" aria-label="Trece-Uno employees table" tabindex="0">
@@ -350,6 +356,7 @@
       </table>
       </div>
     </div>
+    </details>
   </div>
 
   <!-- Admin Actions -->
@@ -486,6 +493,8 @@
       const target = document.getElementById(tabId);
       if (!target) return;
       target.classList.add('active');
+      if (target.tagName === 'DETAILS') target.open = true;
+      target.querySelectorAll(':scope > details').forEach(panel => { panel.open = true; });
       if (trigger) trigger.classList.add('active');
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       history.replaceState(null, '', `#${tabId}`);
@@ -624,9 +633,18 @@
       applyAdminSettings(storedSettings);
       enableDashboardButtonDrag();
       const initialTab = window.location.hash.substring(1);
+      const initialPanel = document.getElementById(initialTab);
+      if (initialPanel && initialPanel.tagName === 'DETAILS') initialPanel.open = true;
       if (initialTab && document.getElementById(initialTab)) {
         showTab(initialTab);
       }
+      document.addEventListener('click', event => {
+        const link = event.target.closest('a[href^="#"]');
+        if (link) {
+          const target = document.getElementById(link.hash.slice(1));
+          if (target && target.tagName === 'DETAILS') target.open = true;
+        }
+      });
     });
   </script>
   <!-- Settings Tab -->

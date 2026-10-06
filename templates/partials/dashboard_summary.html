@@ -1,0 +1,88 @@
+<section class="summary-workspace" aria-label="Dashboard summaries and reports">
+  <h2>Summary &amp; Reports</h2>
+  <p>{{ summary.month_start }} to {{ summary.today }}: attendance records. Payroll amounts below are saved finalized records, not estimates.</p>
+  <div class="summary-grid">
+    <section class="summary-panel">
+      <h3>Attendance</h3>
+      <p><strong>{{ summary.attendance_count }}</strong> records this month</p>
+      <dl><dt>Present</dt><dd>{{ summary.present }}</dd><dt>Late</dt><dd>{{ summary.late }}</dd><dt>Absent recorded</dt><dd>{{ summary.absent }}</dd></dl>
+      <p class="summary-note">No record does not automatically mean absent.</p>
+      <a href="{{ url_for('holiday_ot_dashboard') if dashboard_is_admin else url_for('attendance', employee_id=current_user.id) }}">View attendance details</a>
+      <details><summary>Attendance actions &amp; reports</summary>
+        {% if dashboard_is_admin %}
+          <a href="{{ url_for('biometric_import') }}">Biometric upload</a>
+          <a href="#attendance-corrections">Review attendance corrections</a>
+          <a href="#employees">Employee attendance and DTR</a>
+        {% else %}
+          <a href="{{ url_for('attendance_correction') }}">Request correction</a>
+          <a href="{{ url_for('apply_ot') }}">Apply for OT</a>
+          <a href="{{ url_for('attendance', employee_id=current_user.id, format='pdf') }}">Download DTR</a>
+        {% endif %}
+      </details>
+    </section>
+    <section class="summary-panel">
+      <h3>Payroll</h3>
+      {% if summary.latest_payroll %}
+        <p>{{ summary.latest_payroll.cutoff_start }} to {{ summary.latest_payroll.cutoff_end }}</p>
+        <p><strong>PHP {{ summary.net_pay|currency }}</strong> finalized net pay</p>
+        <p>{{ summary.finalized_count }} finalized / {{ summary.draft_count }} drafts for this cutoff</p>
+      {% else %}<p>No finalized payroll yet.</p>{% endif %}
+      <a href="{{ url_for('payroll_dashboard') if dashboard_is_admin else url_for('payroll', employee_id=current_user.id) }}">View payroll details</a>
+      <details><summary>Payroll history &amp; reports</summary>
+        {% if dashboard_is_admin %}
+          <a href="{{ url_for('admin_payroll_history') }}">Payroll history</a>
+          <a href="{{ url_for('monthly_deductions') }}">Monthly deductions</a>
+          <a href="#analytics">Payroll trend</a>
+        {% elif summary.latest_payroll %}
+          <a href="{{ url_for('download_payslip', emp_id=current_user.id, payroll_id=summary.latest_payroll.id) }}">Download latest finalized payslip</a>
+        {% endif %}
+        <a href="{{ url_for('thirteenth_month') }}">13th-month pay</a>
+        <a href="{{ url_for('employee_liabilities') }}">Liabilities</a>
+      </details>
+    </section>
+    <section class="summary-panel">
+      <h3>Loan &amp; Leave</h3>
+      <dl><dt>Outstanding loan balance</dt><dd>PHP {{ summary.loan_balance|currency }}</dd>
+        <dt>Pending loan requests</dt><dd>{{ summary.pending_loans }}</dd>
+        <dt>Pending leave requests</dt><dd>{{ summary.pending_leaves }}</dd>
+        <dt>Approved leave requests (all time)</dt><dd>{{ summary.approved_leaves }}</dd>
+        {% if not dashboard_is_admin %}<dt>SIL credits</dt><dd>{{ current_user.sil_credits if current_user.sil_eligible else 'Not eligible' }}</dd>{% endif %}
+      </dl>
+      <details><summary>Requests, balances &amp; statements</summary>
+        <a href="{{ url_for('loan') }}">Loan details / requests</a>
+        <a href="{{ url_for('leave') }}">Leave details / requests</a>
+      </details>
+    </section>
+    <section class="summary-panel">
+      <h3>Performance</h3>
+      <dl><dt>Approved rated evaluations</dt><dd>{{ summary.approved_evaluations }}</dd>
+        <dt>Average approved rating</dt><dd>{{ '%.2f'|format(summary.average_rating) if summary.average_rating is not none else 'No approved rating yet' }}</dd>
+        <dt>Pending evaluation review</dt><dd>{{ summary.pending_evaluations }}</dd>
+      </dl>
+      <a href="{{ url_for('evaluation_dashboard') if dashboard_is_admin else url_for('assessment', action='menu') }}">View performance details</a>
+      {% if not dashboard_is_admin and peer_evaluation_pending %}
+        <p><a href="{{ url_for('peer_evaluation') }}">Monthly peer evaluation is due</a></p>
+      {% endif %}
+      <details><summary>Evaluation &amp; quiz actions</summary>
+        {% if dashboard_is_admin %}<a href="{{ url_for('admin_quiz_upload') }}">Quiz questionnaire</a>
+        {% else %}
+          <a href="{{ url_for('peer_evaluation') }}">Monthly peer evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
+          <a href="{{ url_for('quiz', employee_id=current_user.id) }}">Take quiz</a>
+          <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}">Merit / Demerit</a>
+        {% endif %}
+      </details>
+    </section>
+    <section class="summary-panel">
+      <h3>Reports &amp; Documents</h3>
+      <p>Open the relevant report to choose the period and available download.</p>
+      <details><summary>Open report center</summary>
+        <a href="{{ url_for('hr_documents') }}">HR documents</a>
+        {% if dashboard_is_admin %}
+          <a href="{{ url_for('tax_reports') }}">Tax reports</a>
+          <a href="{{ url_for('compliance_reports') }}">Compliance reports</a>
+          <a href="{{ url_for('employee_201_selector') }}">Employee 201 files</a>
+        {% else %}<a href="{{ url_for('profile_resume', user_id=current_user.id) }}">My employee information</a>{% endif %}
+      </details>
+    </section>
+  </div>
+</section>

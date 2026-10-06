@@ -1255,6 +1255,30 @@ def inject_authenticated_sidebar(response):
         f'<a href="{url_for(endpoint, employee_id=current_user.id) if endpoint in {"payroll", "attendance", "quiz", "merit_demerit"} else url_for(endpoint, user_id=current_user.id) if endpoint == "profile" else url_for(endpoint)}">{label}</a>'
         for endpoint, label in links
     )
+    if not is_admin:
+        navigation_groups = [
+            ('Attendance', {'attendance', 'attendance_correction', 'apply_ot'}),
+            ('Payroll & Reports', {'payroll', 'thirteenth_month', 'employee_liabilities'}),
+            ('Loan & Leave', {'loan', 'leave'}),
+            ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
+            ('Resources & Account', {'profile', 'hr_documents', 'staff_concerns', 'bulletin',
+                                     'company_files', 'submit_incident', 'staff_help', 'monthly_reminders'}),
+        ]
+        sidebar = render_template(
+            'partials/staff_navigation.html',
+            navigation_groups=navigation_groups,
+            navigation_links=links,
+            navigation_user_id=current_user.id,
+        )
+        if '<body class="' in html:
+            html = html.replace('<body class="', '<body class="hris-staff-navigation-page ', 1)
+        elif '<body ' in html:
+            html = html.replace('<body ', '<body class="hris-staff-navigation-page" ', 1)
+        else:
+            html = html.replace('<body>', '<body class="hris-staff-navigation-page">', 1)
+        html = html.replace('</body>', f'{sidebar}</body>', 1)
+        response.set_data(html)
+        return response
     sidebar = f'''
 <style id="hris-global-sidebar-style">
     body.hris-sidebar-page {{ --hris-topbar-row-height: 54px; --hris-topbar-font-size: 18px; --hris-topbar-title-size: 26px; --hris-topbar-column-width: 176px; padding-left: 0 !important; padding-top: calc((var(--hris-topbar-row-height) * 2) + 32px) !important; }}
@@ -2704,6 +2728,59 @@ def attendance(employee_id):
 
 
 # ------------------ ADMIN DASHBOARD ------------------
+def dashboard_summary(employee=None):
+    """Read saved records; dashboard viewing never recalculates or finalizes payroll."""
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    month_start = today.replace(day=1)
+    attendance_query = Attendance.query.filter(Attendance.date >= month_start, Attendance.date <= today)
+    payroll_query = Payroll.query
+    leave_query = LeaveRequest.query
+    loan_query = Loan.query
+    evaluation_query = Evaluation.query
+    if employee is not None:
+        attendance_query = attendance_query.filter_by(employee_id=employee.id)
+        payroll_query = payroll_query.filter_by(employee_id=employee.id)
+        leave_query = leave_query.filter_by(employee_id=employee.id)
+        loan_query = loan_query.filter_by(employee_id=employee.id)
+        evaluation_query = evaluation_query.filter_by(employee_id=employee.id)
+    else:
+        attendance_query = attendance_query.join(Employee).filter(Employee.role.ilike('%staff%'))
+    finalized = payroll_query.filter(Payroll.is_paid.is_(True)).order_by(
+        Payroll.cutoff_start.desc(), Payroll.id.desc()
+    )
+    latest = finalized.first()
+    cutoff_records = payroll_query.filter(
+        Payroll.cutoff_start == latest.cutoff_start,
+        Payroll.cutoff_end == latest.cutoff_end,
+    ).all() if latest else []
+    attendance_rows = attendance_query.all()
+    approved_ratings = [
+        record.rating for record in evaluation_query.filter_by(approval_status='Approved').all()
+        if record.rating is not None
+    ]
+    return {
+        'month_start': month_start,
+        'today': today,
+        'attendance_count': len(attendance_rows),
+        'present': sum(row.status == 'Present' for row in attendance_rows),
+        'late': sum(row.status == 'Late' for row in attendance_rows),
+        'absent': sum(row.status == 'Absent' for row in attendance_rows),
+        'latest_payroll': latest,
+        'finalized_count': sum(bool(row.is_paid) for row in cutoff_records),
+        'draft_count': sum(not row.is_paid for row in cutoff_records),
+        'net_pay': sum(float(row.net_pay or 0) for row in cutoff_records if row.is_paid),
+        'pending_leaves': leave_query.filter_by(status='Pending').count(),
+        'approved_leaves': leave_query.filter_by(status='Approved').count(),
+        'pending_loans': loan_query.filter_by(status='Pending').count(),
+        'loan_balance': float(employee.loan_balance or 0) if employee else sum(
+            float(row.loan_balance or 0) for row in Employee.query.filter(Employee.role.ilike('%staff%')).all()
+        ),
+        'pending_evaluations': evaluation_query.filter_by(approval_status='Pending').count(),
+        'approved_evaluations': len(approved_ratings),
+        'average_rating': sum(approved_ratings) / len(approved_ratings) if approved_ratings else None,
+    }
+
+
 @app.route('/dashboard_admin', methods=['GET','POST'])
 @login_required
 def dashboard_admin():
@@ -2759,35 +2836,6 @@ def dashboard_admin():
         Employee.last_name.isnot(None),
         Employee.last_name != ''
     ).count()
-
-    today = datetime.today()
-    start_cutoff = today - timedelta(days=(today.weekday() + 2) % 7)
-    end_cutoff = start_cutoff + timedelta(days=6)
-
-    payroll_total = 0
-    company_payroll = {"Trece-Uno": 0, "Auto Expert": 0}
-    for emp in Employee.query.all():
-        worked_days_count = Attendance.query.filter(
-            Attendance.employee_id == emp.id,
-            Attendance.clock_out != None,
-            Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in < end_cutoff
-        ).count()
-        current_payroll = Payroll.query.filter_by(
-            employee_id=emp.id,
-            cutoff_start=start_cutoff.date(),
-            cutoff_end=(end_cutoff - timedelta(days=1)).date()
-        ).first()
-        deduction = float(current_payroll.loan or 0) if current_payroll else 0.0
-        basic_pay = (emp.daily_rate or 0) * worked_days_count
-        gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0)
-        deductions = 193.75 + 96.88 + 50.00 + deduction
-        net_pay = gross_income - deductions
-
-        payroll_total += net_pay
-        payroll_company = "Trece-Uno" if emp.company in {"Trece", "Trece-Uno"} else emp.company
-        if payroll_company in company_payroll:
-            company_payroll[payroll_company] += net_pay
 
     pending_ot = OTApplication.query.filter_by(status="Pending").count()
     pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
@@ -2852,7 +2900,6 @@ def dashboard_admin():
         auto_leaves=auto_leaves,
         unread_count=unread_count,
         total_employees=total_employees,
-        payroll_total=payroll_total,
         pending_ot=pending_ot,
         pending_leaves=pending_leaves,
         pending_loans=pending_loans,
@@ -2864,12 +2911,10 @@ def dashboard_admin():
         staff_attendance=staff_attendance,
         staff_attendance_by_employee=staff_attendance_by_employee,
         pending_attendance_corrections=pending_attendance_corrections,
-        company_payroll=company_payroll,
         trend_labels=trend_labels,
         trend_values=trend_values,
-        start_cutoff=start_cutoff.date(),
-        end_cutoff=end_cutoff.date(),
-        admin=current_user
+        admin=current_user,
+        summary=dashboard_summary()
     )
 
 
@@ -2955,7 +3000,8 @@ def dashboard_staff():
         worked_hours=worked_hours,
         insights=insights,
         peer_evaluation_pending=peer_evaluation_pending,
-        latest_payslip=latest_payslip
+        latest_payslip=latest_payslip,
+        summary=dashboard_summary(current_user)
     )
 
 

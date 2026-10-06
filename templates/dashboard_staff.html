@@ -148,6 +148,19 @@
           .btn-sm { padding: 8px 12px; font-size: 15px; }
     </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard_summary.css') }}">
+  <style>
+    body { font-size:16px; }
+    .container { box-sizing:border-box; width:100%; }
+    .brand-header img { max-height:48px; }
+    header h1 { font-size:24px; }
+    header p { font-size:15px; }
+    .dashboard-tools { max-width:1200px; margin:auto; padding:14px; box-sizing:border-box; }
+    .dashboard-tools > summary { background:#fff; border:1px solid #dce5de; padding:14px; border-radius:8px; }
+    .dashboard-tools .stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0; }
+    .dashboard-tools .stats h3 { font-size:16px; }
+    @media(max-width:600px) { .dashboard-links { grid-template-columns:minmax(0,1fr); } .dashboard-tools .stats { grid-template-columns:minmax(0,1fr); } }
+  </style>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <meta name="theme-color" content="#1f7fdf">
 </head>
@@ -188,6 +201,11 @@
       </form>
     </div>
 
+    {% set dashboard_is_admin = false %}
+    {% include 'partials/dashboard_summary.html' %}
+
+    <details class="dashboard-tools">
+    <summary>All staff tools, resources &amp; account settings</summary>
     <div class="container card dashboard-section">
         <h2>Quick Actions</h2>
       <div style="margin-bottom:14px; padding:12px; border-left:4px solid #1f7fdf; background:#eef6ff;">
@@ -230,6 +248,7 @@
     </div>
 
           <div id="staffSettingsPanel" class="container card dashboard-section">
+          <p>Summaries appear first. All staff tools remain available here and in the grouped navigation menus. Button customization applies to the tools below; topbar size adjusts menu text.</p>
           <h2>Dashboard Settings</h2>
           <div class="staff-dashboard-settings">
             <label>Top bar size
@@ -263,7 +282,7 @@
         </div>
 
     <div class="container card dashboard-section">
-        <h2>Dashboard Summary</h2>
+        <h2>All-time Record Counts</h2>
         <div class="stats">
             <div>
                 <h3>Attendance Records</h3>
@@ -335,6 +354,7 @@
     </div>
     {% endif %}
 
+    </details>
 <script>
     // Real-time Clock
     function updateClock() {

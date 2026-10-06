@@ -1,0 +1,16 @@
+.summary-workspace { margin: 20px auto; padding: 20px; max-width: 1200px; box-sizing: border-box; }
+.summary-workspace h2 { font-size: 24px; }
+.summary-workspace > p, .summary-panel p { font-size: 15px; }
+.summary-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.summary-panel { padding: 20px; border: 1px solid #dce5de; border-radius: 8px; background: #fff; min-width: 0; overflow-wrap: anywhere; }
+.summary-panel h3 { margin: 0 0 12px; font-size: 19px; }
+.summary-panel dl { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; font-size: 15px; }
+.summary-panel dd { margin: 0; text-align: right; }
+.summary-panel a { display: block; padding: 10px 0; min-height: 44px; box-sizing: border-box; color: #176b4d; font-size: 15px; }
+.summary-panel summary, .dashboard-tools > summary { padding: 12px 0; cursor: pointer; font-size: 16px; font-weight: 600; min-height: 44px; box-sizing: border-box; }
+.summary-panel .summary-note { font-size: 13px; color: #627269; }
+.admin-dark-mode .summary-panel { background: #37474f; color: #ecf0f1; }
+.admin-dark-mode .summary-panel a { color: #a8ddbe; }
+.dark-mode .summary-panel { background:#2c3e50; color:#ecf0f1; }
+.dark-mode .summary-panel a { color:#a8ddbe; }
+@media(max-width:600px) { .summary-grid { grid-template-columns: minmax(0,1fr); } .summary-workspace { padding: 12px; } .summary-panel { padding: 14px; } }

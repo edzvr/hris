@@ -44,11 +44,23 @@ def test_admin_has_grouped_vertical_navigation_and_all_routes():
     assert 'aria-expanded="false"' in html
 
 
-def test_staff_navigation_stays_in_existing_top_layout():
+def test_staff_navigation_groups_preserve_routes():
     html = navigation_response("staff", "/dashboard_staff")
-    assert "grid-template-rows: repeat(2" in html
+    assert 'aria-label="Employee navigation"' in html
     assert "hris-admin-sidebar-page" not in html
-    assert "Employee self-service" in html
+    for label in ("Attendance", "Payroll &amp; Reports", "Loan &amp; Leave", "Performance", "Resources &amp; Account"):
+        assert label in html
+    for path in ("/attendance/123", "/payroll/123", "/profile/123", "/logout", "/peer_evaluation"):
+        assert f'href="{path}"' in html
+    with app.test_request_context():
+        from flask import url_for
+        for endpoint in ("leave", "loan", "staff_help", "monthly_reminders", "thirteenth_month",
+                         "assessment", "peer_evaluation", "submit_incident", "attendance_correction",
+                         "apply_ot", "employee_liabilities", "hr_documents", "staff_concerns",
+                         "bulletin", "company_files", "staff_guide"):
+            assert f'href="{url_for(endpoint)}"' in html
+        for endpoint in ("quiz", "merit_demerit"):
+            assert f'href="{url_for(endpoint, employee_id=123)}"' in html
 
 
 def test_login_and_non_html_do_not_receive_admin_sidebar():
@@ -61,6 +73,7 @@ def test_login_and_non_html_do_not_receive_admin_sidebar():
 
 def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     from flask import render_template
+    from hris import dashboard_summary
     from html.parser import HTMLParser
 
     class LayoutParser(HTMLParser):
@@ -93,6 +106,7 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
             trece_employees=[], auto_employees=[], staff_attendance_by_employee={},
             pending_leaves_list=[], pending_loans_list=[], bulletins=[],
             trend_labels=[], trend_values=[],
+            summary=dashboard_summary(),
         )
     parser = LayoutParser()
     parser.feed(html)
@@ -103,3 +117,5 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     assert '<details class="dashboard-shortcuts">' in html
     assert "actionsContent.appendChild" not in html
     assert "responsive: true" in html
+    assert 'Employee directory &amp; attendance records' in html
+    assert 'summary-workspace' in html
