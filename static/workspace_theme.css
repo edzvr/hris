@@ -3,6 +3,10 @@ body.hris-admin-sidebar-page, body.hris-staff-navigation-page { background:#f1f3
 #hris-global-sidebar { background:var(--workspace-accent) !important; color:var(--workspace-accent-text) !important; }
 #hris-global-sidebar a, #hris-global-sidebar summary, #hris-global-sidebar .workspace-label { color:var(--workspace-accent-text) !important; }
 #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background:rgba(127,127,127,.25) !important; }
+#hris-global-sidebar details > summary { display:flex; align-items:center; gap:10px; list-style:none; }
+#hris-global-sidebar details > summary::-webkit-details-marker { display:none; }
+#hris-global-sidebar details > summary::before { content:""; width:7px; height:7px; flex:0 0 7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(-45deg); }
+#hris-global-sidebar details[open] > summary::before { transform:rotate(45deg); }
 #admin-menu-toggle, #staff-menu-toggle { background:var(--workspace-accent) !important; color:var(--workspace-accent-text) !important; }
 .admin-dashboard-page .btn, .admin-dashboard-page button:not([id$="backdrop"]), .hris-staff-navigation-page .btn-primary {
   background:var(--workspace-accent) !important; color:var(--workspace-accent-text) !important;
