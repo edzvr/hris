@@ -42,24 +42,27 @@
   ])
 ] %}
 <style id="hris-global-sidebar-style">
-  body.hris-admin-sidebar-page { padding-top: 0 !important; padding-left: 280px !important; box-sizing: border-box; }
-  #hris-global-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10000; width: 280px; box-sizing: border-box; padding: 20px 14px; overflow-y: auto; background: #122c3b; color: #f4f7f6; font-family: Arial, sans-serif; }
+  body.hris-admin-sidebar-page { padding-top: 0 !important; padding-left: 240px !important; box-sizing: border-box; }
+  #hris-global-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10000; width: 240px; box-sizing: border-box; padding: 20px 12px; overflow-y: auto; background: #34483e; color: #f4f7f6; font-family: Arial, sans-serif; }
   #hris-global-sidebar h2 { margin: 0; font-size: 26px; }
   #hris-global-sidebar .workspace-label { margin: 4px 0 18px; font-size: 15px; color: #b9d4df; }
-  #hris-global-sidebar h3 { margin: 22px 10px 8px; font-size: 14px; color: #b9d4df; text-transform: uppercase; letter-spacing: .6px; }
-  #hris-global-sidebar a { display: block; padding: 10px 12px; margin: 3px 0; border-radius: 6px; color: #f4f7f6; text-decoration: none; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
-  #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background: #1e5266; outline-offset: 2px; }
+  #hris-global-sidebar h3 { margin: 20px 10px 8px; font-size: 11px; color: #c4d6c9; text-transform: uppercase; letter-spacing: .6px; }
+  #hris-global-sidebar a { display: block; padding: 10px 12px; margin: 2px 0; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #f4f7f6; text-decoration: none; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background: #506c59; outline-offset: 2px; }
   #hris-global-sidebar .sidebar-logout { margin-top: 24px; border-top: 1px solid #48616f; }
   #admin-menu-toggle { display: none; }
+  #admin-menu-backdrop { display: none; }
   .hris-admin-sidebar-page .card { overflow-x: auto; }
   @media (max-width: 900px) {
     body.hris-admin-sidebar-page { padding-left: 0 !important; padding-top: 64px !important; }
-    #admin-menu-toggle { display: block; position: fixed; inset: 10px auto auto 12px; z-index: 10001; margin: 0; padding: 10px 16px; background: #122c3b; color: #fff; border: 1px solid #b9d4df; border-radius: 6px; font-size: 17px; cursor: pointer; }
-    #hris-global-sidebar { top: 64px; width: min(280px, 100vw); visibility: hidden; }
+    #admin-menu-toggle { display: block; position: fixed; inset: 10px auto auto 12px; z-index: 10001; margin: 0; padding: 10px 16px; background: #34483e; color: #fff; border: 1px solid #b9d4df; border-radius: 6px; font-size: 17px; cursor: pointer; }
+    #hris-global-sidebar { top: 64px; width: min(280px, 85vw); visibility: hidden; }
     #hris-global-sidebar.menu-open { visibility: visible; }
+    #admin-menu-backdrop:not([hidden]) { display: block; position: fixed; inset: 64px 0 0; z-index: 9999; padding: 0; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.35); width: 100%; height: calc(100% - 64px); }
   }
 </style>
 <button id="admin-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Admin menu</button>
+<button id="admin-menu-backdrop" type="button" aria-label="Close admin menu" hidden></button>
 <aside id="hris-global-sidebar" aria-label="Admin workspace">
   <h2>HRIS</h2>
   <p class="workspace-label">Admin workspace</p>
@@ -80,17 +83,34 @@
   (function () {
     const toggle = document.getElementById('admin-menu-toggle');
     const sidebar = document.getElementById('hris-global-sidebar');
+    const backdrop = document.getElementById('admin-menu-backdrop');
     function closeMenu() {
       sidebar.classList.remove('menu-open');
       toggle.setAttribute('aria-expanded', 'false');
+      backdrop.hidden = true;
     }
     toggle.addEventListener('click', () => {
       const open = sidebar.classList.toggle('menu-open');
       toggle.setAttribute('aria-expanded', String(open));
+      backdrop.hidden = !open;
     });
+    backdrop.addEventListener('click', closeMenu);
+    const mobileLayout = window.matchMedia('(max-width: 900px)');
+    mobileLayout.addEventListener('change', closeMenu);
+    function updateCurrentLink() {
+      sidebar.querySelectorAll('a').forEach(link => {
+        const url = new URL(link.href);
+        const active = url.pathname === location.pathname && url.hash === location.hash;
+        if (active) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      });
+    }
+    updateCurrentLink();
+    window.addEventListener('hashchange', updateCurrentLink);
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && sidebar.classList.contains('menu-open')) {
         closeMenu();
+        setTimeout(updateCurrentLink, 0);
         toggle.focus();
       }
     });

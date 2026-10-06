@@ -172,15 +172,24 @@
     }
   </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin_dashboard.css') }}">
 </head>
 <body class="admin-dashboard-page">
   <!-- Welcome -->
-  <div class="card">
+  <header class="admin-workspace-header">
+    <div><strong>Dashboard</strong><span>HRIS admin workspace</span></div>
+    <a class="btn" href="{{ url_for('payroll_dashboard') }}">Review payroll</a>
+  </header>
+  <main class="admin-workspace-content">
+  <div class="admin-welcome">
     <h2>Welcome, {{ admin.first_name }} {{ admin.last_name }} 👋</h2>
   </div>
 
-  <div class="admin-top-actions">
-    <a href="{{ url_for('backup') }}" class="btn">💾 Backup Database / App</a>
+  <div class="stats">
+    <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
+    <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
+    <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
+    <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
   </div>
 
   <div class="card" style="border-left:4px solid #238b63;">
@@ -196,17 +205,9 @@
     </div>
   </div>
 
-  <!-- Quick Stats -->
-  <div class="stats">
-    <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
-    <div><h3>Total Payroll (Cutoff)</h3><p><b>₱{{ "%.2f"|format(payroll_total) }}</b></p></div>
-    <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
-    <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
-  </div>
-
  <!-- Admin Profile -->
-<div class="profile">
-  <h3>Admin Profile</h3>
+<details class="profile">
+  <summary>Admin Profile &amp; Account</summary>
   <div class="profile-layout">
     <div class="profile-avatar">
       {% if admin.profile_pic %}
@@ -228,7 +229,7 @@
       <button class="btn profile-edit-button" onclick="openModal()">Edit Profile</button>
     </div>
   </div>
-</div>
+</details>
 
 
   <!-- Modal -->
@@ -282,6 +283,7 @@
 
   <div class="card" id="attendance-corrections">
     <h2>Pending Attendance Corrections</h2>
+    <div class="admin-table-scroll" role="region" aria-label="Attendance corrections table" tabindex="0">
     <table>
       <tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
       {% for item in pending_attendance_corrections %}
@@ -300,11 +302,13 @@
       <tr><td colspan="6">No pending attendance corrections.</td></tr>
       {% endfor %}
     </table>
+    </div>
   </div>
   <!-- Employees Tab -->
   <div id="employees" class="tab-content active">
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
+      <div class="admin-table-scroll" role="region" aria-label="Trece-Uno employees table" tabindex="0">
       <table>
         <tr><th>Name</th><th>System Role</th><th>Job Description</th><th>Employment Status</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Attendance</th><th>Action</th></tr>
         {% for emp in trece_employees %}
@@ -322,9 +326,11 @@
         </tr>
         {% endfor %}
       </table>
+      </div>
     </div>
     <div class="card">
       <h2>Employees - Auto Expert</h2>
+      <div class="admin-table-scroll" role="region" aria-label="Auto Expert employees table" tabindex="0">
       <table>
         <tr><th>Name</th><th>System Role</th><th>Job Description</th><th>Employment Status</th><th>Registered</th><th>Clock In</th><th>Clock Out</th><th>Attendance</th><th>Action</th></tr>
         {% for emp in auto_employees %}
@@ -342,12 +348,14 @@
         </tr>
         {% endfor %}
       </table>
+      </div>
     </div>
   </div>
 
   <!-- Admin Actions -->
   <div id="adminActionsCard" class="card">
-    <h2>Admin Actions</h2>
+    <details class="dashboard-shortcuts">
+    <summary>Quick Actions</summary>
     <div class="admin-actions-grid">
       <a href="{{ url_for('manage_job_descriptions') }}" class="btn">📝 Manage Job Descriptions</a>
       <button type="button" class="btn non-draggable" onclick="showTab('employees', this)">👥 Employees</button>
@@ -372,7 +380,7 @@
       <button type="button" class="btn non-draggable" onclick="showTab('settings', this)">⚙️ Settings</button>
       <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
     </div>
-    <div id="admin-actions-content"></div>
+    </details>
   </div>
 
   <!-- Leaves Tab -->
@@ -380,6 +388,7 @@
     <div class="card">
       <h2>Leave Requests</h2>
       <p>Pending Leave Requests: <strong>{{ pending_leaves }}</strong></p>
+      <div class="admin-table-scroll" role="region" aria-label="Leave requests table" tabindex="0">
       <table>
         <tr><th>Employee</th><th>Type</th><th>Date Filed</th><th>Status</th><th>Actions</th></tr>
         {% for leave in pending_leaves_list %}
@@ -398,6 +407,7 @@
         </tr>
         {% endfor %}
       </table>
+      </div>
     </div>
   </div>
 
@@ -406,6 +416,7 @@
     <div class="card">
       <h2>Loan Requests</h2>
       <p>Pending Loan Requests: <strong>{{ pending_loans }}</strong></p>
+      <div class="admin-table-scroll" role="region" aria-label="Loan requests table" tabindex="0">
       <table>
         <tr><th>Employee</th><th>Amount</th><th>Date Filed</th><th>Status</th><th>Actions</th></tr>
         {% for loan in pending_loans_list %}
@@ -424,6 +435,7 @@
         </tr>
         {% endfor %}
       </table>
+      </div>
     </div>
   </div>
 
@@ -438,6 +450,7 @@
     </div>
     <div class="card">
       <h2>Published Announcements</h2>
+      <div class="admin-table-scroll" role="region" aria-label="Announcements table" tabindex="0">
       <table>
         <tr><th>Title</th><th>Posted By</th><th>Date</th><th>Action</th></tr>
         {% for post in bulletins %}
@@ -451,6 +464,7 @@
         <tr><td colspan="4">No announcements published yet.</td></tr>
         {% endfor %}
       </table>
+      </div>
     </div>
   </div>
 
@@ -486,7 +500,7 @@
     // Payroll Chart
     const chartCanvas = document.getElementById('payrollChart');
     const ctx = chartCanvas.getContext('2d');
-    const payrollChart = new Chart(ctx, {
+    const payrollChart = typeof Chart !== 'undefined' ? new Chart(ctx, {
       type: 'line',
       data: {
         labels: JSON.parse(chartCanvas.dataset.trendLabels),
@@ -500,7 +514,7 @@
         }]
       },
       options: {
-        responsive: false,
+        responsive: true,
         animation: false,
         maintainAspectRatio: false,
         width: 900,
@@ -509,7 +523,12 @@
           legend: { display: true }
         }
       }
-    });
+    }) : null;
+    if (!payrollChart) {
+      const message = document.createElement('p');
+      message.textContent = 'Payroll chart could not load. Refresh the page or check your connection.';
+      chartCanvas.replaceWith(message);
+    }
 
     function saveSettings() {
       const settings = {
@@ -538,8 +557,8 @@
       document.body.style.setProperty('--hris-topbar-font-size', topbarSize.font);
       document.body.style.setProperty('--hris-topbar-title-size', topbarSize.title);
       document.body.style.setProperty('--hris-topbar-column-width', topbarSize.column);
-      document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#86a9cf');
-      document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#6f94be');
+      document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || '#557760');
+      document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || '#42604c');
       const sizes = {
         small: { height: '70px', padding: '12px', fontSize: '18px' },
         medium: { height: '94px', padding: '20px', fontSize: '23px' },
@@ -560,7 +579,7 @@
     }
 
     function enableDashboardButtonDrag() {
-      const grid = document.querySelector('.admin-actions-grid');
+      const grid = document.querySelector('#adminActionsCard .admin-actions-grid');
       if (!grid) return;
       let draggedButton = null;
       grid.querySelectorAll('.btn:not(.non-draggable)').forEach((button, index) => {
@@ -595,19 +614,11 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      const actionsContent = document.getElementById('admin-actions-content');
-      const employeesPanel = document.getElementById('employees');
-      const settingsPanel = document.getElementById('settings');
-      if (actionsContent && employeesPanel && settingsPanel) {
-        actionsContent.appendChild(employeesPanel);
-        actionsContent.appendChild(settingsPanel);
-        employeesPanel.classList.add('active');
-      }
       const storedSettings = JSON.parse(localStorage.getItem('hrisAdminSettings') || '{}');
       document.getElementById('themeSelect').value = storedSettings.theme || 'light';
       document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
       document.getElementById('topbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
-      document.getElementById('buttonColor').value = storedSettings.buttonColor || '#86a9cf';
+      document.getElementById('buttonColor').value = storedSettings.buttonColor || '#557760';
       document.getElementById('buttonSize').value = storedSettings.buttonSize || 'medium';
       document.getElementById('buttonsPerRow').value = storedSettings.buttonsPerRow || '3';
       applyAdminSettings(storedSettings);
@@ -639,9 +650,9 @@
           </select>
         </label>
         <br><br>
-        <label>Button color: <input type="color" id="buttonColor" value="#86a9cf"></label>
+        <label>Button color: <input type="color" id="buttonColor" value="#557760"></label>
         <br><br>
-        <label>Button size:
+        <label>Quick action button size:
           <select id="buttonSize">
             <option value="small">Small</option>
             <option value="medium">Medium</option>
@@ -658,8 +669,8 @@
           </select>
         </label>
         <p>Admin routes are grouped in the sidebar by workflow. On smaller screens, use Admin menu to open navigation. The top bar size setting applies to staff navigation.</p>
-        <p>Choose fewer action buttons per row if you want bigger dashboard buttons.</p>
-        <p>Drag the action buttons to arrange them. Your arrangement is saved on this browser.</p>
+        <p>On phones, cards stack and wide tables scroll inside their own panel. Quick Actions can be expanded below the employee tables.</p>
+        <p>Drag the Quick Actions buttons to arrange them. Your arrangement is saved on this browser.</p>
         <br><br>
         <button type="button" class="btn" onclick="saveSettings()">Save Settings</button>
         <button type="button" class="btn" onclick="resetDashboardSettings()">Reset Layout</button>
@@ -667,6 +678,6 @@
     </div>
   </div>
 
-  
+  </main>
 </body>
 </html>

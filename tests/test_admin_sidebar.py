@@ -57,3 +57,49 @@ def test_login_and_non_html_do_not_receive_admin_sidebar():
         with app.test_request_context(path), patch("hris.current_user", user):
             response = Response("<body>Content</body>", mimetype=mimetype)
             assert inject_authenticated_sidebar(response).get_data(as_text=True) == "<body>Content</body>"
+
+
+def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
+    from flask import render_template
+    from html.parser import HTMLParser
+
+    class LayoutParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+            self.tables = 0
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "table":
+                assert any(
+                    "admin-table-scroll" in item.get("class", "")
+                    for _, item in self.stack
+                )
+                self.tables += 1
+            if tag not in {"input", "img", "meta", "link", "br"}:
+                self.stack.append((tag, attrs))
+
+        def handle_endtag(self, tag):
+            assert self.stack and self.stack[-1][0] == tag, (tag, self.stack[-1:])
+            self.stack.pop()
+
+    with app.test_request_context("/dashboard_admin"):
+        html = render_template(
+            "dashboard_admin.html",
+            admin=SimpleNamespace(id=123, first_name="Preview", last_name="Admin"),
+            pending_attendance_corrections=[], pending_ot=0, pending_leaves=0,
+            pending_loans=0, pending_evaluations=0, total_employees=0, payroll_total=0,
+            trece_employees=[], auto_employees=[], staff_attendance_by_employee={},
+            pending_leaves_list=[], pending_loans_list=[], bulletins=[],
+            trend_labels=[], trend_values=[],
+        )
+    parser = LayoutParser()
+    parser.feed(html)
+    assert parser.tables == 6
+    assert not parser.stack
+    assert "admin_dashboard.css" in html
+    assert '<details class="profile">' in html
+    assert '<details class="dashboard-shortcuts">' in html
+    assert "actionsContent.appendChild" not in html
+    assert "responsive: true" in html
