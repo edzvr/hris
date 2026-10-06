@@ -1193,6 +1193,16 @@ def inject_authenticated_sidebar(response):
         html = html.replace('</head>', '<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">\n</head>', 1)
 
     is_admin = 'admin' in str(current_user.role or '').lower()
+    if is_admin:
+        sidebar = render_template('partials/admin_sidebar.html', sidebar_user_id=current_user.id)
+        if '<body class="' in html:
+            html = html.replace('<body class="', '<body class="hris-admin-sidebar-page ', 1)
+        elif '<body ' in html:
+            html = html.replace('<body ', '<body class="hris-admin-sidebar-page" ', 1)
+        else:
+            html = html.replace('<body>', '<body class="hris-admin-sidebar-page">', 1)
+        response.set_data(html.replace('</body>', f'{sidebar}</body>', 1))
+        return response
     dashboard_endpoint = 'dashboard_admin' if is_admin else 'dashboard_staff'
     links = [
         (dashboard_endpoint, 'Dashboard'),

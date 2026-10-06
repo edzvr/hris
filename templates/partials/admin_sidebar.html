@@ -1,0 +1,108 @@
+{% set groups = [
+  ('Overview & Account', [
+    ('dashboard_admin', 'Dashboard', ''),
+    ('dashboard_admin', 'Employees', '#employees'),
+    ('profile', 'My Profile', ''),
+    ('attendance', 'My Attendance', ''),
+    ('dashboard_admin', 'Announcements', '#bulletins')
+  ]),
+  ('Employees & Attendance', [
+    ('manage_job_descriptions', 'Job Descriptions', ''),
+    ('employee_201_selector', 'Staff 201 Files', ''),
+    ('holiday_ot_dashboard', 'Attendance & OT', ''),
+    ('biometric_import', 'QC Biometric Upload', ''),
+    ('dashboard_admin', 'Attendance Corrections', '#attendance-corrections'),
+    ('leave', 'Leave Requests', ''),
+    ('loan', 'Loan Requests', '')
+  ]),
+  ('Payroll & Contributions', [
+    ('payroll_dashboard', 'Payroll', ''),
+    ('admin_payroll_history', 'Payroll History', ''),
+    ('monthly_deductions', 'Monthly Deductions', ''),
+    ('employee_liabilities', 'Liabilities / Shortage', ''),
+    ('thirteenth_month', '13th-Month Pay', '')
+  ]),
+  ('Performance & Concerns', [
+    ('evaluation_dashboard', 'Evaluation', ''),
+    ('admin_quiz_upload', 'Quiz Questionnaire', ''),
+    ('admin_incidents', 'Incident Reports', ''),
+    ('staff_concerns', 'Staff Concerns', '')
+  ]),
+  ('Documents & Reports', [
+    ('hr_documents', 'HR Documents', ''),
+    ('admin_files', 'Company Files', ''),
+    ('tax_reports', 'Tax Reports', ''),
+    ('compliance_reports', 'Compliance Reports', ''),
+    ('dashboard_admin', 'Payroll Analytics', '#analytics')
+  ]),
+  ('System', [
+    ('dashboard_admin', 'Settings', '#settings'),
+    ('audit_logs', 'Audit Logs', ''),
+    ('backup', 'Backup Database / App', '')
+  ])
+] %}
+<style id="hris-global-sidebar-style">
+  body.hris-admin-sidebar-page { padding-top: 0 !important; padding-left: 280px !important; box-sizing: border-box; }
+  #hris-global-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10000; width: 280px; box-sizing: border-box; padding: 20px 14px; overflow-y: auto; background: #122c3b; color: #f4f7f6; font-family: Arial, sans-serif; }
+  #hris-global-sidebar h2 { margin: 0; font-size: 26px; }
+  #hris-global-sidebar .workspace-label { margin: 4px 0 18px; font-size: 15px; color: #b9d4df; }
+  #hris-global-sidebar h3 { margin: 22px 10px 8px; font-size: 14px; color: #b9d4df; text-transform: uppercase; letter-spacing: .6px; }
+  #hris-global-sidebar a { display: block; padding: 10px 12px; margin: 3px 0; border-radius: 6px; color: #f4f7f6; text-decoration: none; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
+  #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background: #1e5266; outline-offset: 2px; }
+  #hris-global-sidebar .sidebar-logout { margin-top: 24px; border-top: 1px solid #48616f; }
+  #admin-menu-toggle { display: none; }
+  .hris-admin-sidebar-page .card { overflow-x: auto; }
+  @media (max-width: 900px) {
+    body.hris-admin-sidebar-page { padding-left: 0 !important; padding-top: 64px !important; }
+    #admin-menu-toggle { display: block; position: fixed; inset: 10px auto auto 12px; z-index: 10001; margin: 0; padding: 10px 16px; background: #122c3b; color: #fff; border: 1px solid #b9d4df; border-radius: 6px; font-size: 17px; cursor: pointer; }
+    #hris-global-sidebar { top: 64px; width: min(280px, 100vw); visibility: hidden; }
+    #hris-global-sidebar.menu-open { visibility: visible; }
+  }
+</style>
+<button id="admin-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Admin menu</button>
+<aside id="hris-global-sidebar" aria-label="Admin workspace">
+  <h2>HRIS</h2>
+  <p class="workspace-label">Admin workspace</p>
+  <nav aria-label="Admin navigation">
+    {% for title, items in groups %}
+      <section aria-label="{{ title }}">
+        <h3>{{ title }}</h3>
+        {% for endpoint, label, fragment in items %}
+          {% set href = url_for(endpoint, user_id=sidebar_user_id) if endpoint == 'profile' else url_for(endpoint, employee_id=sidebar_user_id) if endpoint == 'attendance' else url_for(endpoint) %}
+          <a href="{{ href }}{{ fragment }}"{% if request.endpoint == endpoint and not fragment %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </section>
+    {% endfor %}
+    <a class="sidebar-logout" href="{{ url_for('logout') }}">Sign out</a>
+  </nav>
+</aside>
+<script>
+  (function () {
+    const toggle = document.getElementById('admin-menu-toggle');
+    const sidebar = document.getElementById('hris-global-sidebar');
+    function closeMenu() {
+      sidebar.classList.remove('menu-open');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    toggle.addEventListener('click', () => {
+      const open = sidebar.classList.toggle('menu-open');
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && sidebar.classList.contains('menu-open')) {
+        closeMenu();
+        toggle.focus();
+      }
+    });
+    sidebar.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        const url = new URL(link.href);
+        if (url.pathname === location.pathname && url.hash && typeof showTab === 'function') {
+          const target = document.getElementById(url.hash.slice(1));
+          if (target && target.classList.contains('tab-content')) showTab(target.id);
+        }
+        closeMenu();
+      });
+    });
+  })();
+</script>
