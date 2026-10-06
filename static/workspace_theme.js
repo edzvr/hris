@@ -6,9 +6,9 @@
     const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
     const text = 1.05 / (luminance + 0.05) >= 4.5 ? '#ffffff' : '#000000';
     const defaultPalette = color.toLowerCase() === '#2563eb';
-    document.documentElement.style.setProperty('--workspace-accent', defaultPalette ? '#faf04b' : color);
+    document.documentElement.style.setProperty('--workspace-accent', defaultPalette ? '#f3edcf' : color);
     document.documentElement.style.setProperty('--workspace-accent-text', defaultPalette ? '#243247' : text);
-    document.documentElement.style.setProperty('--workspace-button', defaultPalette ? '#1600ad' : color);
+    document.documentElement.style.setProperty('--workspace-button', defaultPalette ? '#486581' : color);
     document.documentElement.style.setProperty('--workspace-button-text', defaultPalette ? '#ffffff' : text);
   }
   window.applyWorkspaceAccent = applyWorkspaceAccent;

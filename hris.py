@@ -3063,7 +3063,7 @@ STAFF_HELP_TOPICS = [
         'answer': 'Sa sidebar, buksan ang My Account > Settings (sa mobile, buksan muna ang Staff menu). '
                   'Sa Buttons & sidebar color, pumili ng kulay at pindutin ang Save Settings. '
                   'Ang custom color ay sabay na ginagamit sa buttons at sidebar; automatic ang readable text color. '
-                  'Ang default company palette ay yellow sidebar, deep-blue buttons na white ang text, at gray background. '
+                  'Ang default palette ay soft cream-yellow sidebar, muted blue buttons na white ang text, at light gray background. '
                   'Puwede ring baguhin ang sidebar text size, button size, at buttons per row. '
                   'Ang settings ay saved sa browser/device na gamit mo, hindi sa lahat ng devices. '
                   'Gamitin ang Reset Layout para ibalik ang default colors at layout; hindi nito binubura ang HR records. '
