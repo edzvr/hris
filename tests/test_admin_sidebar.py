@@ -107,6 +107,19 @@ def test_company_logos_follow_role_and_employee_company():
     assert '<img ' not in html
 
 
+def test_workspace_theme_follows_each_staff_and_admin_company():
+    auto = navigation_response('staff', '/dashboard_staff', 'Auto Expert')
+    assert 'document.body.dataset.companyTheme = "autoxpert"' in auto
+    trece = navigation_response('staff', '/dashboard_staff', 'Trece-Uno')
+    assert 'document.body.dataset.companyTheme = "trece-uno"' in trece
+    unassigned = navigation_response('staff', '/dashboard_staff', None)
+    assert 'document.body.dataset.companyTheme = "neutral"' in unassigned
+    auto_admin = navigation_response('admin', company='Auto Expert')
+    assert 'document.body.dataset.companyTheme = "autoxpert"' in auto_admin
+    trece_admin = navigation_response('admin', company='Trece-Uno')
+    assert 'document.body.dataset.companyTheme = "trece-uno"' in trece_admin
+
+
 def test_login_and_non_html_do_not_receive_admin_sidebar():
     user = SimpleNamespace(id=123, role="admin", is_authenticated=True)
     for path, mimetype in (("/login", "text/html"), ("/dashboard_admin", "application/json")):

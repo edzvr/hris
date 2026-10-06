@@ -13,6 +13,9 @@
     #staff-menu-backdrop:not([hidden]) { display:block; position:fixed; inset:64px 0 0; z-index:9999; width:100%; height:calc(100% - 64px); background:#0006; border:0; padding:0; margin:0; }
   }
 </style>
+{% set normalized_company = (navigation_company|default('', true)|trim|lower) %}
+{% set workspace_company_theme = 'autoxpert' if normalized_company in ['auto expert', 'auto-expert', 'autoxpert', 'autoexpert'] else 'trece-uno' if normalized_company.startswith('trece') else 'neutral' %}
+<script>document.body.dataset.companyTheme = "{{ workspace_company_theme }}";</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='workspace_theme.css') }}">
 <script src="{{ url_for('static', filename='workspace_theme.js') }}"></script>
 <button id="staff-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Staff menu</button>
@@ -88,5 +91,9 @@
     openSettings();
     const sizes = { small:'14px', medium:'16px', large:'18px' };
     document.body.style.setProperty('--hris-topbar-font-size', sizes[localStorage.getItem('hrisTopbarSize')] || '16px');
+    const dashboardSettings = JSON.parse(localStorage.getItem('hrisStaffDashboardSettings') || '{}');
+    const storedAccent = dashboardSettings.buttonColor;
+    const customAccent = storedAccent && storedAccent.toLowerCase() !== '#2563eb' ? storedAccent : null;
+    applyWorkspaceTheme(customAccent);
   })();
 </script>

@@ -1194,7 +1194,11 @@ def inject_authenticated_sidebar(response):
 
     is_admin = 'admin' in str(current_user.role or '').lower()
     if is_admin:
-        sidebar = render_template('partials/admin_sidebar.html', sidebar_user_id=current_user.id)
+        sidebar = render_template(
+            'partials/admin_sidebar.html',
+            sidebar_user_id=current_user.id,
+            workspace_company=current_user.company,
+        )
         if '<body class="' in html:
             html = html.replace('<body class="', '<body class="hris-admin-sidebar-page ', 1)
         elif '<body ' in html:
@@ -3061,12 +3065,13 @@ STAFF_HELP_TOPICS = [
                      'colour', 'kulay', 'sidebar', 'button size', 'layout'),
         'title': 'Dashboard settings and colors',
         'answer': 'Sa sidebar, buksan ang My Account > Settings (sa mobile, buksan muna ang Staff menu). '
-                  'Sa Buttons & sidebar color, pumili ng kulay at pindutin ang Save Settings. '
+                  'Ang default na kulay ng sidebar at buttons ay base sa company mo. Sa Buttons & sidebar color, pumili ng sariling kulay at pindutin ang Save Settings. '
                   'Ang custom color ay sabay na ginagamit sa buttons at sidebar; automatic ang readable text color. '
-                  'Ang default palette ay soft cream-yellow sidebar, muted blue buttons na white ang text, at light gray background. '
+                  'AutoXpert ang may yellow sidebar at blue buttons; Trece-Uno ang may blue sidebar at yellow buttons. '
+                  'Pareho silang may light gray background at readable text colors. '
                   'Puwede ring baguhin ang sidebar text size, button size, at buttons per row. '
                   'Ang settings ay saved sa browser/device na gamit mo, hindi sa lahat ng devices. '
-                  'Gamitin ang Reset Layout para ibalik ang default colors at layout; hindi nito binubura ang HR records. '
+                  'Gamitin ang Reset Layout para ibalik ang default colors ng company mo at layout; hindi nito binubura ang HR records. '
                   'Red pa rin ang warning/destructive actions tulad ng Clock Out.',
         'endpoint': 'dashboard_staff',
         'fragment': '#staffSettingsPanel',

@@ -249,7 +249,7 @@
     </div>
 
           <div id="staffSettingsPanel" class="container card dashboard-section">
-          <p>All tools remain available here and in the sidebar (Staff menu on mobile). The default palette pairs a light gray background with a soft cream-yellow sidebar and muted blue buttons with white text. Custom colors update both buttons and sidebar; navigation size adjusts sidebar text.</p>
+          <p>All tools remain available here and in the sidebar (Staff menu on mobile). Default sidebar and button colors follow your assigned company. Custom colors update both buttons and sidebar; navigation size adjusts sidebar text.</p>
           <h2>Dashboard Settings</h2>
           <div class="staff-dashboard-settings">
             <label>Sidebar text size
@@ -260,7 +260,7 @@
               </select>
             </label>
             <label>Buttons &amp; sidebar color
-              <input type="color" id="staffButtonColor" value="#2563eb">
+              <input type="color" id="staffButtonColor" value="#486581">
             </label>
             <label>Button size
               <select id="staffButtonSize">
@@ -534,9 +534,12 @@
     document.documentElement.style.setProperty('--staff-buttons-per-row', settings.buttonsPerRow || '3');
     document.documentElement.style.setProperty('--staff-button-gap', settings.buttonGap || '12px');
     document.querySelectorAll('.dashboard-links .btn-primary').forEach(button => {
-      button.style.backgroundColor = settings.buttonColor || '#1f7fdf';
+      button.style.backgroundColor = settings.buttonColor || workspaceThemeButtonColor();
     });
-    applyWorkspaceAccent(settings.buttonColor || '#2563eb');
+    const defaultButtonColor = workspaceThemeButtonColor();
+    const selectedColor = settings.buttonColor && settings.buttonColor.toLowerCase() !== defaultButtonColor.toLowerCase()
+      ? settings.buttonColor : null;
+    applyWorkspaceTheme(selectedColor);
     localStorage.setItem('hrisTopbarSize', settings.topbarSize || 'medium');
     const topbarSizes = {
       small: { row: '46px', font: '16px', title: '22px', column: '154px' },
@@ -571,8 +574,11 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const storedSettings = JSON.parse(localStorage.getItem('hrisStaffDashboardSettings') || '{}');
+    if (storedSettings.buttonColor && storedSettings.buttonColor.toLowerCase() === '#2563eb') {
+      storedSettings.buttonColor = null;
+    }
     document.getElementById('staffTopbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
-    document.getElementById('staffButtonColor').value = storedSettings.buttonColor || '#2563eb';
+    document.getElementById('staffButtonColor').value = storedSettings.buttonColor || workspaceThemeButtonColor();
     document.getElementById('staffButtonSize').value = storedSettings.buttonSize || 'medium';
     document.getElementById('staffButtonsPerRow').value = storedSettings.buttonsPerRow || '3';
     applyStaffDashboardSettings(storedSettings);
