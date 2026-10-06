@@ -1443,8 +1443,10 @@ def monthly_deductions():
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
-        email = request.form.get('email', '').strip()
-        emp = Employee.query.filter_by(email=email).first()
+        email = request.form.get('email', '').strip().casefold()
+        emp = Employee.query.filter(
+            db.func.lower(Employee.email) == email
+        ).first()
 
         if emp and emp.email:
             token = secrets.token_urlsafe(32)
@@ -1457,7 +1459,7 @@ def forgot_password():
             db.session.commit()
 
             reset_url = url_for('reset_password', token=token, _external=True)
-            send_notification_email(
+            email_sent = send_notification_email(
                 [emp.email],
                 "Password Reset Request",
                 (
@@ -1466,6 +1468,13 @@ def forgot_password():
                     "This link expires in 1 hour and can only be used once."
                 )
             )
+            if not email_sent:
+                db.session.delete(reset_token)
+                db.session.commit()
+                logger.warning(
+                    "Password reset email delivery failed for employee id %s.",
+                    emp.id,
+                )
 
         flash("If that email is registered, a password reset link has been sent.", "info")
         return redirect(url_for('login'))
