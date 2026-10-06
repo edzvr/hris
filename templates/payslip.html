@@ -35,7 +35,7 @@
             <p><strong>Employee:</strong> {{ employee.first_name }} {{ employee.last_name }}</p>
             <p><strong>Employee ID:</strong> {{ employee.id }}</p>
             <p><strong>Cut-Off:</strong> {{ payroll.cutoff_start.strftime('%m-%d-%Y') }} ~ {{ payroll.cutoff_end.strftime('%m-%d-%Y') }}</p>
-            <p><strong>Position/Department:</strong> {{ employee.role }} / {{ employee.company or 'N/A' }}</p>
+            <p><strong>Position/Department:</strong> {{ employee.job_description or 'N/A' }} / {{ employee.company or 'N/A' }}</p>
             <p><strong>Daily Rate:</strong> ₱{{ (employee.daily_rate or 0)|currency }}</p>
             <p><strong>Reference:</strong> PAY-{{ "%06d"|format(payroll.id) }}</p>
         </div>

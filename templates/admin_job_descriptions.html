@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Job Descriptions</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem auto; max-width: 760px; padding: 0 1rem; color: #203040; }
+        .card { border: 1px solid #d8e0e8; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+        form { display: flex; gap: .75rem; flex-wrap: wrap; }
+        input { flex: 1; min-width: 220px; padding: .7rem; }
+        button, a { display: inline-block; padding: .7rem 1rem; border: 0; border-radius: 6px; background: #176b55; color: white; text-decoration: none; cursor: pointer; }
+        li { padding: .4rem 0; }
+        .alert { padding: .75rem; margin-bottom: .75rem; border-radius: 6px; background: #eef4f7; }
+    </style>
+</head>
+<body>
+    <p><a href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
+    <section class="card">
+        <h1>Manage Job Descriptions</h1>
+        <p>New entries become available in employee registration and profile dropdowns.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="alert {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+        <form method="POST">
+            <input type="text" name="name" maxlength="150" placeholder="Add a job description" required>
+            <button type="submit">Add Job Description</button>
+        </form>
+    </section>
+    <section class="card">
+        <h2>Available Job Descriptions</h2>
+        <ul>
+            {% for option in options %}
+            <li>{{ option.name }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+</body>
+</html>

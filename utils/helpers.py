@@ -1,5 +1,6 @@
 from datetime import datetime
 import calendar
+import math
 from sqlalchemy import extract
 from flask_login import current_user
 from models import Attendance, QuizResult, Evaluation, Employee
@@ -81,39 +82,46 @@ def split_allowance(amount, ceiling=0, is_de_minimis=False):
     return exempt, taxable
 
 
-SSS_TABLE = [
-    (1750, 80), (2250, 100), (2750, 120), (3250, 140),
-    (3750, 160), (4250, 180), (4750, 200), (5250, 220),
-    (5750, 240), (6250, 260), (6750, 280), (7250, 300),
-    (7750, 320), (8250, 340), (8750, 360), (9250, 380),
-    (9750, 400), (10250, 420), (10750, 440), (11250, 460),
-    (11750, 480), (12250, 500), (12750, 520), (13250, 540),
-    (13750, 560), (14250, 580), (14750, 600), (15250, 620),
-    (15750, 640), (16250, 660), (16750, 680), (17250, 700),
-    (17750, 720), (18250, 740), (18750, 760), (19250, 780),
-    (19750, 800), (20250, 820), (20750, 840), (21250, 860),
-    (21750, 880), (22250, 900)
-]
-
-
 def compute_sss(monthly_salary: float) -> float:
-    """Return the employee SSS share for the salary bracket."""
+    """Return the employee SSS share under the 2025 MSC contribution schedule."""
     salary = max(float(monthly_salary or 0), 0)
-    for bracket, contribution in SSS_TABLE:
-        if salary <= bracket:
-            return float(contribution)
-    return float(SSS_TABLE[-1][1])
+    if salary == 0:
+        return 0.0
+    msc = min(max(math.floor((salary + 250) / 500) * 500, 5000), 35000)
+    return round(msc * 0.05, 2)
 
 
 def compute_philhealth(monthly_salary: float) -> float:
-    """Return the employee PhilHealth share."""
+    """Return the employee half-share of the 5% PhilHealth premium."""
     salary = max(float(monthly_salary or 0), 0)
-    return round((salary * 0.0275) / 2, 2)
+    if salary == 0:
+        return 0.0
+    contribution_base = min(max(salary, 10000), 100000)
+    return round(contribution_base * 0.025, 2)
 
 
 def compute_pagibig(monthly_salary: float) -> float:
-    """Return the fixed employee Pag-IBIG share."""
-    return 100.0
+    """Return the employee Pag-IBIG share using the 2024 maximum fund salary."""
+    salary = max(float(monthly_salary or 0), 0)
+    contribution_base = min(salary, 10000)
+    rate = 0.01 if contribution_base <= 1500 else 0.02
+    return round(contribution_base * rate, 2)
+
+
+def compute_employer_deductions(monthly_salary: float) -> dict:
+    """Return monthly employer shares, including SSS Employees' Compensation."""
+    salary = max(float(monthly_salary or 0), 0)
+    if salary == 0:
+        return {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+    msc = min(max(math.floor((salary + 250) / 500) * 500, 5000), 35000)
+    contribution_base = min(max(salary, 10000), 100000)
+    fund_salary = min(salary, 10000)
+    return {
+        "sss": round(msc * 0.10, 2),
+        "sss_ec": 10.0 if msc < 15000 else 30.0,
+        "philhealth": round(contribution_base * 0.025, 2),
+        "pagibig": round(fund_salary * 0.02, 2),
+    }
 
 
 def compute_withholding_tax(monthly_taxable_income: float) -> float:
@@ -157,6 +165,17 @@ def compute_weekly_deductions(monthly_salary: float, weeks: int = 4) -> dict:
         "philhealth": round(deductions["philhealth"] / weeks, 2),
         "pagibig": round(deductions["pagibig"] / weeks, 2),
         "total": round(deductions["total"] / weeks, 2)
+    }
+
+
+def compute_weekly_employer_deductions(monthly_salary: float, weeks: int = 4) -> dict:
+    """Divide monthly employer contribution shares across payroll cutoffs."""
+    if weeks <= 0:
+        raise ValueError("weeks must be greater than zero")
+    contributions = compute_employer_deductions(monthly_salary)
+    return {
+        key: round(value / weeks, 2)
+        for key, value in contributions.items()
     }
 
 

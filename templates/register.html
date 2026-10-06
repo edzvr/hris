@@ -86,6 +86,24 @@
                     <option value="admin">Admin</option>
                 </select>
             </div>
+            <div class="col-md-6">
+                <label class="form-label">Job Description</label>
+                <select name="job_description" class="form-select form-select-lg" required>
+                    <option value="" selected disabled>Select job description</option>
+                    {% for description in job_descriptions %}
+                    <option value="{{ description.name }}">{{ description.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Employment Status</label>
+                <select name="employment_status" class="form-select form-select-lg" required>
+                    <option value="" selected disabled>Select employment status</option>
+                    {% for status in employment_statuses %}
+                    <option value="{{ status }}">{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
             <div class="col-md-6">
                 <label class="form-label">Company</label>
@@ -116,7 +134,7 @@
                 <input type="text" name="contact_no" class="form-control form-control-lg" required>
             </div>
             <div class="col-md-6">
-                <label class="form-label">Date Started</label>
+                <label class="form-label">Date Hired / Date Started</label>
                 <input type="date" name="date_started" class="form-control form-control-lg" required>
             </div>
 

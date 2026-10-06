@@ -17,6 +17,7 @@ class Employee(db.Model, UserMixin):
     registration_name_key = db.Column(db.String(240), nullable=True)
     dob = db.Column(db.Date, nullable=True)
     role = db.Column(db.String(20))          # Staff/Admin/Employee
+    job_description = db.Column(db.String(150), nullable=True)
     company = db.Column(db.String(50))       # Trece-Uno / Auto Expert
     email = db.Column(db.String(100))        # not unique
     contact_no = db.Column(db.String(20))
@@ -28,6 +29,11 @@ class Employee(db.Model, UserMixin):
     employment_status = db.Column(db.String(30), nullable=True)
     probation_end_date = db.Column(db.Date, nullable=True)
     regularization_date = db.Column(db.Date, nullable=True)
+    payroll_attendance_exempt = db.Column(db.Boolean, nullable=False, default=False)
+    manual_monthly_sss = db.Column(db.Float, nullable=False, default=0.0)
+    manual_monthly_philhealth = db.Column(db.Float, nullable=False, default=0.0)
+    manual_monthly_pagibig = db.Column(db.Float, nullable=False, default=0.0)
+    manual_contribution_cutoff_start = db.Column(db.Date, nullable=True)
     gender = db.Column(db.String(20), nullable=True)
     civil_status = db.Column(db.String(30), nullable=True)
     immediate_supervisor = db.Column(db.String(120), nullable=True)
@@ -92,6 +98,13 @@ class Employee(db.Model, UserMixin):
     def full_name(self):
         name_parts = [self.first_name, self.middle_name, self.last_name, self.suffix_name]
         return " ".join(part.strip() for part in name_parts if part and part.strip())
+
+
+class JobDescriptionOption(db.Model):
+    __tablename__ = "job_description_options"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False, unique=True)
 
 
 class PasswordResetToken(db.Model):
@@ -360,6 +373,11 @@ class Payroll(db.Model):
     sss = db.Column(db.Float, default=0.0)
     philhealth = db.Column(db.Float, default=0.0)
     pagibig = db.Column(db.Float, default=0.0)
+    contribution_salary_base = db.Column(db.Float, nullable=True)
+    employer_sss = db.Column(db.Float, nullable=True)
+    employer_sss_ec = db.Column(db.Float, nullable=True)
+    employer_philhealth = db.Column(db.Float, nullable=True)
+    employer_pagibig = db.Column(db.Float, nullable=True)
     sss_override = db.Column(db.Float, nullable=True)
     philhealth_override = db.Column(db.Float, nullable=True)
     pagibig_override = db.Column(db.Float, nullable=True)

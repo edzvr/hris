@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payroll History</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; padding: 20px; }
+        .section { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; overflow-x: auto; }
+        table { width: 100%; min-width: 900px; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 9px; text-align: right; }
+        th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+        th { background: #1976d2; color: #fff; }
+        button, .btn { display: inline-block; padding: 8px 12px; margin: 4px; border: 0; border-radius: 4px; text-decoration: none; }
+        button { background: #1976d2; color: #fff; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <main class="section">
+        <h1>Payroll History</h1>
+        <p>Review payroll records across employees and cutoffs. Finalized records have an available payslip.</p>
+        <form method="get">
+            <label for="year">Filter by year:</label>
+            <select id="year" name="year">
+                <option value="">All years</option>
+                {% for year in years %}
+                <option value="{{ year }}" {% if selected_year == year|int %}selected{% endif %}>{{ year }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit">View History</button>
+        </form>
+    </main>
+    <section class="section">
+        <table>
+            <thead>
+                <tr>
+                    <th>Cutoff</th>
+                    <th>Employee / Company</th>
+                    <th>Gross Income</th>
+                    <th>Deductions</th>
+                    <th>Net Pay</th>
+                    <th>Status</th>
+                    <th>Payslip</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
+                    <td>{{ record.employee.full_name() }} / {{ record.employee.company or 'N/A' }}</td>
+                    <td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td>
+                    <td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td>
+                    <td><strong>₱{{ '%.2f'|format(record.net_pay or 0) }}</strong></td>
+                    <td>{{ 'Finalized' if record.is_paid else 'Not finalized' }}</td>
+                    <td>
+                        {% if record.is_paid %}
+                        <a class="btn" href="{{ url_for('payslip', emp_id=record.employee_id, payroll_id=record.id) }}">View</a>
+                        <a class="btn" href="{{ url_for('download_payslip', emp_id=record.employee_id, payroll_id=record.id) }}">Download</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7">No payroll history found for this selection.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    <p>
+        <a class="btn" href="{{ url_for('payroll_dashboard') }}">Back to Payroll Dashboard</a>
+        <a class="btn" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a>
+    </p>
+</body>
+</html>

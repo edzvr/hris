@@ -1,6 +1,7 @@
 # ------------------ HRIS MAIN APP ------------------
 import os, random, logging, re, hashlib, csv
 import secrets
+from math import isfinite
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
 from flask import Flask, abort, render_template, render_template_string, request, redirect, url_for, flash, send_file, jsonify, send_from_directory, has_request_context, session
@@ -244,6 +245,7 @@ def send_resume_work_email(employee):
 from models import (
     db,
     Employee,
+    JobDescriptionOption,
     Attendance,
     AttendanceCorrection,
     Holiday,
@@ -273,6 +275,7 @@ from models import (
 
 from utils.helpers import (
     compute_weekly_deductions,
+    compute_weekly_employer_deductions,
     compute_withholding_tax,
     compute_merit_demerit,
     ai_suggestion,
@@ -717,6 +720,16 @@ def ensure_payroll_columns():
         statements.append("ALTER TABLE payrolls ADD COLUMN philhealth_override FLOAT")
     if "pagibig_override" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN pagibig_override FLOAT")
+    if "contribution_salary_base" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN contribution_salary_base FLOAT")
+    if "employer_sss" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN employer_sss FLOAT")
+    if "employer_sss_ec" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN employer_sss_ec FLOAT")
+    if "employer_philhealth" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN employer_philhealth FLOAT")
+    if "employer_pagibig" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN employer_pagibig FLOAT")
     if "liability_deduction_applied" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
     for statement in statements:
@@ -863,10 +876,17 @@ def ensure_loan_tracking_columns():
 
 def ensure_employee_hr_columns():
     employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    owner_exemption_column_missing = "payroll_attendance_exempt" not in employee_columns
     columns = {
+        "job_description": "VARCHAR(150)",
         "employment_status": "VARCHAR(30)",
         "probation_end_date": "DATE",
         "regularization_date": "DATE",
+        "payroll_attendance_exempt": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "manual_monthly_sss": "FLOAT NOT NULL DEFAULT 0",
+        "manual_monthly_philhealth": "FLOAT NOT NULL DEFAULT 0",
+        "manual_monthly_pagibig": "FLOAT NOT NULL DEFAULT 0",
+        "manual_contribution_cutoff_start": "DATE",
         "gender": "VARCHAR(20)",
         "civil_status": "VARCHAR(30)",
         "immediate_supervisor": "VARCHAR(120)",
@@ -878,6 +898,13 @@ def ensure_employee_hr_columns():
     for column_name, column_type in columns.items():
         if column_name not in employee_columns:
             db.session.execute(text(f"ALTER TABLE employees ADD COLUMN {column_name} {column_type}"))
+    if owner_exemption_column_missing:
+        db.session.execute(text("""
+            UPDATE employees
+            SET payroll_attendance_exempt = TRUE
+            WHERE LOWER(role) = 'admin'
+              AND LOWER(email) IN ('randolfronquillo20@gmail.com', 'edzvronquillo@gmail.com')
+        """))
     db.session.commit()
 
 
@@ -995,6 +1022,35 @@ def sync_postgres_id_sequences():
     db.session.commit()
 
 
+EMPLOYMENT_STATUSES = ("Trainee", "Probationary", "Regular")
+OWNER_ADMIN_EMAILS = {
+    "randolfronquillo20@gmail.com",
+    "edzvronquillo@gmail.com",
+}
+DEFAULT_JOB_DESCRIPTIONS = (
+    "Office Staff",
+    "Warehouse Staff",
+    "Driver",
+    "Delivery Assistant",
+    "In-House Agent",
+)
+
+
+def is_owner_admin_identity(role, email):
+    return (
+        str(role or "").strip().casefold() == "admin"
+        and str(email or "").strip().casefold() in OWNER_ADMIN_EMAILS
+    )
+
+
+def ensure_job_description_options():
+    existing = {option.name.casefold() for option in JobDescriptionOption.query.all()}
+    for name in DEFAULT_JOB_DESCRIPTIONS:
+        if name.casefold() not in existing:
+            db.session.add(JobDescriptionOption(name=name))
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
@@ -1007,6 +1063,7 @@ with app.app_context():
     ensure_staff_concern_schema()
     ensure_loan_tracking_columns()
     ensure_employee_hr_columns()
+    ensure_job_description_options()
     ensure_document_verification_columns()
     bootstrap_postgres_from_sqlite()
     sync_postgres_id_sequences()
@@ -1260,7 +1317,8 @@ def monthly_deductions():
     next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     rows = db.session.query(Payroll, Employee).join(Employee).filter(
         Payroll.cutoff_start >= month_start,
-        Payroll.cutoff_start < next_month
+        Payroll.cutoff_start < next_month,
+        Payroll.is_paid.is_(True),
     ).order_by(Employee.company, Employee.last_name, Payroll.cutoff_start).all()
 
     employer_rows = []
@@ -1268,66 +1326,113 @@ def monthly_deductions():
         employer_rows.append({
             'record': record,
             'employee': employee,
-            # Internal estimate using the current HRIS employee-share basis.
-            'employer_sss': float(record.sss or 0),
-            'employer_philhealth': float(record.philhealth or 0),
-            'employer_pagibig': float(record.pagibig or 0),
+            'has_contribution_basis': record.contribution_salary_base is not None,
+            'employer_sss': float(record.employer_sss or 0),
+            'employer_sss_ec': float(record.employer_sss_ec or 0),
+            'employer_philhealth': float(record.employer_philhealth or 0),
+            'employer_pagibig': float(record.employer_pagibig or 0),
         })
 
     totals = {key: sum(float(getattr(record, key) or 0) for record, _ in rows) for key in (
         'sss', 'philhealth', 'pagibig', 'withholding_tax', 'loan', 'total_deductions'
     )}
+    totals['has_missing_contribution_basis'] = any(
+        not row['has_contribution_basis'] for row in employer_rows
+    )
+    totals['contribution_salary_base'] = sum(
+        float(record.contribution_salary_base or 0) for record, _ in rows
+    )
     totals.update({
+        'employer_sss_ec': sum(row['employer_sss_ec'] for row in employer_rows),
         'employer_sss': sum(row['employer_sss'] for row in employer_rows),
         'employer_philhealth': sum(row['employer_philhealth'] for row in employer_rows),
         'employer_pagibig': sum(row['employer_pagibig'] for row in employer_rows),
     })
     totals.update({
-        'portal_sss': totals['sss'] + totals['employer_sss'],
+        'portal_sss': totals['sss'] + totals['employer_sss'] + totals['employer_sss_ec'],
         'portal_philhealth': totals['philhealth'] + totals['employer_philhealth'],
         'portal_pagibig': totals['pagibig'] + totals['employer_pagibig'],
     })
     totals['portal_total'] = totals['portal_sss'] + totals['portal_philhealth'] + totals['portal_pagibig']
     if request.args.get('download') == 'true':
         buffer = io.BytesIO()
-        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf = canvas.Canvas(buffer, pagesize=(792, 612))
         pdf.setFont('Helvetica-Bold', 15)
-        pdf.drawString(50, 780, 'MONTHLY DEDUCTION REPORT')
+        pdf.drawString(40, 575, 'MONTHLY DEDUCTION REPORT')
         pdf.setFont('Helvetica', 10)
-        pdf.drawString(50, 760, f'Period: {month_start.strftime("%B %Y")}')
-        y = 725
+        pdf.drawString(40, 555, f'Period: {month_start.strftime("%B %Y")} - finalized weekly cutoffs')
+        y = 525
         pdf.setFont('Helvetica-Bold', 9)
         pdf.drawString(40, y, 'Employee / Company')
-        pdf.drawString(220, y, 'SSS EE')
-        pdf.drawString(270, y, 'PhilHealth EE')
-        pdf.drawString(345, y, 'Pag-IBIG EE')
-        pdf.drawString(410, y, 'Tax')
-        pdf.drawString(450, y, 'Loan')
-        pdf.drawString(500, y, 'Total')
-        pdf.drawString(555, y, 'ER Total')
+        pdf.drawString(190, y, 'Cutoff Base')
+        pdf.drawString(270, y, 'SSS EE')
+        pdf.drawString(325, y, 'PhilHealth EE')
+        pdf.drawString(395, y, 'Pag-IBIG EE')
+        pdf.drawString(455, y, 'Tax')
+        pdf.drawString(495, y, 'Loan')
+        pdf.drawString(540, y, 'Total EE')
+        pdf.drawString(625, y, 'Total ER')
         y -= 18
         pdf.setFont('Helvetica', 8)
         for record, employee in rows:
-            if y < 55:
+            if y < 90:
                 pdf.showPage()
-                y = 750
+                y = 570
+                pdf.setFont('Helvetica-Bold', 9)
+                pdf.drawString(40, y, 'Employee / Company')
+                pdf.drawString(190, y, 'Cutoff Base')
+                pdf.drawString(270, y, 'SSS EE')
+                pdf.drawString(325, y, 'PhilHealth EE')
+                pdf.drawString(395, y, 'Pag-IBIG EE')
+                pdf.drawString(455, y, 'Tax')
+                pdf.drawString(495, y, 'Loan')
+                pdf.drawString(540, y, 'Total EE')
+                pdf.drawString(625, y, 'Total ER')
+                y -= 18
+                pdf.setFont('Helvetica', 8)
             pdf.drawString(40, y, f'{employee.full_name()} / {payroll_company_name(employee)}'[:28])
-            for x, key in [(220, 'sss'), (270, 'philhealth'), (345, 'pagibig'), (410, 'withholding_tax'), (450, 'loan'), (500, 'total_deductions')]:
+            base = (
+                f'{record.contribution_salary_base:,.2f}'
+                if record.contribution_salary_base is not None
+                else 'N/A'
+            )
+            pdf.drawRightString(250, y, base)
+            for x, key in [(270, 'sss'), (325, 'philhealth'), (395, 'pagibig'), (455, 'withholding_tax'), (495, 'loan'), (540, 'total_deductions')]:
                 pdf.drawRightString(x + 38, y, f'{float(getattr(record, key) or 0):,.2f}')
-            employer_total = float(record.sss or 0) + float(record.philhealth or 0) + float(record.pagibig or 0)
-            pdf.drawRightString(610, y, f'{employer_total:,.2f}')
+            employer_total = (
+                float(record.employer_sss or 0)
+                + float(record.employer_sss_ec or 0)
+                + float(record.employer_philhealth or 0)
+                + float(record.employer_pagibig or 0)
+            )
+            pdf.drawRightString(
+                675,
+                y,
+                f'{employer_total:,.2f}'
+                if record.contribution_salary_base is not None
+                else 'N/A',
+            )
             y -= 15
-        pdf.line(40, max(y, 45), 540, max(y, 45))
+        pdf.line(40, max(y, 75), 700, max(y, 75))
         pdf.setFont('Helvetica-Bold', 9)
-        pdf.drawString(40, max(y - 15, 30), 'AUTHORIZED PERSON SIGNATURE: ____________________    DATE: __________')
-        employer_y = max(y - 48, 20)
+        pdf.drawString(40, max(y - 15, 55), 'AUTHORIZED PERSON SIGNATURE: ____________________    DATE: __________')
+        employer_y = max(y - 48, 35)
         pdf.setFont('Helvetica-Bold', 9)
         pdf.drawString(40, employer_y, 'EMPLOYER SHARE (ER) - PORTAL PAYMENT GUIDE')
         pdf.setFont('Helvetica', 8)
         pdf.drawString(40, employer_y - 14, f'SSS: PHP {totals["employer_sss"]:,.2f}')
-        pdf.drawString(180, employer_y - 14, f'PhilHealth: PHP {totals["employer_philhealth"]:,.2f}')
-        pdf.drawString(340, employer_y - 14, f'Pag-IBIG: PHP {totals["employer_pagibig"]:,.2f}')
+        pdf.drawString(165, employer_y - 14, f'SSS EC: PHP {totals["employer_sss_ec"]:,.2f}')
+        pdf.drawString(285, employer_y - 14, f'PhilHealth: PHP {totals["employer_philhealth"]:,.2f}')
+        pdf.drawString(450, employer_y - 14, f'Pag-IBIG: PHP {totals["employer_pagibig"]:,.2f}')
         pdf.drawString(40, employer_y - 28, f'Portal total (EE + ER): PHP {totals["portal_total"]:,.2f}')
+        salary_base = (
+            'N/A'
+            if totals['has_missing_contribution_basis']
+            else f'PHP {totals["contribution_salary_base"]:,.2f}'
+        )
+        pdf.drawString(300, employer_y - 28, f'Monthly salary base: {salary_base}')
+        if totals['has_missing_contribution_basis']:
+            pdf.drawString(40, employer_y - 40, 'WARNING: N/A rows are older records; portal totals exclude unavailable employer shares.')
         pdf.showPage()
         pdf.save()
         buffer.seek(0)
@@ -1407,12 +1512,15 @@ from werkzeug.security import generate_password_hash
 
 @app.route('/register', methods=['GET','POST'])
 def register():
+    job_descriptions = JobDescriptionOption.query.order_by(JobDescriptionOption.name.asc()).all()
     if request.method == 'POST':
         required_fields = {
             'First name': request.form.get('first_name', '').strip(),
             'Last name': request.form.get('last_name', '').strip(),
             'Date of birth': request.form.get('dob', '').strip(),
             'Role': request.form.get('role', '').strip().lower(),
+            'Job description': request.form.get('job_description', '').strip(),
+            'Employment status': request.form.get('employment_status', '').strip(),
             'Company': request.form.get('company', '').strip(),
             'Email': request.form.get('email', '').strip(),
             'Password': request.form.get('password', ''),
@@ -1425,6 +1533,14 @@ def register():
         if missing_fields:
             flash(f"Please complete all required fields: {', '.join(missing_fields)}.", 'danger')
             return redirect(url_for('register'))
+        if len(required_fields['Job description']) > 150:
+            flash('Job description must be 150 characters or fewer.', 'danger')
+            return redirect(url_for('register'))
+        if required_fields['Job description'].casefold() not in {
+            option.name.casefold() for option in job_descriptions
+        }:
+            flash('Please select a job description from the available list.', 'danger')
+            return redirect(url_for('register'))
 
         email = request.form.get('email', '').strip().lower()
         if '@' not in email or email.startswith('@') or email.endswith('@'):
@@ -1435,6 +1551,17 @@ def register():
             return redirect(url_for('register'))
         if required_fields['Role'] not in {'staff', 'admin'}:
             flash('Please select a valid role.', 'danger')
+            return redirect(url_for('register'))
+        employment_status = next(
+            (
+                status
+                for status in EMPLOYMENT_STATUSES
+                if status.casefold() == required_fields['Employment status'].casefold()
+            ),
+            None,
+        )
+        if employment_status is None:
+            flash('Please select a valid employment status.', 'danger')
             return redirect(url_for('register'))
         company_input = request.form.get('company', '').strip()
         company = {
@@ -1475,6 +1602,11 @@ def register():
             suffix_name=format_suffix_name(request.form.get('suffix_name')) or None,
             dob=dob_val,
             role=required_fields['Role'],
+            job_description=required_fields['Job description'],
+            employment_status=employment_status,
+            payroll_attendance_exempt=is_owner_admin_identity(
+                required_fields['Role'], email
+            ),
             company=company,
             email=email,
             password=generate_password_hash(required_fields['Password']),
@@ -1503,7 +1635,36 @@ def register():
         flash("🎉 Congratulations! You are now registered.", "success")
         return redirect(url_for('login'))
 
-    return render_template("register.html")
+    return render_template(
+        "register.html",
+        job_descriptions=job_descriptions,
+        employment_statuses=EMPLOYMENT_STATUSES,
+    )
+
+
+@app.route('/admin/job-descriptions', methods=['GET', 'POST'])
+@login_required
+def manage_job_descriptions():
+    if current_user.role.lower() != 'admin':
+        abort(403)
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        if not name or len(name) > 150:
+            flash('Enter a job description of 1 to 150 characters.', 'danger')
+        elif any(
+            option.name.casefold() == name.casefold()
+            for option in JobDescriptionOption.query.all()
+        ):
+            flash('That job description is already available.', 'warning')
+        else:
+            db.session.add(JobDescriptionOption(name=name))
+            db.session.commit()
+            flash('Job description added to the dropdown.', 'success')
+            return redirect(url_for('manage_job_descriptions'))
+
+    options = JobDescriptionOption.query.order_by(JobDescriptionOption.name.asc()).all()
+    return render_template('admin_job_descriptions.html', options=options)
 
 
 # ------------------ PROFILE (SELF / ADMIN) ------------------
@@ -1592,48 +1753,112 @@ def profile(user_id):
 
     # --- Update only if self or admin ---
     if request.method == 'POST':
-        if current_user.id == emp.id or is_admin:
+        if current_user.id != emp.id and not is_admin:
+            flash("❌ You cannot edit another user's profile unless you're admin.", "danger")
+            return redirect(url_for('profile', user_id=user_id))
+
+        if 'resume_summary' in request.form:
+            emp.resume_summary = request.form.get('resume_summary')
+            emp.resume_education = request.form.get('resume_education')
+            emp.resume_experience = request.form.get('resume_experience')
+            emp.resume_skills = request.form.get('resume_skills')
+            emp.resume_references = request.form.get('resume_references')
+
+        if 'first_name' in request.form:
             emp.first_name = format_person_name(request.form.get('first_name'))
+            emp.middle_name = format_person_name(request.form.get('middle_name')) or None
             emp.last_name = format_person_name(request.form.get('last_name'))
-            emp.email = request.form.get('email')
-            emp.contact_no = request.form.get('contact_no')
-            emp.address = request.form.get('address')
-            emp.sss = request.form.get('sss')
-            emp.philhealth = request.form.get('philhealth')
-            emp.tin = request.form.get('tin')
-            emp.pagibig = request.form.get('pagibig')
-            emp.emergency_person = request.form.get('emergency_person')
-            emp.emergency_contact = request.form.get('emergency_contact')
-            emp.emergency_address = request.form.get('emergency_address')
+            emp.suffix_name = format_suffix_name(request.form.get('suffix_name')) or None
+            emp.email = request.form.get('email', '').strip().lower() or None
+            emp.contact_no = request.form.get('contact_no', '').strip() or None
+            emp.address = request.form.get('address', '').strip() or None
+            emp.sss = request.form.get('sss', '').strip() or None
+            emp.philhealth = request.form.get('philhealth', '').strip() or None
+            emp.tin = request.form.get('tin', '').strip() or None
+            emp.pagibig = request.form.get('pagibig', '').strip() or None
+            emp.emergency_person = request.form.get('emergency_person', '').strip() or None
+            emp.emergency_contact = request.form.get('emergency_contact', '').strip() or None
+            emp.emergency_address = request.form.get('emergency_address', '').strip() or None
+
+            for form_name, attribute in (
+                ('dob', 'dob'),
+                ('date_started', 'date_started'),
+            ):
+                value = request.form.get(form_name, '')
+                if value:
+                    try:
+                        setattr(emp, attribute, datetime.strptime(value, '%Y-%m-%d').date())
+                    except ValueError:
+                        flash(f'Please enter a valid {form_name.replace("_", " ")}.', 'danger')
+                        return redirect(url_for('profile', user_id=user_id))
+
+            job_description = request.form.get('job_description', '').strip()
+            if job_description:
+                valid_descriptions = {
+                    option.name.casefold(): option.name
+                    for option in JobDescriptionOption.query.all()
+                }
+                if emp.job_description:
+                    valid_descriptions.setdefault(emp.job_description.casefold(), emp.job_description)
+                if job_description.casefold() not in valid_descriptions:
+                    flash('Please choose an available job description.', 'danger')
+                    return redirect(url_for('profile', user_id=user_id))
+                emp.job_description = valid_descriptions[job_description.casefold()]
+            else:
+                emp.job_description = None
+
+            employment_status = request.form.get('employment_status', '').strip()
+            valid_statuses = {status.casefold(): status for status in EMPLOYMENT_STATUSES}
+            if employment_status.casefold() not in valid_statuses:
+                flash('Please choose a valid employment status.', 'danger')
+                return redirect(url_for('profile', user_id=user_id))
+            emp.employment_status = valid_statuses[employment_status.casefold()]
+
             if is_admin:
-                emp.employment_status = request.form.get('employment_status') or None
-                emp.gender = request.form.get('gender') or None
-                emp.civil_status = request.form.get('civil_status') or None
-                emp.immediate_supervisor = request.form.get('immediate_supervisor') or None
-                emp.work_location = request.form.get('work_location') or None
-                emp.bank_name = request.form.get('bank_name') or None
-                emp.bank_account_name = request.form.get('bank_account_name') or None
-                emp.bank_account_number = request.form.get('bank_account_number') or None
+                emp.gender = request.form.get('gender', '').strip() or None
+                emp.civil_status = request.form.get('civil_status', '').strip() or None
+                emp.immediate_supervisor = request.form.get('immediate_supervisor', '').strip() or None
+                emp.work_location = request.form.get('work_location', '').strip() or None
+                emp.bank_name = request.form.get('bank_name', '').strip() or None
+                emp.bank_account_name = request.form.get('bank_account_name', '').strip() or None
+                emp.bank_account_number = request.form.get('bank_account_number', '').strip() or None
                 emp.biometric_id = request.form.get('biometric_id', '').strip() or None
                 emp.payroll_preparation_access = request.form.get('payroll_preparation_access') == '1'
-                probation_end_date = request.form.get('probation_end_date')
-                regularization_date = request.form.get('regularization_date')
-                emp.probation_end_date = datetime.strptime(probation_end_date, '%Y-%m-%d').date() if probation_end_date else None
-                emp.regularization_date = datetime.strptime(regularization_date, '%Y-%m-%d').date() if regularization_date else None
-            if 'resume_summary' in request.form:
-                emp.resume_summary = request.form.get('resume_summary')
-                emp.resume_education = request.form.get('resume_education')
-                emp.resume_experience = request.form.get('resume_experience')
-                emp.resume_skills = request.form.get('resume_skills')
-                emp.resume_references = request.form.get('resume_references')
+                emp.payroll_attendance_exempt = (
+                    request.form.get('payroll_attendance_exempt') == '1'
+                )
 
-            dob_str = request.form.get('dob')
-            if dob_str:
-                emp.dob = datetime.strptime(dob_str, '%Y-%m-%d').date()
+                role = request.form.get('role', emp.role or '').strip().lower()
+                if role not in {'staff', 'admin'}:
+                    flash('Please choose a valid system role.', 'danger')
+                    return redirect(url_for('profile', user_id=user_id))
+                emp.role = role
+                company_input = request.form.get('company', emp.company or '').strip()
+                company = {
+                    'Trece-Uno': 'Trece-Uno',
+                    'Trece-Uno Auto Supply': 'Trece-Uno',
+                    'Auto Expert': 'Auto Expert',
+                    'Auto-Expert Auto Supply': 'Auto Expert',
+                }.get(company_input)
+                if company is None:
+                    flash('Please choose a valid company.', 'danger')
+                    return redirect(url_for('profile', user_id=user_id))
+                emp.company = company
 
-            date_started_str = request.form.get('date_started')
-            if date_started_str:
-                emp.date_started = datetime.strptime(date_started_str, '%Y-%m-%d').date()
+                for form_name, attribute in (
+                    ('probation_end_date', 'probation_end_date'),
+                    ('regularization_date', 'regularization_date'),
+                ):
+                    value = request.form.get(form_name, '')
+                    try:
+                        setattr(
+                            emp,
+                            attribute,
+                            datetime.strptime(value, '%Y-%m-%d').date() if value else None,
+                        )
+                    except ValueError:
+                        flash(f'Please enter a valid {form_name.replace("_", " ")}.', 'danger')
+                        return redirect(url_for('profile', user_id=user_id))
 
             if 'profile_pic' in request.files:
                 file = request.files['profile_pic']
@@ -1642,11 +1867,9 @@ def profile(user_id):
                     file.save(os.path.join(app.static_folder, 'uploads', filename))
                     emp.profile_pic = filename
 
-            db.session.commit()
-            flash("✅ Profile updated successfully!", "success")
-            return redirect(url_for('profile', user_id=user_id))
-        else:
-            flash("❌ You cannot edit another user's profile unless you're admin.", "danger")
+        db.session.commit()
+        flash("✅ Profile updated successfully!", "success")
+        return redirect(url_for('profile', user_id=user_id))
 
     try:
         cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
@@ -1670,6 +1893,8 @@ def profile(user_id):
         profile_attendance_records=profile_attendance_records,
         attendance_month=attendance_month,
         profile_monthly_summary=profile_monthly_summary,
+        job_descriptions=JobDescriptionOption.query.order_by(JobDescriptionOption.name.asc()).all(),
+        employment_statuses=EMPLOYMENT_STATUSES,
         bulletins=Bulletin.query.order_by(Bulletin.created_at.desc()).limit(10).all()
     )
 
@@ -1851,7 +2076,8 @@ def employee_201_pdf(employee_id):
     write_line('PERSONAL INFORMATION', bold=True, size=12, gap=20)
     write_line(f'Name: {employee.first_name} {employee.last_name}')
     write_line(f'Employee ID: {employee.id}')
-    write_line(f'Role: {employee.role or "N/A"}')
+    write_line(f'System Role: {employee.role or "N/A"}')
+    write_line(f'Job Description: {employee.job_description or "N/A"}')
     write_line(f'Company: {employee.company or "N/A"}')
     write_line(f'Email: {employee.email or "N/A"}')
     write_line(f'Contact: {employee.contact_no or "N/A"}')
@@ -2197,12 +2423,16 @@ def download_employee_profile(employee_id):
     write_line('Employee Name', employee.full_name(), bold=True)
     write_line('Employee ID', employee.id)
     write_line('Company', employee.company)
-    write_line('Role', employee.role)
+    write_line('System Role', employee.role)
+    write_line('Job Description', employee.job_description)
+    write_line('Employment Status', employee.employment_status)
     write_line('Email', employee.email)
     write_line('Contact Number', employee.contact_no)
     write_line('Date of Birth', employee.dob)
     write_line('Address', employee.address)
     write_line('Date Started', employee.date_started)
+    write_line('Probation End Date', employee.probation_end_date)
+    write_line('Regularization Date', employee.regularization_date)
     y -= 8
     write_line('GOVERNMENT INFORMATION', '', bold=True, gap=20)
     write_line('SSS', employee.sss)
@@ -3158,17 +3388,23 @@ def peer_evaluation():
 
 
 # ------------------ CLOCK IN / OUT (Unified) ------------------
+def is_trece_sunday(employee, target_date):
+    return bool(
+        target_date.weekday() == 6
+        and employee
+        and str(employee.company or '').lower().startswith('trece')
+    )
+
+
+def is_restday_overtime(attendance):
+    return bool(attendance.is_restday_ot or attendance.date.weekday() == 6)
+
+
 def apply_overtime_details(attendance, force_approved=False):
     if not attendance.clock_in or not attendance.clock_out:
         return
 
-    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    is_trece_sunday = (
-        attendance.date.weekday() == 6
-        and employee
-        and str(employee.company or '').lower().startswith('trece')
-    )
     is_regular_weekday = attendance.date.weekday() != 6 and not holiday
     overtime_start = datetime.combine(
         attendance.date,
@@ -3184,7 +3420,9 @@ def apply_overtime_details(attendance, force_approved=False):
         status="Approved"
     ).first()
     is_approved = bool(application or force_approved)
-    attendance.is_restday_ot = bool(is_approved and attendance.date.weekday() == 6 and is_trece_sunday)
+    attendance.is_restday_ot = bool(
+        is_approved and attendance.overtime_hours > 0 and attendance.date.weekday() == 6
+    )
     attendance.is_holiday_ot = bool(is_approved and holiday)
     attendance.is_weekday_ot = bool(
         is_approved
@@ -3197,24 +3435,22 @@ def apply_overtime_details(attendance, force_approved=False):
 
 def holiday_multiplier(attendance):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
+    is_restday = is_restday_overtime(attendance)
     if holiday and holiday.holiday_type == 'Regular Holiday':
-        if attendance.is_restday_ot:
-            return 3.38
-        return 2.60
-    if holiday and attendance.is_restday_ot:
-        return 1.95
-    if holiday:
-        return 1.69
-    if attendance.is_restday_ot:
-        return 1.69
-    return 1.25
+        base_multiplier = 2.60 if is_restday else 2.00
+    elif holiday:
+        base_multiplier = 1.50 if is_restday else 1.30
+    elif is_restday:
+        base_multiplier = 1.30
+    else:
+        return 1.25
+    return round(base_multiplier * 1.30, 2)
 
 
 def scheduled_workday_near(employee, holiday_date, direction):
     target = holiday_date + timedelta(days=direction)
     for _ in range(7):
-        is_trece_sunday = target.weekday() == 6 and employee and str(employee.company or '').lower().startswith('trece')
-        if target.weekday() != 6 or is_trece_sunday:
+        if target.weekday() != 6:
             return target
         target += timedelta(days=direction)
     return holiday_date + timedelta(days=direction)
@@ -3249,15 +3485,9 @@ def eligible_for_regular_holiday_pay(attendance):
 
 def regular_day_pay(attendance, daily_rate):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
     regular_hours = min(max(float(attendance.hours or 0), 0.0), 8.0)
     prorated_daily_rate = daily_rate * (regular_hours / 8.0) if regular_hours else 0.0
-    is_trece_sunday = (
-        attendance.date.weekday() == 6
-        and employee
-        and str(employee.company or '').lower().startswith('trece')
-    )
-    is_restday = attendance.date.weekday() == 6 and not is_trece_sunday
+    is_restday = attendance.date.weekday() == 6
     if holiday and holiday.holiday_type == 'Regular Holiday':
         if not eligible_for_regular_holiday_pay(attendance):
             return 0.0
@@ -3268,11 +3498,16 @@ def regular_day_pay(attendance, daily_rate):
         if is_restday:
             return prorated_daily_rate * 1.5
         return prorated_daily_rate * 1.3
-    if attendance.date.weekday() == 6 and not is_trece_sunday:
+    if attendance.date.weekday() == 6:
         return 0.0
-    if is_trece_sunday:
-        return daily_rate * 0.5 * 1.3
     return prorated_daily_rate
+
+
+def payroll_worked_days_count(employee, attendance_records):
+    return sum(
+        attendance.date.weekday() != 6
+        for attendance in attendance_records
+    )
 
 
 def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
@@ -3283,13 +3518,8 @@ def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
 
 
 def payroll_statutory_deductions(payroll_record, calculated_deductions):
-    """Use saved admin overrides when present; otherwise use the calculated amount."""
-    if payroll_record is None:
-        return calculated_deductions
-    return {
-        key: float(getattr(payroll_record, f'{key}_override') or calculated_deductions[key])
-        for key in ('sss', 'philhealth', 'pagibig')
-    }
+    """Use attendance-adjusted statutory calculations for each weekly cutoff."""
+    return calculated_deductions
 
 
 def completed_cutoff(today=None):
@@ -3316,7 +3546,64 @@ def payroll_cutoff_from_request(value=None):
     return completed_cutoff()
 
 
+def payroll_cutoffs_in_month(cutoff_start):
+    """Count Saturday-to-Friday payroll cutoffs assigned to the start-date month."""
+    month_start = cutoff_start.replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    first_saturday = month_start + timedelta(days=(5 - month_start.weekday()) % 7)
+    return 1 + (next_month - timedelta(days=1) - first_saturday).days // 7
+
+
+def payroll_cutoff_dates_in_month(cutoff_start):
+    month_start = cutoff_start.replace(day=1)
+    first_saturday = month_start + timedelta(days=(5 - month_start.weekday()) % 7)
+    return [
+        first_saturday + timedelta(days=7 * index)
+        for index in range(payroll_cutoffs_in_month(cutoff_start))
+    ]
+
+
+def manual_owner_contribution_deductions(employee, cutoff_start):
+    if (
+        not getattr(employee, "payroll_attendance_exempt", False)
+        or getattr(employee, "manual_contribution_cutoff_start", None) != cutoff_start
+    ):
+        return {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+    return {
+        "sss": float(getattr(employee, "manual_monthly_sss", 0) or 0),
+        "philhealth": float(getattr(employee, "manual_monthly_philhealth", 0) or 0),
+        "pagibig": float(getattr(employee, "manual_monthly_pagibig", 0) or 0),
+    }
+
+
+def update_manual_owner_contribution_settings(employee, form, cutoff_start):
+    if not getattr(employee, "payroll_attendance_exempt", False):
+        return
+    fields = {
+        "manual_monthly_sss": "manual_monthly_sss",
+        "manual_monthly_philhealth": "manual_monthly_philhealth",
+        "manual_monthly_pagibig": "manual_monthly_pagibig",
+    }
+    for form_field, attribute in fields.items():
+        value = form.get(f"{form_field}_{employee.id}")
+        if value is None:
+            continue
+        amount = float(value or 0)
+        if not isfinite(amount) or amount < 0:
+            raise ValueError("Manual contribution amounts must be non-negative.")
+        setattr(employee, attribute, amount)
+
+    selected_cutoff = form.get(f"manual_contribution_cutoff_start_{employee.id}")
+    if selected_cutoff is not None:
+        selected_date = datetime.strptime(selected_cutoff, "%Y-%m-%d").date()
+        if selected_date not in payroll_cutoff_dates_in_month(cutoff_start):
+            raise ValueError("Choose a cutoff date from the selected month.")
+        employee.manual_contribution_cutoff_start = selected_date
+
+
 def payroll_attendance_records(employee, cutoff_start, cutoff_end):
+    if getattr(employee, "payroll_attendance_exempt", False):
+        return []
     records = Attendance.query.filter(
         Attendance.employee_id == employee.id,
         Attendance.clock_out != None,
@@ -3328,6 +3615,7 @@ def payroll_attendance_records(employee, cutoff_start, cutoff_end):
         if (
             record.date.weekday() == 6
             and not str(employee.company or '').lower().startswith('trece')
+            and getattr(record, 'ot_status', None) != 'Approved'
         ):
             continue
         records_by_date.setdefault(record.date, record)
@@ -3341,9 +3629,10 @@ def payroll_company_name(employee):
 
 
 def company_employee_filter(company):
+    staff_only = ~Employee.role.ilike('%admin%') & ~Employee.payroll_attendance_exempt.is_(True)
     if company == 'Trece-Uno':
-        return Employee.company.in_(['Trece', 'Trece-Uno']) & ~Employee.role.ilike('%admin%')
-    return (Employee.company == 'Auto Expert') & ~Employee.role.ilike('%admin%')
+        return Employee.company.in_(['Trece', 'Trece-Uno']) & staff_only
+    return (Employee.company == 'Auto Expert') & staff_only
 
 
 def employer_tax_details(company):
@@ -3658,13 +3947,21 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             for record in attendance
             if record.ot_status == 'Approved'
         )
-        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, len(attendance))
+        worked_days_count = payroll_worked_days_count(emp, attendance)
+        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, worked_days_count)
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + overtime_pay
         contribution_salary = basic_pay + rice_taxable
+        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        monthly_contribution_salary = contribution_salary * weeks_in_month
         deductions = (
-            compute_weekly_deductions(contribution_salary * 4, weeks=4)
+            compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
             if contribution_salary > 0
             else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+        )
+        employer_deductions = (
+            compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
+            if contribution_salary > 0
+            else {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
         )
         payroll_record = Payroll.query.filter_by(
             employee_id=emp.id,
@@ -3673,16 +3970,24 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
         ).first()
         loan = float(payroll_record.loan or 0) if payroll_record else 0.0
         liability_deduction = liability_cutoff_deduction(emp.id)
-        monthly_taxable_income = (gross_income * 4) - ((deductions['sss'] + deductions['philhealth'] + deductions['pagibig']) * 4)
-        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+        monthly_taxable_income = (gross_income * weeks_in_month) - (
+            (deductions['sss'] + deductions['philhealth'] + deductions['pagibig'])
+            * weeks_in_month
+        )
+        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
         total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + liability_deduction + withholding_tax
         rows.append({
             'employee': emp,
-            'worked_days': len(attendance),
+            'worked_days': worked_days_count,
             'gross_income': gross_income,
             'sss': deductions['sss'],
             'philhealth': deductions['philhealth'],
             'pagibig': deductions['pagibig'],
+            'contribution_salary_base': contribution_salary,
+            'employer_sss': employer_deductions['sss'],
+            'employer_sss_ec': employer_deductions['sss_ec'],
+            'employer_philhealth': employer_deductions['philhealth'],
+            'employer_pagibig': employer_deductions['pagibig'],
             'loan': loan,
             'liability_deduction': liability_deduction,
             'withholding_tax': withholding_tax,
@@ -4316,6 +4621,11 @@ def mark_payroll_summary_paid():
         record.sss = row['sss']
         record.philhealth = row['philhealth']
         record.pagibig = row['pagibig']
+        record.contribution_salary_base = row['contribution_salary_base']
+        record.employer_sss = row['employer_sss']
+        record.employer_sss_ec = row['employer_sss_ec']
+        record.employer_philhealth = row['employer_philhealth']
+        record.employer_pagibig = row['employer_pagibig']
         record.withholding_tax = row['withholding_tax']
         record.loan = row['loan']
         record.total_deductions = row['total_deductions']
@@ -4619,7 +4929,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         Attendance.clock_out != None
     ).all()
     if not worked_days_count:
-        worked_days_count = len(attendance_records)
+        worked_days_count = payroll_worked_days_count(emp, attendance_records)
 
     daily_rate = float(emp.daily_rate or 0)
     basic_pay = 0.0
@@ -4636,15 +4946,12 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     for attendance in attendance_records:
         holiday = Holiday.query.filter_by(date=attendance.date).first()
         day_pay = regular_day_pay(attendance, daily_rate)
-        is_trece_sunday = (
-            attendance.date.weekday() == 6
-            and str(emp.company or '').lower().startswith('trece')
-        )
+        trece_sunday = is_trece_sunday(emp, attendance.date)
         if holiday and holiday.holiday_type == "Regular Holiday":
             regular_holiday += day_pay
         elif holiday:
             special_holiday += day_pay
-        elif attendance.date.weekday() == 6 and not is_trece_sunday:
+        elif attendance.date.weekday() == 6 and not trece_sunday:
             rest_day_pay += day_pay
         else:
             basic_pay += day_pay
@@ -4661,7 +4968,11 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         elif holiday:
             key = "special_holiday_ot"
         elif attendance.date.weekday() == 6:
-            key = "rest_day" if attendance.is_restday_ot else "sunday_overtime"
+            key = (
+                "rest_day"
+                if is_restday_overtime(attendance)
+                else "sunday_overtime"
+            )
         else:
             key = "regular_overtime"
         overtime_amounts[key] += amount
@@ -4851,17 +5162,19 @@ def payroll(employee_id):
 
     # Compute payroll
     paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
-    worked_days_count = len(paid_attendance)
+    worked_days_count = payroll_worked_days_count(emp, paid_attendance)
 
-    approved_overtime_hours = db.session.query(
-        db.func.coalesce(db.func.sum(Attendance.overtime_hours), 0)
-    ).filter(
-        Attendance.employee_id == employee_id,
-        Attendance.clock_out != None,
-        Attendance.ot_status == 'Approved',
-        Attendance.clock_in >= start_cutoff,
-        Attendance.clock_in < end_cutoff
-    ).scalar()
+    approved_overtime_hours = 0
+    if not emp.payroll_attendance_exempt:
+        approved_overtime_hours = db.session.query(
+            db.func.coalesce(db.func.sum(Attendance.overtime_hours), 0)
+        ).filter(
+            Attendance.employee_id == employee_id,
+            Attendance.clock_out != None,
+            Attendance.ot_status == 'Approved',
+            Attendance.clock_in >= start_cutoff,
+            Attendance.clock_in < end_cutoff
+        ).scalar()
 
     daily_rate = emp.daily_rate or 0
     basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
@@ -4876,11 +5189,27 @@ def payroll(employee_id):
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
     )
     contribution_salary = cutoff_salary + rice_taxable
-    deductions = (
-        compute_weekly_deductions(contribution_salary * 4, weeks=4)
-        if contribution_salary > 0
-        else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-    )
+    weeks_in_month = payroll_cutoffs_in_month(start_cutoff.date())
+    monthly_contribution_salary = contribution_salary * weeks_in_month
+    if emp.payroll_attendance_exempt:
+        deductions = manual_owner_contribution_deductions(emp, cutoff_start)
+        employer_deductions = {
+            "sss": 0.0,
+            "sss_ec": 0.0,
+            "philhealth": 0.0,
+            "pagibig": 0.0,
+        }
+    else:
+        deductions = (
+            compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
+            if contribution_salary > 0
+            else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+        )
+        employer_deductions = (
+            compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
+            if contribution_salary > 0
+            else {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+        )
 
     finalize = request.args.get("finalize") == "true"
     payroll_record = Payroll.query.filter_by(
@@ -4888,7 +5217,8 @@ def payroll(employee_id):
         cutoff_start=start_cutoff.date(),
         cutoff_end=(end_cutoff - timedelta(days=1)).date()
     ).first()
-    deductions = payroll_statutory_deductions(payroll_record, deductions)
+    if not emp.payroll_attendance_exempt:
+        deductions = payroll_statutory_deductions(payroll_record, deductions)
     sss = deductions["sss"]
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
@@ -4896,8 +5226,10 @@ def payroll(employee_id):
     liability_deduction = liability_cutoff_deduction(emp.id)
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + rice_taxable + approved_overtime_pay
-    monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
-    withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+    monthly_taxable_income = (gross_income * weeks_in_month) - (
+        (sss + philhealth + pagibig) * weeks_in_month
+    )
+    withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
     total_deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
     net_pay = gross_income + rice_exempt - total_deductions
 
@@ -4913,6 +5245,11 @@ def payroll(employee_id):
     payroll_record.sss = sss
     payroll_record.philhealth = philhealth
     payroll_record.pagibig = pagibig
+    payroll_record.contribution_salary_base = contribution_salary
+    payroll_record.employer_sss = employer_deductions["sss"]
+    payroll_record.employer_sss_ec = employer_deductions["sss_ec"]
+    payroll_record.employer_philhealth = employer_deductions["philhealth"]
+    payroll_record.employer_pagibig = employer_deductions["pagibig"]
     payroll_record.withholding_tax = withholding_tax
     payroll_record.loan = loan
     payroll_record.liability_deduction = liability_deduction
@@ -4947,7 +5284,7 @@ def payroll(employee_id):
     c.setFont("Helvetica", 9)
     c.drawString(50, 730, f"Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})")
     c.drawString(50, 714, f"Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
-    c.drawString(50, 698, f"Position: {emp.role}")
+    c.drawString(50, 698, f"Position: {emp.job_description or 'N/A'}")
     c.drawString(300, 714, f"Daily Rate: PHP {float(emp.daily_rate or 0):.2f}")
     c.drawString(300, 698, f"Department: {emp.company}")
     c.drawString(50, 682, f"Reference: PAY-{payroll_record.id or 0:06d}")
@@ -5115,27 +5452,7 @@ def finalize_payroll(employee_id):
             payroll_record.loan = loan_cutoff_deduction(
                 employee.loan_balance, float(loan_deduction)
             )
-        statutory_values = {
-            'sss': request.form.get(f'sss_{employee_id}'),
-            'philhealth': request.form.get(f'philhealth_{employee_id}'),
-            'pagibig': request.form.get(f'pagibig_{employee_id}'),
-        }
-        if any(value is not None and value.strip() != '' for value in statutory_values.values()):
-            payroll_record = payroll_record or Payroll.query.filter_by(
-                employee_id=employee_id,
-                cutoff_start=cutoff_start,
-                cutoff_end=cutoff_end - timedelta(days=1),
-            ).first()
-            if payroll_record is None:
-                payroll_record = Payroll(
-                    employee_id=employee_id,
-                    cutoff_start=cutoff_start,
-                    cutoff_end=cutoff_end - timedelta(days=1),
-                )
-                db.session.add(payroll_record)
-            for key, value in statutory_values.items():
-                if value is not None and value.strip() != '':
-                    setattr(payroll_record, f'{key}_override', max(float(value), 0))
+        update_manual_owner_contribution_settings(employee, request.form, cutoff_start)
         db.session.commit()
     except (TypeError, ValueError):
         db.session.rollback()
@@ -5164,6 +5481,9 @@ def bulk_finalize_payroll():
 
     finalized = 0
     for employee_id in selected_ids:
+        employee = db.session.get(Employee, int(employee_id))
+        if employee is None or employee.payroll_attendance_exempt:
+            continue
         payroll_record = Payroll.query.filter_by(
             employee_id=int(employee_id),
             cutoff_start=cutoff_start,
@@ -5173,7 +5493,6 @@ def bulk_finalize_payroll():
             continue
         if not payroll_record.is_paid:
             if not payroll_record.loan_deduction_applied:
-                employee = db.session.get(Employee, int(employee_id))
                 employee.loan_balance = max(
                     float(employee.loan_balance or 0) - float(payroll_record.loan or 0),
                     0,
@@ -5267,7 +5586,7 @@ def download_payslip(emp_id, payroll_id):
     pdf.setFont('Helvetica', 9)
     pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
     pdf.drawString(50, 714, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
-    pdf.drawString(50, 698, f'Position: {employee.role}')
+    pdf.drawString(50, 698, f'Position: {employee.job_description or "N/A"}')
     pdf.drawString(300, 714, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
     pdf.drawString(300, 698, f'Reference: {verification["document_id"]}')
     pdf.drawString(50, 682, f'Department: {employee.company or "N/A"}')
@@ -5308,6 +5627,47 @@ def download_payslip(emp_id, payroll_id):
 
 
 # ------------------ PAYROLL DASHBOARD------------------
+@app.route('/admin/payroll-history')
+@login_required
+def admin_payroll_history():
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+
+    year_value = request.args.get('year', '').strip()
+    query = Payroll.query.join(Employee)
+    selected_year = None
+    if year_value:
+        try:
+            selected_year = int(year_value)
+            if selected_year < 1900 or selected_year > 9999:
+                raise ValueError
+        except ValueError:
+            flash('Select a valid payroll year.', 'danger')
+            return redirect(url_for('admin_payroll_history'))
+        query = query.filter(extract('year', Payroll.cutoff_start) == selected_year)
+
+    records = query.order_by(
+        Payroll.cutoff_start.desc(),
+        Employee.company,
+        Employee.last_name,
+        Employee.first_name,
+    ).all()
+    years = [
+        row[0]
+        for row in db.session.query(extract('year', Payroll.cutoff_start).label('year'))
+        .distinct()
+        .order_by(extract('year', Payroll.cutoff_start).desc())
+        .all()
+        if row[0] is not None
+    ]
+    return render_template(
+        'admin_payroll_history.html',
+        records=records,
+        years=years,
+        selected_year=selected_year,
+    )
+
+
 @app.route('/payroll_dashboard', methods=['GET', 'POST'])
 @login_required
 def payroll_dashboard():
@@ -5337,9 +5697,6 @@ def payroll_dashboard():
             incentives = request.form.get(f'incentives_{emp.id}')
             loan_balance = request.form.get(f'loan_{emp.id}')
             loan_deduction = request.form.get(f'loan_deduction_{emp.id}')
-            sss_override = request.form.get(f'sss_{emp.id}')
-            philhealth_override = request.form.get(f'philhealth_{emp.id}')
-            pagibig_override = request.form.get(f'pagibig_{emp.id}')
             try:
                 if daily_rate is not None:
                     emp.daily_rate = max(float(daily_rate), 0)
@@ -5375,27 +5732,9 @@ def payroll_dashboard():
                     payroll_record.loan = loan_cutoff_deduction(
                         emp.loan_balance, requested_deduction
                     )
-                statutory_values = {
-                    'sss': sss_override,
-                    'philhealth': philhealth_override,
-                    'pagibig': pagibig_override,
-                }
-                if any(value is not None for value in statutory_values.values()):
-                    payroll_record = payroll_record or Payroll.query.filter_by(
-                        employee_id=emp.id,
-                        cutoff_start=start_cutoff.date(),
-                        cutoff_end=(end_cutoff - timedelta(days=1)).date(),
-                    ).first()
-                    if payroll_record is None:
-                        payroll_record = Payroll(
-                            employee_id=emp.id,
-                            cutoff_start=start_cutoff.date(),
-                            cutoff_end=(end_cutoff - timedelta(days=1)).date(),
-                        )
-                        db.session.add(payroll_record)
-                    for key, value in statutory_values.items():
-                        if value is not None and value.strip() != '':
-                            setattr(payroll_record, f'{key}_override', max(float(value), 0))
+                update_manual_owner_contribution_settings(
+                    emp, request.form, cutoff_start
+                )
             except (TypeError, ValueError):
                 db.session.rollback()
                 flash('Please enter valid non-negative payroll values.', 'danger')
@@ -5405,6 +5744,7 @@ def payroll_dashboard():
         return redirect(url_for('payroll_dashboard'))
 
     payroll_data = []
+    manual_contribution_cutoffs = payroll_cutoff_dates_in_month(cutoff_start)
     employees = Employee.query.order_by(
         Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
     ).filter(
@@ -5421,7 +5761,7 @@ def payroll_dashboard():
 
     for emp in employees:
         paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
-        worked_days_count = len(paid_attendance)
+        worked_days_count = payroll_worked_days_count(emp, paid_attendance)
 
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
@@ -5450,11 +5790,27 @@ def payroll_dashboard():
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
         )
         contribution_salary = cutoff_salary + rice_taxable
-        deduction_values = (
-            compute_weekly_deductions(contribution_salary * 4, weeks=4)
-            if contribution_salary > 0
-            else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-        )
+        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        monthly_contribution_salary = contribution_salary * weeks_in_month
+        if emp.payroll_attendance_exempt:
+            deduction_values = manual_owner_contribution_deductions(emp, cutoff_start)
+            employer_deduction_values = {
+                "sss": 0.0,
+                "sss_ec": 0.0,
+                "philhealth": 0.0,
+                "pagibig": 0.0,
+            }
+        else:
+            deduction_values = (
+                compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
+                if contribution_salary > 0
+                else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+            )
+            employer_deduction_values = (
+                compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
+                if contribution_salary > 0
+                else {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
+            )
         sss = deduction_values['sss']
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
@@ -5475,25 +5831,29 @@ def payroll_dashboard():
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
 
-        monthly_taxable_income = (gross_income * 4) - ((sss + philhealth + pagibig) * 4)
-        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / 4, 2)
+        monthly_taxable_income = (gross_income * weeks_in_month) - (
+            (sss + philhealth + pagibig) * weeks_in_month
+        )
+        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
         deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
         net_pay = gross_income + rice_exempt - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
         review_reasons = []
         if daily_rate <= 0:
             review_reasons.append('Missing daily rate')
-        if worked_days_count == 0:
+        if worked_days_count == 0 and not emp.payroll_attendance_exempt:
             review_reasons.append('No completed attendance')
         if any(attendance.ot_status != 'Approved' for attendance in ot_records):
             review_reasons.append('OT needs approval')
         review_status = 'Needs Review' if review_reasons else 'Ready'
-        accounting_totals['total_net_pay'] += net_pay
-        accounting_totals['admin_net_pay' if is_admin else 'staff_net_pay'] += net_pay
+        if not emp.payroll_attendance_exempt:
+            accounting_totals['total_net_pay'] += net_pay
+            accounting_totals['admin_net_pay' if is_admin else 'staff_net_pay'] += net_pay
 
         payroll_data.append({
             "emp": emp,
             "is_admin": is_admin,
+            "is_payroll_attendance_exempt": bool(emp.payroll_attendance_exempt),
             "worked_days": worked_days_count,
             "ot_hours": ot_hours,
             "approved_ot_hours": approved_ot_hours,
@@ -5516,6 +5876,7 @@ def payroll_dashboard():
     return render_template("payroll_dashboard.html",
                            payroll_data=payroll_data,
                            accounting_totals=accounting_totals,
+                           manual_contribution_cutoffs=manual_contribution_cutoffs,
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=(end_cutoff - timedelta(days=1)).date())
 

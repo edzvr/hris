@@ -56,17 +56,18 @@
                 <img src="{{ url_for('static', filename='uploads/' ~ emp.profile_pic) }}" class="profile-pic" alt="Profile picture">
             {% endif %}
             <h2>{{ emp.first_name }} {{ emp.last_name }} - Profile</h2>
-            <p>{{ emp.role or 'N/A' }} - {{ emp.company or 'N/A' }}</p>
+            <p>{{ emp.job_description or 'N/A' }} - {{ emp.company or 'N/A' }}</p>
             {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
             <button class="btn" type="button" onclick="showTab('resume')">Fill Up Resume / Bio Data</button>
             {% endif %}
         </div>
 
         <div class="details-grid" id="profile-view">
-            <p><strong>Role:</strong> {{ emp.role or 'N/A' }}</p>
+            <p><strong>System Role:</strong> {{ emp.role or 'N/A' }}</p>
+            <p><strong>Job Description:</strong> {{ emp.job_description or 'N/A' }}</p>
             <p><strong>Email:</strong> {{ emp.email or 'N/A' }}</p>
             <p><strong>Address:</strong> {{ emp.address or 'N/A' }}</p>
-            <p><strong>Date Started:</strong> {{ emp.date_started or 'N/A' }}</p>
+            <p><strong>Date Hired / Date Started:</strong> {{ emp.date_started or 'N/A' }}</p>
             <p><strong>Employment Status:</strong> {{ emp.employment_status or 'N/A' }}</p>
             <p><strong>Probation End Date:</strong> {{ emp.probation_end_date or 'N/A' }}</p>
             <p><strong>Regularization Date:</strong> {{ emp.regularization_date or 'N/A' }}</p>
@@ -102,14 +103,50 @@
         <form method="POST" enctype="multipart/form-data" class="edit-form" id="profile-edit" action="{{ url_for('profile', user_id=emp.id) }}">
             <div class="form-grid">
                 <label class="form-field">First Name<input type="text" name="first_name" value="{{ emp.first_name or '' }}" required></label>
+                <label class="form-field">Middle Name<input type="text" name="middle_name" value="{{ emp.middle_name or '' }}"></label>
                 <label class="form-field">Last Name<input type="text" name="last_name" value="{{ emp.last_name or '' }}" required></label>
+                <label class="form-field">Suffix<input type="text" name="suffix_name" value="{{ emp.suffix_name or '' }}"></label>
                 <label class="form-field">Email<input type="email" name="email" value="{{ emp.email or '' }}"></label>
                 <label class="form-field">Contact No<input type="text" name="contact_no" value="{{ emp.contact_no or '' }}"></label>
                 <label class="form-field full">Address<input type="text" name="address" value="{{ emp.address or '' }}"></label>
-                <label class="form-field">Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
+                <label class="form-field">Date Hired / Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
                 <label class="form-field">Date of Birth<input type="date" name="dob" value="{{ emp.dob or '' }}"></label>
+                <label class="form-field">Job Description
+                    <select name="job_description" required>
+                        {% if not emp.job_description %}
+                        <option value="" selected disabled>Select job description</option>
+                        {% endif %}
+                        {% if emp.job_description and emp.job_description not in job_descriptions | map(attribute='name') | list %}
+                        <option value="{{ emp.job_description }}" selected>{{ emp.job_description }}</option>
+                        {% endif %}
+                        {% for description in job_descriptions %}
+                        <option value="{{ description.name }}" {% if emp.job_description == description.name %}selected{% endif %}>{{ description.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="form-field">Employment Status
+                    <select name="employment_status" required>
+                        {% if not emp.employment_status %}
+                        <option value="" selected disabled>Select employment status</option>
+                        {% endif %}
+                        {% for status in employment_statuses %}
+                        <option value="{{ status }}" {% if emp.employment_status == status %}selected{% endif %}>{{ status }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
                 {% if viewer.role.lower() == 'admin' %}
-                <label class="form-field">Employment Status<input type="text" name="employment_status" value="{{ emp.employment_status or '' }}" placeholder="Probationary or Regular"></label>
+                <label class="form-field">System Role
+                    <select name="role" required>
+                        <option value="staff" {% if emp.role.lower() == 'staff' %}selected{% endif %}>Staff</option>
+                        <option value="admin" {% if emp.role.lower() == 'admin' %}selected{% endif %}>Admin</option>
+                    </select>
+                </label>
+                <label class="form-field">Company
+                    <select name="company" required>
+                        <option value="Trece-Uno" {% if emp.company == 'Trece-Uno' %}selected{% endif %}>Trece-Uno Auto Supply</option>
+                        <option value="Auto Expert" {% if emp.company == 'Auto Expert' %}selected{% endif %}>Auto-Expert Auto Supply</option>
+                    </select>
+                </label>
                 <label class="form-field">Probation End Date<input type="date" name="probation_end_date" value="{{ emp.probation_end_date or '' }}"></label>
                 <label class="form-field">Regularization Date<input type="date" name="regularization_date" value="{{ emp.regularization_date or '' }}"></label>
                 <label class="form-field">Gender<input type="text" name="gender" value="{{ emp.gender or '' }}"></label>
@@ -121,6 +158,7 @@
                 <label class="form-field">Bank Account Number<input type="text" name="bank_account_number" value="{{ emp.bank_account_number or '' }}"></label>
                 <label class="form-field">Biometric ID<input type="text" name="biometric_id" value="{{ emp.biometric_id or '' }}"></label>
                 <label class="form-field"><span>Payroll Preparation Access</span><input type="checkbox" name="payroll_preparation_access" value="1" {% if emp.payroll_preparation_access %}checked{% endif %}></label>
+                <label class="form-field"><span>Owner: exclude attendance pay and payroll summaries</span><input type="checkbox" name="payroll_attendance_exempt" value="1" {% if emp.payroll_attendance_exempt %}checked{% endif %}></label>
                 {% endif %}
                 <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>

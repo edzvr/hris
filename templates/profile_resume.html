@@ -34,7 +34,7 @@
         <header class="masthead">
             <div>
                 <h1>{{ employee.full_name() }}</h1>
-                <p class="role">{{ employee.role or 'Employee' }} | {{ 'Trece-Uno Auto Supply' if employee.company and employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</p>
+                <p class="role">{{ employee.job_description or 'Employee' }} | {{ 'Trece-Uno Auto Supply' if employee.company and employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</p>
             </div>
             <div class="contact">{{ employee.email or 'Email not provided' }}<br>{{ employee.contact_no or 'Contact not provided' }}<br>{{ employee.address or 'Address not provided' }}</div>
         </header>

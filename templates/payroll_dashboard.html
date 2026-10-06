@@ -81,6 +81,7 @@
 <body>
 <main class="page-shell">
     <h1>Payroll Dashboard</h1>
+    <p><a class="btn" href="{{ url_for('admin_payroll_history') }}">📜 View Payroll History</a></p>
     <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%B %d, %Y') }} to {{ end_cutoff.strftime('%B %d, %Y') }} <span>(Saturday start date to Friday end date)</span></p>
 
     <form method="GET" style="margin:12px 0;">
@@ -104,7 +105,7 @@
 
     <section class="accounting" style="padding:14px; margin:12px 0;">
         <h2>Accounting Overview</h2>
-        <p>Confidential admin-only totals for the selected cutoff. Company payroll summaries contain staff payroll only.</p>
+        <p>Confidential admin-only totals for the selected cutoff. Owner payroll is kept on its individual payroll record and excluded from these totals and company summaries.</p>
         <strong>Staff Payroll: ₱{{ accounting_totals.staff_net_pay|currency }}</strong>
         &nbsp; | &nbsp;
         <strong>Admin Payroll: ₱{{ accounting_totals.admin_net_pay|currency }}</strong>
@@ -114,8 +115,8 @@
 
     <section style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; padding:12px; background:#fff; border:1px solid #cbd7d1; margin:12px 0;">
         <strong>Payroll Review:</strong>
-        <span class="review-ready">Ready: {{ payroll_data|selectattr('review_status', 'equalto', 'Ready')|list|length }}</span>
-        <span class="review-needed">Needs Review: {{ payroll_data|selectattr('review_status', 'equalto', 'Needs Review')|list|length }}</span>
+        <span class="review-ready">Ready: {{ payroll_data|rejectattr('is_payroll_attendance_exempt')|selectattr('review_status', 'equalto', 'Ready')|list|length }}</span>
+        <span class="review-needed">Needs Review: {{ payroll_data|rejectattr('is_payroll_attendance_exempt')|selectattr('review_status', 'equalto', 'Needs Review')|list|length }}</span>
         <label for="review-filter">Show:</label>
         <select id="review-filter">
             <option value="all">All employees</option>
@@ -165,6 +166,7 @@
                     <th>Rice De Minimis</th>
                     <th>Rice Ceiling / Month</th>
                     <th>Other De Minimis / Month</th>
+                    <th>Owner Monthly Contributions / Deduction Cutoff</th>
                     <th>Worked Days</th>
                     <th>Approved OT Pay</th>
                     <th>Gross Income</th>
@@ -188,7 +190,11 @@
                 <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
                         <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                            {% if p.is_payroll_attendance_exempt %}
+                            <span>Owner - finalize individually</span>
+                            {% else %}
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
+                            {% endif %}
                             {{ p.emp.first_name }} {{ p.emp.last_name }}
                         </label>
                     </td>
@@ -214,12 +220,35 @@
                         <label>Christmas <input type="number" min="0" step="0.01" name="christmas_gift_allowance_{{ p.emp.id }}" value="{{ p.emp.christmas_gift_allowance or 0 }}"></label>
                         <label>OT/Night Meal <input type="number" min="0" step="0.01" name="meal_allowance_{{ p.emp.id }}" value="{{ p.emp.meal_allowance or 0 }}"></label>
                     </td>
+                    <td>
+                        {% if p.is_payroll_attendance_exempt %}
+                        {% set manual_target = p.emp.manual_contribution_cutoff_start if p.emp.manual_contribution_cutoff_start in manual_contribution_cutoffs else start_cutoff %}
+                        <label>SSS / month
+                            <input type="number" min="0" step="0.01" name="manual_monthly_sss_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_sss or 0 }}">
+                        </label>
+                        <label>PhilHealth / month
+                            <input type="number" min="0" step="0.01" name="manual_monthly_philhealth_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_philhealth or 0 }}">
+                        </label>
+                        <label>Pag-IBIG / month
+                            <input type="number" min="0" step="0.01" name="manual_monthly_pagibig_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_pagibig or 0 }}">
+                        </label>
+                        <label>Deduct full amount on
+                            <select name="manual_contribution_cutoff_start_{{ p.emp.id }}">
+                                {% for manual_cutoff in manual_contribution_cutoffs %}
+                                <option value="{{ manual_cutoff }}" {% if manual_cutoff == manual_target %}selected{% endif %}>{{ manual_cutoff.strftime('%b %d') }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        {% else %}
+                        Auto-calculated
+                        {% endif %}
+                    </td>
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>
                     <td>₱{{ p.gross_income|currency }}</td>
-                    <td><input type="number" min="0" step="0.01" name="sss_{{ p.emp.id }}" value="{{ p.sss|round(2) }}"></td>
-                    <td><input type="number" min="0" step="0.01" name="philhealth_{{ p.emp.id }}" value="{{ p.philhealth|round(2) }}"></td>
-                    <td><input type="number" min="0" step="0.01" name="pagibig_{{ p.emp.id }}" value="{{ p.pagibig|round(2) }}"></td>
+                    <td>₱{{ p.sss|currency }}</td>
+                    <td>₱{{ p.philhealth|currency }}</td>
+                    <td>₱{{ p.pagibig|currency }}</td>
                     <td>₱{{ p.withholding_tax|currency }}</td>
                     <td>₱{{ p.liability_deduction|currency }}</td>
                     <td>₱{{ p.deductions|currency }}</td>
@@ -229,9 +258,6 @@
                     </td>
                     <td>
                         <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}">
-                    </td>
-                    <td style="white-space:nowrap; font-weight:600;">
-                        {{ p.emp.first_name }} {{ p.emp.last_name }}
                     </td>
                     <td>
                         <button type="submit"

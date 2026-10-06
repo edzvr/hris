@@ -75,7 +75,7 @@
             </tr>
             <tr>
                 <td style="padding: 6px 0; font-weight: 700;">Position:</td>
-                <td style="padding: 6px 0;">{{ emp.role }}</td>
+                <td style="padding: 6px 0;">{{ emp.job_description or 'N/A' }}</td>
                 <td style="padding: 6px 0; font-weight: 700;">Daily Rate:</td>
                 <td style="padding: 6px 0;">₱{{ "%.2f"|format(emp.daily_rate or 0) }}</td>
             </tr>
