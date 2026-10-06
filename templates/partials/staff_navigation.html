@@ -6,6 +6,9 @@
   #hris-global-sidebar .navigation-items { position: absolute; top: 100%; right: 0; width: 240px; max-height: 65vh; overflow-y: auto; background: #34483e; padding: 8px; box-shadow: 0 4px 12px #0003; }
   #hris-global-sidebar .navigation-items a { display: block; color: #fff; padding: 12px; text-decoration: none; line-height: 1.4; }
   #hris-global-sidebar a:hover, #hris-global-sidebar summary:hover { background: #506c59; }
+  @media(min-width:901px) {
+    #hris-global-sidebar details:not(:last-child) .navigation-items { left:0; right:auto; }
+  }
   @media(max-width:900px) {
     body.hris-staff-navigation-page { padding-top: 130px; }
     #hris-global-sidebar { gap: 0; }
