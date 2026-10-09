@@ -28,7 +28,7 @@
         {% endwith %}
         <form method="POST">
             <div class="grid">
-                <label>Date<input type="date" name="correction_date" required></label>
+                <label>Date<input type="date" name="correction_date" value="{{ selected_correction_date.isoformat() if selected_correction_date else '' }}" required></label>
                 <label>Requested Clock In<input type="datetime-local" name="requested_clock_in" required></label>
                 <label>Requested Clock Out<input type="datetime-local" name="requested_clock_out"></label>
             </div>

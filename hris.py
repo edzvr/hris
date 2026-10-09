@@ -2077,7 +2077,7 @@ def biometric_work_hours(clock_in, clock_out):
 def can_prepare_payroll(user):
     return (
         'admin' in str(user.role or '').lower()
-        or bool(user.payroll_preparation_access)
+        or bool(getattr(user, 'payroll_preparation_access', False))
     )
 
 
@@ -3099,9 +3099,11 @@ def dashboard_staff():
         elif "clockout" in request.form:
             return attendance_action(current_user.id)
 
+    manila_now = datetime.now(ZoneInfo('Asia/Manila')).replace(tzinfo=None)
+    today = manila_now.date()
     today_log = Attendance.query.filter_by(
         employee_id=current_user.id,
-        date=datetime.today().date()
+        date=today
     ).order_by(Attendance.clock_in.desc()).first()
     clocked_in = bool(today_log and today_log.clock_in and not today_log.clock_out)
     clock_in_iso = today_log.clock_in.isoformat() if clocked_in else ""
@@ -3111,11 +3113,43 @@ def dashboard_staff():
             worked_hours = float(today_log.hours or 0)
         elif today_log.clock_in:
             worked_hours = max(
-                (datetime.now() - today_log.clock_in).total_seconds() / 3600,
+                (manila_now - today_log.clock_in).total_seconds() / 3600,
                 0.0
             )
+    cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    cutoff_attendance = Attendance.query.filter(
+        Attendance.employee_id == current_user.id,
+        Attendance.date >= cutoff_start,
+        Attendance.date <= today,
+    ).order_by(Attendance.date.desc()).all()
+    attendance_dates = [record.date for record in cutoff_attendance]
+    pending_correction_dates = set()
+    if attendance_dates:
+        pending_correction_dates = {
+            correction.correction_date
+            for correction in AttendanceCorrection.query.filter(
+                AttendanceCorrection.employee_id == current_user.id,
+                AttendanceCorrection.correction_date.in_(attendance_dates),
+                AttendanceCorrection.status == 'Pending',
+            ).all()
+        }
+    attendance_correction_alerts = [
+        {
+            'date': record.date,
+            'missing_clock_in': record.clock_in is None,
+            'missing_clock_out': record.clock_out is None,
+            'correction_pending': record.date in pending_correction_dates,
+        }
+        for record in cutoff_attendance
+        if (record.clock_in is None or record.clock_out is None)
+        and not (
+            record.date == today
+            and record.clock_in is not None
+            and record.clock_out is None
+        )
+    ]
     insights = generate_ai_insights(current_user)
-    month_start = datetime.today().date().replace(day=1)
+    month_start = today.replace(day=1)
     peer_evaluation_pending = peer_evaluation_is_due(current_user, month_start)
     latest_payslip = Payroll.query.filter_by(
         employee_id=current_user.id,
@@ -3136,6 +3170,7 @@ def dashboard_staff():
         insights=insights,
         peer_evaluation_pending=peer_evaluation_pending,
         latest_payslip=latest_payslip,
+        attendance_correction_alerts=attendance_correction_alerts,
         summary=dashboard_summary(current_user)
     )
 
@@ -5622,7 +5657,18 @@ def attendance_correction():
             requested_clock_in = datetime.fromisoformat(clock_in_value) if clock_in_value else None
             requested_clock_out = datetime.fromisoformat(clock_out_value) if clock_out_value else None
             reason = request.form.get('reason', '').strip()
-            if not reason or not requested_clock_in:
+            attendance_record = Attendance.query.filter_by(
+                employee_id=current_user.id,
+                date=correction_date,
+            ).order_by(Attendance.clock_in.desc()).first()
+            effective_clock_in = requested_clock_in or (
+                attendance_record.clock_in if attendance_record else None
+            )
+            if (
+                not reason
+                or (not requested_clock_in and not requested_clock_out)
+                or not effective_clock_in
+            ):
                 raise ValueError
             db.session.add(AttendanceCorrection(
                 employee_id=current_user.id,
@@ -5635,12 +5681,22 @@ def attendance_correction():
             flash('Attendance correction submitted for admin review.', 'success')
         except (TypeError, ValueError, KeyError):
             db.session.rollback()
-            flash('Enter a date, clock-in time, and reason.', 'danger')
+            flash('Enter a date, at least one corrected time, and a reason. A clock-in time is required for the attendance record.', 'danger')
         return redirect(url_for('attendance_correction'))
     requests = AttendanceCorrection.query.filter_by(
         employee_id=current_user.id
     ).order_by(AttendanceCorrection.created_at.desc()).all()
-    return render_template('attendance_correction.html', correction_requests=requests)
+    try:
+        selected_correction_date = datetime.strptime(
+            request.args.get('correction_date', ''), '%Y-%m-%d'
+        ).date()
+    except ValueError:
+        selected_correction_date = None
+    return render_template(
+        'attendance_correction.html',
+        correction_requests=requests,
+        selected_correction_date=selected_correction_date,
+    )
 
 
 @app.route('/admin/attendance-correction/<int:correction_id>/<action>', methods=['POST'])
@@ -5669,9 +5725,13 @@ def review_attendance_correction(correction_id, action):
                 status='Present'
             )
             db.session.add(attendance_record)
-        attendance_record.clock_in = correction.requested_clock_in
-        attendance_record.clock_out = correction.requested_clock_out
-        attendance_record.status = attendance_status(correction.requested_clock_in)
+        attendance_record.clock_in = (
+            correction.requested_clock_in or attendance_record.clock_in
+        )
+        attendance_record.clock_out = (
+            correction.requested_clock_out or attendance_record.clock_out
+        )
+        attendance_record.status = attendance_status(attendance_record.clock_in)
         attendance_record.hours = (
             round((attendance_record.clock_out - attendance_record.clock_in).total_seconds() / 3600, 2)
             if attendance_record.clock_out else None

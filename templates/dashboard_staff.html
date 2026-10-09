@@ -98,6 +98,21 @@
         }
         #staffSettingsPanel { display:none; }
         #staffSettingsPanel.is-open { display:block; }
+        .attendance-correction-reminder {
+          max-width:900px;
+          margin:12px auto;
+          padding:14px 18px;
+          border:2px solid #b45309;
+          border-left-width:8px;
+          border-radius:8px;
+          background:#fff7e6;
+          color:#542d0a;
+          text-align:left;
+        }
+        .attendance-correction-reminder h2 { margin:0 0 8px; font-size:18px; }
+        .attendance-correction-reminder p { margin:6px 0; line-height:1.45; }
+        .attendance-correction-reminder ul { margin:8px 0; padding-left:22px; }
+        .attendance-correction-reminder a { font-weight:700; }
         .staff-dashboard-settings {
           display:grid;
           grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
@@ -200,6 +215,33 @@
         <button type="submit" name="clockin" class="btn btn-green">🟢 Clock In</button>
         <button type="submit" name="clockout" class="btn btn-red">🔴 Clock Out</button>
       </form>
+      <aside class="attendance-correction-reminder" role="alert" aria-live="polite">
+        <h2>Paalala sa attendance at payroll</h2>
+        <p>Huwag kalimutang mag-Clock In sa pagpasok at mag-Clock Out bago umuwi.</p>
+        <p>Kung nakalimutan ang alinman, magsumite agad ng Attendance Correction. Ang kulang na time-in o time-out ay hindi maisasama sa payroll hangga't hindi naitatama at naaaprubahan.</p>
+        <a href="{{ url_for('attendance_correction') }}">Magsumite ng Attendance Correction</a>
+        {% if attendance_correction_alerts %}
+        <ul>
+          {% for alert in attendance_correction_alerts %}
+          <li>
+            {{ alert.date.strftime('%b %d, %Y') }}:
+            {% if alert.missing_clock_in and alert.missing_clock_out %}
+            walang Clock In at Clock Out
+            {% elif alert.missing_clock_in %}
+            walang Clock In
+            {% else %}
+            walang Clock Out
+            {% endif %}
+            {% if alert.correction_pending %}
+            — may correction request nang Pending; hintayin ang Admin review.
+            {% else %}
+            — <a href="{{ url_for('attendance_correction', correction_date=alert.date.isoformat()) }}">Isumite ang correction para sa petsang ito</a>.
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </aside>
     </div>
 
     {% set dashboard_is_admin = false %}
