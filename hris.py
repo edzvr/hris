@@ -1,6 +1,7 @@
 # ------------------ HRIS MAIN APP ------------------
 import os, random, logging, re, hashlib, csv
 import secrets
+import struct
 from math import isfinite
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
@@ -143,6 +144,15 @@ app.config['MAIL_PROVIDER'] = os.environ.get('MAIL_PROVIDER', 'smtp').strip().lo
 app.config['BREVO_API_KEY'] = os.environ.get('BREVO_API_KEY', '')
 instance_dir = os.path.join(basedir, 'instance')
 os.makedirs(instance_dir, exist_ok=True)
+app.config['HR_DOCUMENTS_FOLDER'] = os.environ.get(
+    'HR_DOCUMENTS_FOLDER',
+    os.path.join(instance_dir, 'hr_documents'),
+)
+if not os.path.isabs(app.config['HR_DOCUMENTS_FOLDER']):
+    app.config['HR_DOCUMENTS_FOLDER'] = os.path.join(
+        basedir, app.config['HR_DOCUMENTS_FOLDER']
+    )
+os.makedirs(app.config['HR_DOCUMENTS_FOLDER'], exist_ok=True)
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 
@@ -770,6 +780,15 @@ def ensure_biometric_access_columns():
     db.session.commit()
 
 
+def ensure_admin_payroll_access_column():
+    employee_columns = {column["name"] for column in inspect(db.engine).get_columns("employees")}
+    if "admin_payroll_access" not in employee_columns:
+        db.session.execute(text(
+            "ALTER TABLE employees ADD COLUMN admin_payroll_access BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        db.session.commit()
+
+
 def ensure_employee_liability_schema():
     inspector = inspect(db.engine)
     if "employee_liabilities" in inspector.get_table_names():
@@ -815,6 +834,23 @@ def ensure_hr_document_schema():
             "updated_at": "ALTER TABLE hr_documents ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
             "issued_at": "ALTER TABLE hr_documents ADD COLUMN issued_at TIMESTAMP",
             "document_id": "ALTER TABLE hr_documents ADD COLUMN document_id VARCHAR(32)",
+            "attachment_filename": "ALTER TABLE hr_documents ADD COLUMN attachment_filename VARCHAR(255)",
+            "attachment_original_name": "ALTER TABLE hr_documents ADD COLUMN attachment_original_name VARCHAR(255)",
+            "attachment_sha256": "ALTER TABLE hr_documents ADD COLUMN attachment_sha256 VARCHAR(64)",
+            "signature_required": "ALTER TABLE hr_documents ADD COLUMN signature_required BOOLEAN NOT NULL DEFAULT FALSE",
+            "employee_signature_name": "ALTER TABLE hr_documents ADD COLUMN employee_signature_name VARCHAR(150)",
+            "employee_signature_image": "ALTER TABLE hr_documents ADD COLUMN employee_signature_image TEXT",
+            "employee_signature_method": "ALTER TABLE hr_documents ADD COLUMN employee_signature_method VARCHAR(20)",
+            "employee_signature_statement": "ALTER TABLE hr_documents ADD COLUMN employee_signature_statement TEXT",
+            "employee_signed_at": "ALTER TABLE hr_documents ADD COLUMN employee_signed_at TIMESTAMP",
+            "employee_signature_ip": "ALTER TABLE hr_documents ADD COLUMN employee_signature_ip VARCHAR(64)",
+            "employee_signature_user_agent": "ALTER TABLE hr_documents ADD COLUMN employee_signature_user_agent VARCHAR(255)",
+            "liability_id": "ALTER TABLE hr_documents ADD COLUMN liability_id INTEGER REFERENCES employee_liabilities(id)",
+            "wet_signed_filename": "ALTER TABLE hr_documents ADD COLUMN wet_signed_filename VARCHAR(255)",
+            "wet_signed_original_name": "ALTER TABLE hr_documents ADD COLUMN wet_signed_original_name VARCHAR(255)",
+            "wet_signed_sha256": "ALTER TABLE hr_documents ADD COLUMN wet_signed_sha256 VARCHAR(64)",
+            "wet_signed_at": "ALTER TABLE hr_documents ADD COLUMN wet_signed_at TIMESTAMP",
+            "wet_signed_by": "ALTER TABLE hr_documents ADD COLUMN wet_signed_by INTEGER REFERENCES employees(id)",
         }
         for column_name, statement in missing_columns.items():
             if column_name not in columns:
@@ -838,7 +874,24 @@ def ensure_hr_document_schema():
             created_at TIMESTAMP NOT NULL,
             updated_at TIMESTAMP NOT NULL,
             issued_at TIMESTAMP,
-            document_id VARCHAR(32)
+            document_id VARCHAR(32),
+            attachment_filename VARCHAR(255),
+            attachment_original_name VARCHAR(255),
+            attachment_sha256 VARCHAR(64),
+            signature_required BOOLEAN NOT NULL DEFAULT TRUE,
+            employee_signature_name VARCHAR(150),
+            employee_signature_image TEXT,
+            employee_signature_method VARCHAR(20),
+            employee_signature_statement TEXT,
+            employee_signed_at TIMESTAMP,
+            employee_signature_ip VARCHAR(64),
+            employee_signature_user_agent VARCHAR(255),
+            liability_id INTEGER REFERENCES employee_liabilities(id),
+            wet_signed_filename VARCHAR(255),
+            wet_signed_original_name VARCHAR(255),
+            wet_signed_sha256 VARCHAR(64),
+            wet_signed_at TIMESTAMP,
+            wet_signed_by INTEGER REFERENCES employees(id)
         )
     """))
     db.session.commit()
@@ -1077,6 +1130,7 @@ with app.app_context():
     ensure_evaluation_tracking_columns()
     ensure_payroll_columns()
     ensure_biometric_access_columns()
+    ensure_admin_payroll_access_column()
     ensure_employee_liability_schema()
     ensure_hr_document_schema()
     ensure_staff_concern_schema()
@@ -1236,6 +1290,8 @@ def inject_authenticated_sidebar(response):
             ('bulletin', 'Company Bulletin'),
             ('company_files', 'Company Files'),
         ])
+        if can_review_payroll_loans(current_user):
+            links.insert(2, ('payroll_loan_review', 'Review Loan Deductions'))
     if is_admin:
         links.extend([
             ('holiday_ot_dashboard', 'Attendance and OT'),
@@ -1262,7 +1318,7 @@ def inject_authenticated_sidebar(response):
     if not is_admin:
         navigation_groups = [
             ('Attendance', {'attendance', 'attendance_correction', 'apply_ot'}),
-            ('Payroll & Reports', {'payroll', 'thirteenth_month', 'employee_liabilities'}),
+            ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'thirteenth_month', 'employee_liabilities'}),
             ('Loan & Leave', {'loan', 'leave'}),
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
             ('Documents & Updates', {'hr_documents', 'bulletin', 'company_files', 'monthly_reminders'}),
@@ -1366,7 +1422,7 @@ def audit_logs():
 @app.route('/admin/monthly-deductions')
 @login_required
 def monthly_deductions():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     month_value = request.args.get('month')
     try:
@@ -1902,6 +1958,10 @@ def profile(user_id):
                     flash('Please choose a valid system role.', 'danger')
                     return redirect(url_for('profile', user_id=user_id))
                 emp.role = role
+                emp.admin_payroll_access = (
+                    role == 'staff'
+                    and request.form.get('admin_payroll_access') == '1'
+                )
                 company_input = request.form.get('company', emp.company or '').strip()
                 company = {
                     'Trece-Uno': 'Trece-Uno',
@@ -2016,6 +2076,17 @@ def can_prepare_payroll(user):
     return (
         'admin' in str(user.role or '').lower()
         or bool(user.payroll_preparation_access)
+    )
+
+
+def can_manage_admin_payroll(user):
+    return 'admin' in str(user.role or '').lower()
+
+
+def can_review_payroll_loans(user):
+    return (
+        can_manage_admin_payroll(user)
+        or bool(getattr(user, 'admin_payroll_access', False))
     )
 
 
@@ -2280,6 +2351,7 @@ def active_employee_liabilities(employee_id):
     records = EmployeeLiability.query.filter(
         EmployeeLiability.employee_id == employee_id,
         EmployeeLiability.status.in_(['Active', 'Partially Recovered']),
+        EmployeeLiability.acknowledgment_status == 'Acknowledged',
     ).order_by(EmployeeLiability.created_at.asc()).all()
     return [record for record in records if record.remaining_balance > 0]
 
@@ -2344,7 +2416,7 @@ def employee_liabilities():
                     agreement_date=datetime.strptime(request.form.get('agreement_date'), '%Y-%m-%d').date() if request.form.get('agreement_date') else None,
                     total_amount=max(float(request.form.get('total_amount') or 0), 0.0),
                     deduction_per_cutoff=max(float(request.form.get('deduction_per_cutoff') or 0), 0.0),
-                    acknowledgment_status=request.form.get('acknowledgment_status') or 'Acknowledged',
+                    acknowledgment_status='Pending',
                     reference=request.form.get('reference', '').strip() or None,
                     remarks=request.form.get('remarks', '').strip() or None,
                     created_by=current_user.id,
@@ -2386,7 +2458,14 @@ def employee_liabilities():
         'refundable': sum(item.refundable_balance for item in liabilities),
         'remaining': sum(item.remaining_balance for item in liabilities),
     }
-    return render_template('employee_liabilities.html', liabilities=liabilities, employees=employees, categories=LIABILITY_CATEGORIES, totals=totals, is_admin=is_admin)
+    return render_template(
+        'employee_liabilities.html',
+        liabilities=liabilities,
+        employees=employees,
+        categories=LIABILITY_CATEGORIES,
+        totals=totals,
+        is_admin=is_admin,
+    )
 
 @app.route('/admin/employee_document/<int:document_id>/download')
 @login_required
@@ -3719,6 +3798,157 @@ def payroll_cutoff_dates_in_month(cutoff_start):
     ]
 
 
+def payroll_dashboard_cutoff_options(selected_start):
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    current_week_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    starts = {
+        current_week_start - timedelta(days=7 * weeks_ago)
+        for weeks_ago in range(52)
+    }
+    starts.update(
+        cutoff_start
+        for (cutoff_start,) in db.session.query(Payroll.cutoff_start).distinct()
+        if cutoff_start is not None and cutoff_start.weekday() == 5
+    )
+    starts.add(selected_start)
+    return [
+        {
+            'start': cutoff_start,
+            'end': cutoff_start + timedelta(days=6),
+            'label': (
+                f'{cutoff_start.strftime("%b %d")} – '
+                f'{(cutoff_start + timedelta(days=6)).strftime("%b %d, %Y")}'
+            ),
+        }
+        for cutoff_start in sorted(starts, reverse=True)
+    ]
+
+
+@app.route('/payroll-loan-review', methods=['GET', 'POST'])
+@login_required
+def payroll_loan_review():
+    if not can_review_payroll_loans(current_user):
+        return 'Access denied', 403
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(
+            request.values.get('cutoff_start')
+        )
+    except ValueError:
+        flash('Select a valid Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_loan_review'))
+
+    employees = Employee.query.filter(
+        ~Employee.role.ilike('%admin%'),
+        Employee.payroll_attendance_exempt.is_(False),
+        Employee.first_name.isnot(None),
+        Employee.first_name != '',
+        Employee.last_name.isnot(None),
+        Employee.last_name != '',
+    ).order_by(Employee.company, Employee.last_name, Employee.first_name).all()
+
+    if request.method == 'POST':
+        try:
+            updates = []
+            for employee in employees:
+                balance_value = request.form.get(f'loan_balance_{employee.id}')
+                deduction_value = request.form.get(f'loan_deduction_{employee.id}')
+                if balance_value is None or deduction_value is None:
+                    continue
+                balance = float(balance_value)
+                requested_deduction = float(deduction_value)
+                if (
+                    not isfinite(balance)
+                    or not isfinite(requested_deduction)
+                    or balance < 0
+                    or requested_deduction < 0
+                ):
+                    raise ValueError
+                payroll_record = Payroll.query.filter_by(
+                    employee_id=employee.id,
+                    cutoff_start=cutoff_start,
+                    cutoff_end=cutoff_end - timedelta(days=1),
+                ).first()
+                if payroll_record and (
+                    payroll_record.is_paid or payroll_record.loan_deduction_applied
+                ):
+                    return 'Loan details cannot be changed after payroll finalization.', 409
+                updates.append((
+                    employee,
+                    balance,
+                    requested_deduction,
+                    payroll_record,
+                ))
+        except (TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter valid non-negative loan balances and deductions.', 'danger')
+            return redirect(url_for(
+                'payroll_loan_review',
+                cutoff_start=cutoff_start.isoformat(),
+            ))
+
+        deduction_was_capped = False
+        for employee, balance, requested_deduction, payroll_record in updates:
+            employee.loan_balance = balance
+            cutoff_deduction = loan_cutoff_deduction(balance, requested_deduction)
+            deduction_was_capped = deduction_was_capped or cutoff_deduction < requested_deduction
+            if payroll_record is None and cutoff_deduction > 0:
+                payroll_record = Payroll(
+                    employee_id=employee.id,
+                    cutoff_start=cutoff_start,
+                    cutoff_end=cutoff_end - timedelta(days=1),
+                )
+                db.session.add(payroll_record)
+            if payroll_record is not None:
+                payroll_record.loan = cutoff_deduction
+        db.session.commit()
+        flash('Loan balances and cutoff deductions saved for your review.', 'success')
+        if deduction_was_capped:
+            flash("Some cutoff deductions were capped at the employee's remaining loan balance.", 'warning')
+        return redirect(url_for(
+            'payroll_loan_review',
+            cutoff_start=cutoff_start.isoformat(),
+        ))
+
+    payroll_records = {
+        record.employee_id: record
+        for record in Payroll.query.filter_by(
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1),
+        ).all()
+    }
+    loan_rows = [
+        {
+            'employee': employee,
+            'balance': float(employee.loan_balance or 0),
+            'deduction': float(payroll_records[employee.id].loan or 0)
+            if employee.id in payroll_records else 0.0,
+            'after_deduction': max(
+                float(employee.loan_balance or 0)
+                - (
+                    float(payroll_records[employee.id].loan or 0)
+                    if employee.id in payroll_records else 0.0
+                ),
+                0.0,
+            ),
+            'finalized': bool(
+                payroll_records.get(employee.id)
+                and (
+                    payroll_records[employee.id].is_paid
+                    or payroll_records[employee.id].loan_deduction_applied
+                )
+            ),
+        }
+        for employee in employees
+    ]
+    return render_template(
+        'payroll_loan_review.html',
+        loan_rows=loan_rows,
+        cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
+        start_cutoff=cutoff_start,
+        end_cutoff=cutoff_end - timedelta(days=1),
+    )
+
+
 def manual_owner_contribution_deductions(employee, cutoff_start):
     if (
         not getattr(employee, "payroll_attendance_exempt", False)
@@ -4038,7 +4268,7 @@ def download_compliance_report(report_type):
 @app.route('/admin/tax-reports', methods=['GET', 'POST'])
 @login_required
 def tax_reports():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     companies = ('Trece-Uno', 'Auto Expert')
     if request.method == 'POST':
@@ -4066,7 +4296,7 @@ def tax_reports():
 @app.route('/admin/tax-reports/<string:company>/monthly/<string:month>')
 @login_required
 def download_monthly_tax_summary(company, month):
-    if 'admin' not in current_user.role.lower() or company not in {'Trece-Uno', 'Auto Expert'}:
+    if not can_manage_admin_payroll(current_user) or company not in {'Trece-Uno', 'Auto Expert'}:
         return 'Access denied', 403
     try:
         year, month_number = map(int, month.split('-'))
@@ -4082,7 +4312,7 @@ def download_monthly_tax_summary(company, month):
 @app.route('/admin/tax-reports/<string:company>/annual/<int:year>')
 @login_required
 def download_annual_tax_summary(company, year):
-    if 'admin' not in current_user.role.lower() or company not in {'Trece-Uno', 'Auto Expert'}:
+    if not can_manage_admin_payroll(current_user) or company not in {'Trece-Uno', 'Auto Expert'}:
         return 'Access denied', 403
     records = company_tax_records(company, year)
     return send_file(tax_summary_pdf('Annual Withholding Tax Summary', company, str(year), records), as_attachment=True,
@@ -4104,10 +4334,12 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             if record.ot_status == 'Approved'
         )
         worked_days_count = payroll_worked_days_count(emp, attendance)
-        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, worked_days_count)
+        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
+            emp, worked_days_count, weeks_in_month
+        )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + overtime_pay
         contribution_salary = basic_pay + rice_taxable
-        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
         monthly_contribution_salary = contribution_salary * weeks_in_month
         deductions = (
             compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
@@ -4273,15 +4505,15 @@ def thirteenth_month():
     if year < 2000 or year > datetime.today().year + 1:
         abort(400)
 
-    is_admin = 'admin' in str(current_user.role or '').lower()
-    rows = build_thirteenth_month_rows(year, None if is_admin else current_user.id)
+    has_payroll_access = can_manage_admin_payroll(current_user)
+    rows = build_thirteenth_month_rows(year, None if has_payroll_access else current_user.id)
     total_basic = sum(row['basic_pay'] for row in rows)
     total_thirteenth = sum(row['thirteenth_month'] for row in rows)
     if request.args.get('download') == 'true':
         verification = build_document_verification(
             'thirteenth_month',
             current_user.id,
-            f'13thMonth-{year}-{"all" if is_admin else current_user.id}',
+            f'13thMonth-{year}-{"all" if has_payroll_access else current_user.id}',
             cutoff_start=date(year, 1, 1),
             cutoff_end=date(year, 12, 31),
             net_pay=total_thirteenth,
@@ -4298,7 +4530,7 @@ def thirteenth_month():
         year=year,
         total_basic=total_basic,
         total_thirteenth=total_thirteenth,
-        is_admin=is_admin,
+        is_admin=has_payroll_access,
     )
 
 
@@ -4524,6 +4756,42 @@ def hr_document_pdf(document):
     pdf.drawString(45, 76, 'Employee Signature / Date')
     pdf.drawString(225, 76, 'Authorized Employer Signature / Date')
     pdf.drawString(405, 76, 'HR / Witness Signature / Date')
+    if document.employee_signed_at:
+        pdf.showPage()
+        pdf.setFont('Helvetica-Bold', 13)
+        pdf.drawString(50, 750, 'EMPLOYEE ELECTRONIC SIGNATURE RECORD')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(50, 728, f'Employee: {document.employee_signature_name or employee.full_name()}')
+        pdf.drawString(50, 712, f'Signed: {document.employee_signed_at.strftime("%Y-%m-%d %H:%M UTC")}')
+        pdf.drawString(50, 696, f'Method: {document.employee_signature_method or "Electronic"}')
+        if document.attachment_sha256:
+            pdf.drawString(50, 680, f'Original attachment SHA-256: {document.attachment_sha256}')
+        if document.wet_signed_sha256:
+            pdf.drawString(50, 664, f'Wet-signed copy SHA-256: {document.wet_signed_sha256}')
+            pdf.drawString(
+                50, 648,
+                f'Wet-signed copy recorded by: {document.wet_signer.full_name() if document.wet_signer else "Admin"}',
+            )
+        text = pdf.beginText(50, 620)
+        text.setFont('Helvetica', 10)
+        for paragraph in (document.employee_signature_statement or '').splitlines():
+            for start in range(0, max(len(paragraph), 1), 92):
+                text.textLine(paragraph[start:start + 92])
+        pdf.drawText(text)
+        if document.employee_signature_image:
+            import base64
+            try:
+                encoded = document.employee_signature_image.split(',', 1)[1]
+                signature_bytes = base64.b64decode(encoded, validate=True)
+                pdf.drawImage(
+                    ImageReader(io.BytesIO(signature_bytes)),
+                    50, 470, width=220, height=70, preserveAspectRatio=True, mask='auto',
+                )
+            except (OSError, ValueError, TypeError, base64.binascii.Error):
+                logger.warning('Could not render electronic signature for HR document %s', document.id)
+        pdf.line(50, 455, 300, 455)
+        pdf.drawString(50, 438, f'{document.employee_signature_name or employee.full_name()} / Employee')
+        pdf.drawString(50, 422, 'This page records the signature or wet-signed copy held in HRIS.')
     qr_bytes = generate_qr_image_bytes(verification['verify_url']) if verification.get('verify_url') else None
     if qr_bytes:
         pdf.drawImage(ImageReader(io.BytesIO(qr_bytes)), 455, 12, width=70, height=70)
@@ -4534,31 +4802,257 @@ def hr_document_pdf(document):
     return buffer
 
 
+HR_DOCUMENT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+
+def hr_document_signature_statement(document_type):
+    if document_type == 'Liability Agreement':
+        return (
+            'I confirm that I received and reviewed this liability/deduction agreement. '
+            'I voluntarily authorize only the deductions specifically stated in the attached agreement, '
+            'subject to applicable law and the stated terms.'
+        )
+    if document_type in {'Contract', 'Policy Acknowledgment'}:
+        return (
+            'I confirm that I received and reviewed this document and agree to the terms or policy '
+            'acknowledgment stated in it.'
+        )
+    return (
+        'I confirm receipt of this document. My signature acknowledges receipt only and does not '
+        'by itself mean admission of fault or agreement with its contents.'
+    )
+
+
+def read_hr_pdf_upload(upload):
+    original_name = secure_filename(upload.filename or '')
+    if not original_name or not original_name.lower().endswith('.pdf'):
+        raise ValueError('Upload a PDF file.')
+    file_bytes = upload.stream.read(HR_DOCUMENT_MAX_ATTACHMENT_BYTES + 1)
+    if len(file_bytes) > HR_DOCUMENT_MAX_ATTACHMENT_BYTES:
+        raise ValueError('The uploaded PDF must be 10 MB or smaller.')
+    if not file_bytes.startswith(b'%PDF-'):
+        raise ValueError('The uploaded file is not a valid PDF.')
+    return original_name, file_bytes
+
+
+def store_hr_pdf(employee_id, file_bytes):
+    folder = os.path.join(app.config['HR_DOCUMENTS_FOLDER'], str(employee_id))
+    os.makedirs(folder, exist_ok=True)
+    filename = f'{secrets.token_hex(16)}.pdf'
+    path = os.path.join(folder, filename)
+    with open(path, 'xb') as uploaded_file:
+        uploaded_file.write(file_bytes)
+    return filename, path
+
+
+def acknowledge_hr_document_liability(document, signed_at):
+    if document.document_type != 'Liability Agreement':
+        return
+    liability = document.liability
+    if (
+        liability is None
+        or liability.employee_id != document.employee_id
+        or liability.status not in {'Active', 'Partially Recovered'}
+        or liability.remaining_balance <= 0
+    ):
+        abort(409)
+    liability.acknowledgment_status = 'Acknowledged'
+    if liability.agreement_date is None:
+        liability.agreement_date = signed_at.date()
+    liability.updated_at = signed_at
+
+
 @app.route('/hr-documents', methods=['GET', 'POST'])
 @login_required
 def hr_documents():
     is_admin = 'admin' in str(current_user.role or '').lower()
     if request.method == 'POST':
         action = request.form.get('action')
-        if action in {'respond', 'acknowledge'}:
+        if action in {'respond', 'sign'}:
             document = HRDocument.query.get_or_404(request.form.get('document_id', type=int))
-            if document.employee_id != current_user.id and not is_admin:
+            if is_admin or document.employee_id != current_user.id:
                 return 'Access denied', 403
             if action == 'respond':
-                document.employee_response = request.form.get('employee_response', '').strip() or document.employee_response
+                if document.status == 'Draft':
+                    return 'Draft documents are not available to employees.', 409
+                employee_response = request.form.get('employee_response', '').strip()
+                if not employee_response:
+                    flash('Enter your response before submitting.', 'danger')
+                    return redirect(url_for('hr_documents'))
+                document.employee_response = employee_response
                 document.status = 'Responded'
                 flash('Response submitted.', 'success')
             else:
-                document.acknowledged_at = datetime.utcnow()
-                document.status = 'Acknowledged'
-                flash('Document acknowledged.', 'success')
+                if not document.signature_required or document.status != 'Issued' or document.employee_signed_at:
+                    return 'Document is not awaiting an employee signature.', 409
+                signature_method = request.form.get('signature_method')
+                signature_name = request.form.get('signature_name', '').strip()
+                expected_name = current_user.full_name().strip()
+                if (
+                    request.form.get('signature_confirmation') != '1'
+                    or not signature_name
+                    or signature_name.casefold() != expected_name.casefold()
+                    or signature_method not in {'drawn', 'typed'}
+                ):
+                    flash('Enter your account name, choose a signature method, and confirm the statement.', 'danger')
+                    return redirect(url_for('hr_documents'))
+
+                signature_image = None
+                if signature_method == 'drawn':
+                    signature_data = request.form.get('signature_image', '')
+                    if len(signature_data) > 400_000 or not signature_data.startswith('data:image/png;base64,'):
+                        flash('Please draw your signature before submitting.', 'danger')
+                        return redirect(url_for('hr_documents'))
+                    import base64
+                    try:
+                        image_bytes = base64.b64decode(signature_data.split(',', 1)[1], validate=True)
+                    except (ValueError, base64.binascii.Error):
+                        flash('The drawn signature image is invalid. Please sign again.', 'danger')
+                        return redirect(url_for('hr_documents'))
+                    if (
+                        len(image_bytes) < 24
+                        or not image_bytes.startswith(b'\x89PNG\r\n\x1a\n')
+                    ):
+                        flash('The drawn signature image is invalid. Please sign again.', 'danger')
+                        return redirect(url_for('hr_documents'))
+                    image_width, image_height = struct.unpack('>II', image_bytes[16:24])
+                    if not (0 < image_width <= 2400 and 0 < image_height <= 840):
+                        flash('The drawn signature image dimensions are invalid.', 'danger')
+                        return redirect(url_for('hr_documents'))
+                    try:
+                        ImageReader(io.BytesIO(image_bytes)).getRGBData()
+                    except (OSError, ValueError, TypeError):
+                        flash('The drawn signature image is invalid. Please sign again.', 'danger')
+                        return redirect(url_for('hr_documents'))
+                    signature_image = signature_data
+
+                signed_at = datetime.utcnow()
+                document.employee_signature_name = expected_name
+                document.employee_signature_method = signature_method
+                document.employee_signature_image = signature_image
+                document.employee_signature_statement = hr_document_signature_statement(document.document_type)
+                document.employee_signed_at = signed_at
+                document.employee_signature_ip = request.remote_addr
+                document.employee_signature_user_agent = request.user_agent.string[:255]
+                document.acknowledged_at = signed_at
+                document.status = 'Signed'
+                acknowledge_hr_document_liability(document, signed_at)
+                flash('Electronic signature recorded. You can download the original document and sign it on paper if needed.', 'success')
             document.updated_at = datetime.utcnow()
             db.session.commit()
+            return redirect(url_for('hr_documents'))
+        if action == 'record_wet_signature':
+            if not is_admin:
+                return 'Access denied', 403
+            document = HRDocument.query.get_or_404(request.form.get('document_id', type=int))
+            if not document.signature_required or document.status != 'Issued' or document.employee_signed_at:
+                return 'Document is not awaiting an employee signature.', 409
+            if document.document_type == 'Liability Agreement' and (
+                document.liability is None
+                or document.liability.employee_id != document.employee_id
+                or document.liability.status not in {'Active', 'Partially Recovered'}
+                or document.liability.remaining_balance <= 0
+            ):
+                return 'A liability agreement must have a matching active liability balance before signing.', 409
+            upload = request.files.get('wet_signed_copy')
+            if not upload or not upload.filename:
+                flash('Upload the wet-signed PDF copy before recording it.', 'danger')
+                return redirect(url_for('hr_documents'))
+            try:
+                original_name, file_bytes = read_hr_pdf_upload(upload)
+            except ValueError as error:
+                flash(str(error), 'danger')
+                return redirect(url_for('hr_documents'))
+            stored_path = None
+            try:
+                filename, stored_path = store_hr_pdf(document.employee_id, file_bytes)
+                signed_at = datetime.utcnow()
+                document.wet_signed_filename = filename
+                document.wet_signed_original_name = original_name
+                document.wet_signed_sha256 = hashlib.sha256(file_bytes).hexdigest()
+                document.wet_signed_at = signed_at
+                document.wet_signed_by = current_user.id
+                document.employee_signature_name = document.employee.full_name()
+                document.employee_signature_method = 'wet'
+                document.employee_signature_statement = hr_document_signature_statement(document.document_type)
+                document.employee_signed_at = signed_at
+                document.acknowledged_at = signed_at
+                document.status = 'Signed'
+                document.updated_at = signed_at
+                acknowledge_hr_document_liability(document, signed_at)
+                db.session.commit()
+            except (OSError, SQLAlchemyError):
+                db.session.rollback()
+                if stored_path and os.path.exists(stored_path):
+                    os.remove(stored_path)
+                logger.exception('Could not record wet-signed HR document %s', document.id)
+                flash('The wet-signed copy could not be recorded. Please try again.', 'danger')
+                return redirect(url_for('hr_documents'))
+            flash('Wet-signed copy recorded and saved to the HR document record.', 'success')
+            return redirect(url_for('hr_documents'))
+        if action == 'issue':
+            if not is_admin:
+                return 'Access denied', 403
+            document = HRDocument.query.get_or_404(request.form.get('document_id', type=int))
+            if document.status != 'Draft':
+                return 'Only draft documents can be issued.', 409
+            if document.document_type == 'Liability Agreement' and (
+                not document.signature_required
+                or not document.attachment_filename
+                or document.liability is None
+                or document.liability.employee_id != document.employee_id
+                or document.liability.status not in {'Active', 'Partially Recovered'}
+                or document.liability.remaining_balance <= 0
+            ):
+                return 'A liability agreement needs an uploaded PDF, a required employee signature, and the matching liability record.', 409
+            document.status = 'Issued'
+            document.issued_at = datetime.utcnow()
+            document.updated_at = datetime.utcnow()
+            db.session.commit()
+            if document.employee.email:
+                sent = send_notification_email(
+                    [document.employee.email],
+                    f'HR document received: {document.subject}',
+                    f'{document.employee.full_name()}, an HR document is ready for you in HRIS. '
+                    f'Please sign in to review it: {url_for("hr_documents", _external=True)}',
+                )
+                if not sent:
+                    logger.warning('HR document %s was issued, but email notification was not sent.', document.id)
+            flash('HR document issued to the employee.', 'success')
             return redirect(url_for('hr_documents'))
         if not is_admin:
             return 'Access denied', 403
         employee = Employee.query.get_or_404(request.form.get('employee_id', type=int))
         document_type = request.form.get('document_type') or 'Memo'
+        if document_type not in HR_DOCUMENT_TYPES:
+            abort(400)
+        attachment = request.files.get('attachment')
+        attachment_bytes = None
+        attachment_original_name = None
+        if attachment and attachment.filename:
+            try:
+                attachment_original_name, attachment_bytes = read_hr_pdf_upload(attachment)
+            except ValueError as error:
+                flash(str(error), 'danger')
+                return redirect(url_for('hr_documents'))
+        signature_required = request.form.get('signature_required') == '1'
+        liability_id = request.form.get('liability_id', type=int)
+        liability = db.session.get(EmployeeLiability, liability_id) if liability_id else None
+        if document_type == 'Liability Agreement' and (
+            not attachment_bytes
+            or not signature_required
+            or liability is None
+            or liability.employee_id != employee.id
+            or liability.status not in {'Active', 'Partially Recovered'}
+            or liability.remaining_balance <= 0
+        ):
+            flash(
+                'A liability agreement needs an uploaded PDF, a required employee signature, '
+                'and the matching employee liability record.',
+                'danger',
+            )
+            return redirect(url_for('hr_documents'))
+        issue_now = request.form.get('issue_now') == 'true'
         document = HRDocument(
             employee_id=employee.id,
             document_type=document_type,
@@ -4567,23 +5061,72 @@ def hr_documents():
             response_due_date=datetime.strptime(request.form.get('response_due_date'), '%Y-%m-%d').date() if request.form.get('response_due_date') else None,
             effective_date=datetime.strptime(request.form.get('effective_date'), '%Y-%m-%d').date() if request.form.get('effective_date') else None,
             related_reference=request.form.get('related_reference', '').strip() or None,
-            status='Issued' if request.form.get('issue_now') == 'true' else 'Draft',
-            issued_at=datetime.utcnow() if request.form.get('issue_now') == 'true' else None,
+            status='Issued' if issue_now else 'Draft',
+            issued_at=datetime.utcnow() if issue_now else None,
             created_by=current_user.id,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
+            signature_required=signature_required,
+            attachment_original_name=attachment_original_name,
+            attachment_sha256=hashlib.sha256(attachment_bytes).hexdigest() if attachment_bytes else None,
+            liability_id=liability.id if document_type == 'Liability Agreement' else None,
         )
-        db.session.add(document)
-        db.session.commit()
+        stored_attachment_path = None
+        try:
+            db.session.add(document)
+            db.session.flush()
+            if attachment_bytes:
+                attachment_filename, stored_attachment_path = store_hr_pdf(
+                    employee.id, attachment_bytes
+                )
+                document.attachment_filename = attachment_filename
+            db.session.commit()
+        except (OSError, SQLAlchemyError):
+            db.session.rollback()
+            if stored_attachment_path and os.path.exists(stored_attachment_path):
+                os.remove(stored_attachment_path)
+            logger.exception('Could not save HR document for employee %s', employee.id)
+            flash('The HR document could not be saved. Please try again.', 'danger')
+            return redirect(url_for('hr_documents'))
+        if issue_now and employee.email:
+            sent = send_notification_email(
+                [employee.email],
+                f'HR document received: {document.subject}',
+                f'{employee.full_name()}, an HR document is ready for you in HRIS. '
+                f'Please sign in to review it: {url_for("hr_documents", _external=True)}',
+            )
+            if not sent:
+                logger.warning('HR document %s was issued, but email notification was not sent.', document.id)
         flash('HR document saved.', 'success')
         return redirect(url_for('hr_documents'))
     if is_admin:
         documents = HRDocument.query.order_by(HRDocument.created_at.desc()).all()
         employees = Employee.query.filter(Employee.first_name.isnot(None), Employee.last_name.isnot(None)).order_by(Employee.last_name, Employee.first_name).all()
+        liabilities = [
+            liability for liability in EmployeeLiability.query.filter(
+                EmployeeLiability.status.in_(['Active', 'Partially Recovered']),
+            ).order_by(EmployeeLiability.created_at.desc()).all()
+            if liability.remaining_balance > 0
+        ]
     else:
-        documents = HRDocument.query.filter_by(employee_id=current_user.id).order_by(HRDocument.created_at.desc()).all()
+        documents = HRDocument.query.filter(
+            HRDocument.employee_id == current_user.id,
+            HRDocument.status != 'Draft',
+        ).order_by(HRDocument.created_at.desc()).all()
         employees = []
-    return render_template('hr_documents.html', documents=documents, employees=employees, document_types=HR_DOCUMENT_TYPES, is_admin=is_admin)
+        liabilities = []
+    return render_template(
+        'hr_documents.html',
+        documents=documents,
+        employees=employees,
+        liabilities=liabilities,
+        document_types=HR_DOCUMENT_TYPES,
+        is_admin=is_admin,
+        signature_statements={
+            document.id: hr_document_signature_statement(document.document_type)
+            for document in documents
+        },
+    )
 
 
 @app.route('/hr-documents/<int:document_id>/download')
@@ -4592,8 +5135,52 @@ def download_hr_document(document_id):
     document = HRDocument.query.get_or_404(document_id)
     if document.employee_id != current_user.id and 'admin' not in str(current_user.role or '').lower():
         return 'Access denied', 403
+    if document.status == 'Draft' and 'admin' not in str(current_user.role or '').lower():
+        abort(404)
     download_name = secure_filename(f'HR_Document_{document.id}_{document.document_type}.pdf') or f'HR_Document_{document.id}.pdf'
     return send_file(hr_document_pdf(document), as_attachment=True, download_name=download_name, mimetype='application/pdf')
+
+
+@app.route('/hr-documents/<int:document_id>/attachment')
+@login_required
+def view_hr_document_attachment(document_id):
+    document = HRDocument.query.get_or_404(document_id)
+    if document.employee_id != current_user.id and 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    if not document.attachment_filename or (document.status == 'Draft' and 'admin' not in str(current_user.role or '').lower()):
+        abort(404)
+    attachment_path = os.path.join(
+        app.config['HR_DOCUMENTS_FOLDER'], str(document.employee_id), document.attachment_filename,
+    )
+    if not os.path.isfile(attachment_path):
+        abort(404)
+    return send_file(
+        attachment_path,
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=document.attachment_original_name or 'HR_Document.pdf',
+    )
+
+
+@app.route('/hr-documents/<int:document_id>/wet-signed')
+@login_required
+def view_wet_signed_hr_document(document_id):
+    document = HRDocument.query.get_or_404(document_id)
+    if document.employee_id != current_user.id and 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    if not document.wet_signed_filename:
+        abort(404)
+    signed_path = os.path.join(
+        app.config['HR_DOCUMENTS_FOLDER'], str(document.employee_id), document.wet_signed_filename,
+    )
+    if not os.path.isfile(signed_path):
+        abort(404)
+    return send_file(
+        signed_path,
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=document.wet_signed_original_name or 'Wet_Signed_HR_Document.pdf',
+    )
 
 
 CONCERN_TYPES = ['Suggestion', 'Clarification', 'Hinaing / Grievance', 'Payroll Question', 'Policy Question', 'Other']
@@ -4716,7 +5303,7 @@ def verify_payslip(verification_id):
 @app.route('/payroll/summary')
 @login_required
 def payroll_summary():
-    if not can_prepare_payroll(current_user):
+    if not can_prepare_payroll(current_user) and not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     company = request.args.get('company', 'Trece-Uno')
     if company not in {'Trece-Uno', 'Auto Expert'}:
@@ -4739,7 +5326,7 @@ def payroll_summary():
 @app.route('/payroll/summary/email', methods=['POST'])
 @login_required
 def email_payroll_summary():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     company = request.form.get('company', 'Trece-Uno')
     recipient = request.form.get('email', '').strip()
@@ -4761,7 +5348,7 @@ def email_payroll_summary():
 @app.route('/payroll/summary/mark-paid', methods=['POST'])
 @login_required
 def mark_payroll_summary_paid():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     company = request.form.get('company', 'Trece-Uno')
     if company not in {'Trece-Uno', 'Auto Expert'}:
@@ -5042,29 +5629,42 @@ from sqlalchemy import extract
 import os, io
 
 
+RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT = 2500.0
+OTHER_DE_MINIMIS_MONTHLY_LIMITS = {
+    'laundry_allowance': 400.0,
+    'medical_allowance': 12000.0 / 12,
+    'uniform_allowance': 8000.0 / 12,
+    'christmas_gift_allowance': 6000.0 / 12,
+    'meal_allowance': 0.30 * 610.0 * 26,
+}
+
+
+def de_minimis_monthly_ceiling():
+    """Return the sum of monthly-equivalent ceilings for supported benefits."""
+    return RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT + sum(
+        OTHER_DE_MINIMIS_MONTHLY_LIMITS.values()
+    )
+
+
 def rice_allowance_breakdown(employee, worked_days, cutoff_count=4):
-    """Return weekly rice allowance split using the employee's monthly ceiling."""
+    """Return the weekly rice subsidy split under the statutory monthly limit."""
     amount = max(float(getattr(employee, 'rice_allowance_per_day', 0) or 0), 0.0)
     total = amount * max(float(worked_days or 0), 0.0)
-    ceiling = max(float(getattr(employee, 'rice_allowance_ceiling', 2500) or 0), 0.0)
-    if getattr(employee, 'rice_allowance_is_de_minimis', True):
-        ceiling = ceiling / max(cutoff_count, 1)
-    else:
-        ceiling = 0.0
-    return split_allowance(total, ceiling, getattr(employee, 'rice_allowance_is_de_minimis', True))
+    cutoff_limit = RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT / max(cutoff_count, 1)
+    return split_allowance(total, cutoff_limit, True)
+
+
+def other_de_minimis_monthly_total(employee):
+    return sum(
+        max(float(getattr(employee, field, 0) or 0), 0.0)
+        for field in OTHER_DE_MINIMIS_MONTHLY_LIMITS
+    )
 
 
 def de_minimis_allowance_breakdown(employee, worked_days, cutoff_count=4):
     """Return total exempt and taxable portions for configured de minimis benefits."""
     exempt, taxable = rice_allowance_breakdown(employee, worked_days, cutoff_count)
-    categories = (
-        ('laundry_allowance', 400.0),
-        ('medical_allowance', 12000.0 / 12),
-        ('uniform_allowance', 8000.0 / 12),
-        ('christmas_gift_allowance', 6000.0 / 12),
-        ('meal_allowance', 0.30 * 610.0 * 26),
-    )
-    for field, monthly_ceiling in categories:
+    for field, monthly_ceiling in OTHER_DE_MINIMIS_MONTHLY_LIMITS.items():
         amount = max(float(getattr(employee, field, 0) or 0), 0.0) / max(cutoff_count, 1)
         category_exempt, category_taxable = split_allowance(
             amount,
@@ -5150,7 +5750,11 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
     allowance = float(emp.allowance or 0)
-    rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, worked_days_count)
+    rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
+        emp,
+        worked_days_count,
+        payroll_cutoffs_in_month(payroll_record.cutoff_start),
+    )
     incentives = float(emp.incentives or 0)
     regular_overtime = overtime_amounts["regular_overtime"]
     sunday_overtime = overtime_amounts["sunday_overtime"]
@@ -5233,17 +5837,16 @@ def weekly_payslip_table_data(payslip):
 @app.route('/payroll/<int:employee_id>', methods=['GET', 'POST'])
 @login_required
 def payroll(employee_id):
+    has_payroll_access = can_manage_admin_payroll(current_user)
+    if not has_payroll_access and current_user.id != employee_id:
+        return 'Access denied', 403
     emp = Employee.query.get_or_404(employee_id)
     history = Payroll.query.filter_by(employee_id=employee_id).order_by(
         Payroll.cutoff_start.desc()
     ).all()
 
-    # STAFF VIEW
-    if current_user.role.lower() == 'staff':
-        if current_user.id != employee_id:
-            flash("❌ Access denied.", "danger")
-            return redirect(url_for('dashboard_staff'))
-
+    # Staff without payroll-management access may only view their own records.
+    if not has_payroll_access:
         history = Payroll.query.filter_by(employee_id=current_user.id)\
                                .order_by(Payroll.cutoff_start.desc()).all()
         latest_finalized_payslip = Payroll.query.filter_by(
@@ -5339,13 +5942,15 @@ def payroll(employee_id):
         for attendance in paid_attendance
         if attendance.ot_status == 'Approved'
     )
-    rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, worked_days_count)
+    weeks_in_month = payroll_cutoffs_in_month(start_cutoff.date())
+    rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
+        emp, worked_days_count, weeks_in_month
+    )
 
     cutoff_salary = sum(
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
     )
     contribution_salary = cutoff_salary + rice_taxable
-    weeks_in_month = payroll_cutoffs_in_month(start_cutoff.date())
     monthly_contribution_salary = contribution_salary * weeks_in_month
     if emp.payroll_attendance_exempt:
         deductions = manual_owner_contribution_deductions(emp, cutoff_start)
@@ -5502,7 +6107,7 @@ def payroll(employee_id):
 @login_required
 def monthly_payroll(employee_id):
     emp = Employee.query.get_or_404(employee_id)
-    if current_user.id != employee_id and 'admin' not in current_user.role.lower():
+    if current_user.id != employee_id and not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
 
     month_value = request.args.get('month')
@@ -5570,7 +6175,7 @@ def monthly_payroll(employee_id):
 @app.route('/payroll/<int:employee_id>/finalize', methods=['POST'])
 @login_required
 def finalize_payroll(employee_id):
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
     try:
@@ -5622,7 +6227,7 @@ def finalize_payroll(employee_id):
 @app.route('/payroll/bulk-finalize', methods=['POST'])
 @login_required
 def bulk_finalize_payroll():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     try:
         cutoff_start, cutoff_end = payroll_cutoff_from_request(request.form.get('cutoff_start'))
@@ -5667,7 +6272,7 @@ def bulk_finalize_payroll():
 @app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
 @login_required
 def reopen_payroll(employee_id):
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     Employee.query.get_or_404(employee_id)
     cutoff_start, cutoff_end = completed_cutoff()
@@ -5701,7 +6306,7 @@ def payslip(emp_id, payroll_id):
         employee_id=emp_id
     ).first_or_404()
 
-    if current_user.id != emp_id and 'admin' not in current_user.role.lower():
+    if current_user.id != emp_id and not can_manage_admin_payroll(current_user):
         flash("Access denied.", "danger")
         return redirect(url_for('dashboard_staff'))
 
@@ -5720,7 +6325,7 @@ def payslip(emp_id, payroll_id):
 def download_payslip(emp_id, payroll_id):
     employee = Employee.query.get_or_404(emp_id)
     payroll_record = Payroll.query.filter_by(id=payroll_id, employee_id=emp_id).first_or_404()
-    if current_user.id != emp_id and 'admin' not in current_user.role.lower():
+    if current_user.id != emp_id and not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
 
     payslip = build_payslip_breakdown(employee, payroll_record)
@@ -5786,7 +6391,7 @@ def download_payslip(emp_id, payroll_id):
 @app.route('/admin/payroll-history')
 @login_required
 def admin_payroll_history():
-    if 'admin' not in current_user.role.lower():
+    if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
 
     year_value = request.args.get('year', '').strip()
@@ -5827,7 +6432,8 @@ def admin_payroll_history():
 @app.route('/payroll_dashboard', methods=['GET', 'POST'])
 @login_required
 def payroll_dashboard():
-    today = datetime.today().date()
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
     try:
         cutoff_start, cutoff_end = payroll_cutoff_from_request(request.values.get('cutoff_start'))
     except ValueError:
@@ -5844,8 +6450,6 @@ def payroll_dashboard():
             daily_rate = request.form.get(f'daily_rate_{emp.id}')
             allowance = request.form.get(f'allowance_{emp.id}')
             rice_allowance = request.form.get(f'rice_allowance_{emp.id}')
-            rice_de_minimis = request.form.get(f'rice_de_minimis_{emp.id}')
-            rice_ceiling = request.form.get(f'rice_ceiling_{emp.id}')
             other_de_minimis = {
                 field: request.form.get(f'{field}_{emp.id}')
                 for field in ('laundry_allowance', 'medical_allowance', 'uniform_allowance', 'christmas_gift_allowance', 'meal_allowance')
@@ -5860,10 +6464,7 @@ def payroll_dashboard():
                     emp.allowance = max(float(allowance), 0)
                 if rice_allowance is not None:
                     emp.rice_allowance_per_day = max(float(rice_allowance), 0)
-                if rice_de_minimis is not None:
-                    emp.rice_allowance_is_de_minimis = rice_de_minimis == '1'
-                if rice_ceiling is not None:
-                    emp.rice_allowance_ceiling = max(float(rice_ceiling), 0)
+                emp.rice_allowance_is_de_minimis = True
                 for field, value in other_de_minimis.items():
                     if value is not None:
                         setattr(emp, field, max(float(value), 0))
@@ -5894,16 +6495,22 @@ def payroll_dashboard():
             except (TypeError, ValueError):
                 db.session.rollback()
                 flash('Please enter valid non-negative payroll values.', 'danger')
-                return redirect(url_for('payroll_dashboard'))
+                return redirect(url_for(
+                    'payroll_dashboard',
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
         db.session.commit()
         flash('Payroll rates and allowances updated successfully.', 'success')
-        return redirect(url_for('payroll_dashboard'))
+        return redirect(url_for(
+            'payroll_dashboard',
+            cutoff_start=cutoff_start.isoformat(),
+        ))
 
     payroll_data = []
-    manual_contribution_cutoffs = payroll_cutoff_dates_in_month(cutoff_start)
     employees = Employee.query.order_by(
         Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
     ).filter(
+        Employee.payroll_attendance_exempt.is_(False),
         Employee.first_name.isnot(None),
         Employee.first_name != '',
         Employee.last_name.isnot(None),
@@ -5939,14 +6546,16 @@ def payroll_dashboard():
             for attendance in ot_records
             if attendance.ot_status == 'Approved'
         )
-        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(emp, worked_days_count)
+        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
+            emp, worked_days_count, weeks_in_month
+        )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + approved_ot_pay
 
         cutoff_salary = sum(
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
         )
         contribution_salary = cutoff_salary + rice_taxable
-        weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
         monthly_contribution_salary = contribution_salary * weeks_in_month
         if emp.payroll_attendance_exempt:
             deduction_values = manual_owner_contribution_deductions(emp, cutoff_start)
@@ -6014,6 +6623,8 @@ def payroll_dashboard():
             "ot_hours": ot_hours,
             "approved_ot_hours": approved_ot_hours,
             "approved_ot_pay": approved_ot_pay,
+            "other_de_minimis_monthly_total": other_de_minimis_monthly_total(emp),
+            "de_minimis_monthly_ceiling": de_minimis_monthly_ceiling(),
             "ot_statuses": sorted({attendance.ot_status or 'Pending' for attendance in ot_records}),
             "sss": sss,
             "philhealth": philhealth,
@@ -6032,7 +6643,7 @@ def payroll_dashboard():
     return render_template("payroll_dashboard.html",
                            payroll_data=payroll_data,
                            accounting_totals=accounting_totals,
-                           manual_contribution_cutoffs=manual_contribution_cutoffs,
+                           cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=(end_cutoff - timedelta(days=1)).date())
 

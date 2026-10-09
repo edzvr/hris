@@ -18,6 +18,10 @@
     th { background:#2879ad; color:#fff; }
     .btn { display:inline-block; padding:9px 13px; margin:3px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; }
     .table-wrap { overflow-x:auto; }
+    .signature-box { min-width:260px; padding:12px; border:1px solid #d8e0dc; border-radius:6px; }
+    .signature-pad { display:block; width:min(100%, 400px); height:140px; border:1px solid #263238; touch-action:none; background:#fff; }
+    .signature-choice { display:flex; gap:8px; align-items:center; margin:8px 0; }
+    .signature-choice input { width:auto; margin:0; }
   </style>
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
@@ -25,16 +29,16 @@
 <main>
   <section class="panel">
     <h1>{{ 'HR Document Generator' if is_admin else 'My HR Documents' }}</h1>
-    <p class="notice"><strong>Paper trail:</strong> Documents generated here are stored in HRIS, downloadable as PDF, and include a QR/document ID for authentication. Staff can download, acknowledge, and submit responses for NTE or other documents requiring explanation.</p>
+    <p class="notice"><strong>Document records:</strong> HR letters, memos, NTE/NOD, deduction agreements, and other notices can be uploaded as PDF, issued privately to the selected employee, and signed in HRIS or printed for a wet signature. The electronic signature records the signer, time, method, and statement; it does not guarantee legal sufficiency. Have HR/legal review the document and deduction terms.</p>
   </section>
 
   {% if is_admin %}
   <section class="panel">
     <h2>Create HR Document</h2>
-    <form method="POST">
+    <form method="POST" enctype="multipart/form-data">
       <div class="grid">
         <label>Employee
-          <select name="employee_id" required>
+          <select name="employee_id" id="hr-document-employee" required>
             <option value="">Select employee</option>
             {% for employee in employees %}<option value="{{ employee.id }}">{{ employee.full_name() }} - {{ employee.company or 'N/A' }}</option>{% endfor %}
           </select>
@@ -56,12 +60,26 @@
         <label>Reference
           <input type="text" name="related_reference" placeholder="Incident / case / agreement ref">
         </label>
+        <label>Upload letter / memo (PDF, up to 10 MB)
+          <input type="file" name="attachment" accept="application/pdf,.pdf">
+        </label>
+        <label id="liability-link-field" hidden>Liability record (required for Liability Agreement)
+          <select name="liability_id" id="hr-document-liability">
+            <option value="">Select matching employee liability</option>
+            {% for liability in liabilities %}
+            <option value="{{ liability.id }}" data-employee="{{ liability.employee_id }}">
+              #{{ liability.id }} - {{ liability.employee.full_name() }} - PHP {{ liability.remaining_balance|currency }} remaining
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="signature-choice"><input type="checkbox" name="signature_required" value="1" checked> Require employee signature</label>
         <label><input type="checkbox" name="issue_now" value="true"> Issue immediately</label>
       </div>
       <label>Body / Details
         <textarea name="body" placeholder="Write details, facts, policy reference, decision, or agreement terms."></textarea>
       </label>
-      <button class="btn" type="submit">Save Document</button>
+      <button class="btn" type="submit">Save / Issue Document</button>
     </form>
   </section>
   {% endif %}
@@ -69,20 +87,63 @@
   <section class="panel">
     <h2>Document Records</h2>
     <div class="table-wrap"><table>
-      <tr><th>Date</th><th>Employee</th><th>Type</th><th>Subject</th><th>Status</th><th>Due/Effective</th><th>Response</th><th>Actions</th></tr>
+      <tr><th>Date</th><th>Employee</th><th>Type</th><th>Subject</th><th>Status / Signature</th><th>Due/Effective</th><th>Response</th><th>Actions</th></tr>
       {% for document in documents %}
       <tr>
         <td>{{ document.created_at.strftime('%Y-%m-%d') if document.created_at else 'N/A' }}</td>
         <td>{{ document.employee.full_name() }}</td>
         <td>{{ document.document_type }}</td>
         <td><strong>{{ document.subject }}</strong><br>{{ document.related_reference or '' }}<br><small>{{ document.document_id or 'PDF not generated yet' }}</small></td>
-        <td>{{ document.status }}{% if document.acknowledged_at %}<br><small>Acknowledged: {{ document.acknowledged_at.strftime('%Y-%m-%d') }}</small>{% endif %}</td>
+        <td>{{ document.status }}{% if document.signature_required %}<br><small>Signature required</small>{% endif %}{% if document.employee_signed_at %}<br><small>{{ 'Wet-signed copy recorded' if document.employee_signature_method == 'wet' else 'Signed' }} by {{ document.employee_signature_name }} on {{ document.employee_signed_at.strftime('%Y-%m-%d %H:%M UTC') }} ({{ document.employee_signature_method }})</small>{% elif document.acknowledged_at %}<br><small>Acknowledged: {{ document.acknowledged_at.strftime('%Y-%m-%d') }}</small>{% endif %}</td>
         <td>{% if document.response_due_date %}Due: {{ document.response_due_date }}<br>{% endif %}{% if document.effective_date %}Effective: {{ document.effective_date }}{% endif %}</td>
         <td>{{ document.employee_response or 'No response yet' }}</td>
         <td>
+          {% if is_admin and document.status == 'Draft' %}
+          <form method="POST">
+            <input type="hidden" name="action" value="issue">
+            <input type="hidden" name="document_id" value="{{ document.id }}">
+            <button class="btn" type="submit">Issue to Employee</button>
+          </form>
+          {% endif %}
+          {% if document.attachment_filename %}
+          <a class="btn" href="{{ url_for('view_hr_document_attachment', document_id=document.id) }}" target="_blank" rel="noopener">Open / Print Original PDF</a>
+          {% endif %}
+          {% if document.wet_signed_filename %}
+          <a class="btn" href="{{ url_for('view_wet_signed_hr_document', document_id=document.id) }}" target="_blank" rel="noopener">View Wet-Signed Copy</a>
+          {% endif %}
+          {% if is_admin and document.signature_required and document.status == 'Issued' and not document.employee_signed_at %}
+          <form class="signature-box" method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="record_wet_signature">
+            <input type="hidden" name="document_id" value="{{ document.id }}">
+            <label>Record paper-signed copy (PDF)
+              <input type="file" name="wet_signed_copy" accept="application/pdf,.pdf" required>
+            </label>
+            <button class="btn" type="submit">Save Wet-Signed Copy</button>
+          </form>
+          {% endif %}
           <a class="btn" href="{{ url_for('download_hr_document', document_id=document.id) }}">Download PDF</a>
-          {% if not is_admin %}
-          <form method="POST"><input type="hidden" name="action" value="acknowledge"><input type="hidden" name="document_id" value="{{ document.id }}"><button class="btn" type="submit">Acknowledge</button></form>
+          {% if not is_admin and document.signature_required and document.status == 'Issued' and not document.employee_signed_at %}
+          <form class="signature-box signature-form" method="POST">
+            <input type="hidden" name="action" value="sign">
+            <input type="hidden" name="document_id" value="{{ document.id }}">
+            <p><strong>Signature statement</strong><br>{{ signature_statements[document.id] }}</p>
+            <label>Full name (must match your HRIS account)
+              <input type="text" name="signature_name" autocomplete="name" required>
+            </label>
+            <label class="signature-choice"><input type="radio" name="signature_method" value="drawn" checked required> Draw my signature</label>
+            <canvas class="signature-pad" width="800" height="280" aria-label="Draw your signature"></canvas>
+            <button class="btn clear-signature" type="button">Clear signature</button>
+            <input type="hidden" name="signature_image">
+            <label class="signature-choice"><input type="radio" name="signature_method" value="typed" required> Use my typed full name as my signature</label>
+            <label class="signature-choice"><input type="checkbox" name="signature_confirmation" value="1" required> I confirm the statement above and intend to sign this document electronically.</label>
+            <button class="btn" type="submit">Sign &amp; Record</button>
+          </form>
+          {% endif %}
+          {% if not is_admin and document.signature_required and document.employee_signed_at %}
+          <p>{{ 'Your wet-signed copy was recorded' if document.employee_signature_method == 'wet' else 'Your electronic signature was recorded' }} on {{ document.employee_signed_at.strftime('%Y-%m-%d %H:%M UTC') }}.</p>
+          <small>{{ document.employee_signature_statement }}</small>
+          {% endif %}
+          {% if not is_admin and document.document_type == 'NTE' and document.status != 'Draft' %}
           <form method="POST"><input type="hidden" name="action" value="respond"><input type="hidden" name="document_id" value="{{ document.id }}"><textarea name="employee_response" placeholder="Submit explanation or response"></textarea><button class="btn" type="submit">Submit Response</button></form>
           {% endif %}
         </td>
@@ -95,5 +156,81 @@
 
   <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>
 </main>
+<script>
+  const documentTypeSelect = document.querySelector('[name="document_type"]');
+  const liabilityField = document.getElementById('liability-link-field');
+  const liabilitySelect = document.getElementById('hr-document-liability');
+  const employeeSelect = document.getElementById('hr-document-employee');
+  function updateLiabilityChoices() {
+    if (!documentTypeSelect || !liabilityField || !liabilitySelect) return;
+    const requiresLiability = documentTypeSelect.value === 'Liability Agreement';
+    liabilityField.hidden = !requiresLiability;
+    liabilitySelect.required = requiresLiability;
+    [...liabilitySelect.options].forEach(option => {
+      if (!option.dataset.employee) return;
+      const matches = option.dataset.employee === employeeSelect.value;
+      option.hidden = !matches;
+      option.disabled = !matches;
+    });
+    const selected = liabilitySelect.selectedOptions[0];
+    if (selected && selected.dataset.employee && selected.dataset.employee !== employeeSelect.value) {
+      liabilitySelect.value = '';
+    }
+  }
+  documentTypeSelect?.addEventListener('change', updateLiabilityChoices);
+  employeeSelect?.addEventListener('change', updateLiabilityChoices);
+  updateLiabilityChoices();
+
+  document.querySelectorAll('.signature-form').forEach(form => {
+    const canvas = form.querySelector('.signature-pad');
+    const context = canvas.getContext('2d');
+    const imageInput = form.querySelector('[name="signature_image"]');
+    const methodInputs = form.querySelectorAll('[name="signature_method"]');
+    let drawing = false;
+    let hasInk = false;
+    function point(event) {
+      const bounds = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+        y: (event.clientY - bounds.top) * canvas.height / bounds.height
+      };
+    }
+    canvas.addEventListener('pointerdown', event => {
+      drawing = true;
+      hasInk = true;
+      canvas.setPointerCapture(event.pointerId);
+      const position = point(event);
+      context.beginPath();
+      context.moveTo(position.x, position.y);
+      event.preventDefault();
+    });
+    canvas.addEventListener('pointermove', event => {
+      if (!drawing) return;
+      const position = point(event);
+      context.lineTo(position.x, position.y);
+      context.strokeStyle = '#111';
+      context.lineWidth = 4;
+      context.lineCap = 'round';
+      context.stroke();
+      event.preventDefault();
+    });
+    canvas.addEventListener('pointerup', () => { drawing = false; });
+    canvas.addEventListener('pointercancel', () => { drawing = false; });
+    form.querySelector('.clear-signature').addEventListener('click', () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      hasInk = false;
+      imageInput.value = '';
+    });
+    form.addEventListener('submit', event => {
+      const method = [...methodInputs].find(input => input.checked)?.value;
+      if (method === 'drawn' && !hasInk) {
+        event.preventDefault();
+        alert('Please draw your signature, or choose the typed-name option.');
+        return;
+      }
+      imageInput.value = method === 'drawn' ? canvas.toDataURL('image/png') : '';
+    });
+  });
+</script>
 </body>
 </html>

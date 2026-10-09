@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from math import isclose
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ from hris import (
     app,
     apply_overtime_details,
     build_payslip_breakdown,
+    de_minimis_allowance_breakdown,
     holiday_multiplier,
     is_owner_admin_identity,
     manual_owner_contribution_deductions,
@@ -14,6 +16,9 @@ from hris import (
     payroll_attendance_records,
     payroll_statutory_deductions,
     payroll_worked_days_count,
+    rice_allowance_breakdown,
+    other_de_minimis_monthly_total,
+    de_minimis_monthly_ceiling,
     regular_day_pay,
     update_manual_owner_contribution_settings,
 )
@@ -196,6 +201,52 @@ def test_trece_six_day_payroll_deductions_use_editable_daily_rate():
         "pagibig": 50.0,
         "total": 321.25,
     }
+
+
+def test_rice_allowance_always_uses_current_de_minimis_ceiling():
+    employee = SimpleNamespace(
+        rice_allowance_per_day=200,
+        rice_allowance_is_de_minimis=False,
+        rice_allowance_ceiling=0,
+    )
+
+    assert rice_allowance_breakdown(employee, worked_days=5, cutoff_count=4) == (625, 375)
+
+
+def test_other_de_minimis_is_combined_for_display_but_keeps_category_limits():
+    employee = SimpleNamespace(
+        rice_allowance_per_day=0,
+        laundry_allowance=400,
+        medical_allowance=1000,
+        uniform_allowance=800,
+        christmas_gift_allowance=500,
+        meal_allowance=300,
+    )
+
+    assert other_de_minimis_monthly_total(employee) == 3000
+    exempt, taxable = de_minimis_allowance_breakdown(employee, worked_days=0)
+    assert isclose(exempt, 100 + 250 + (8000 / 12 / 4) + 125 + 75)
+    assert isclose(taxable, 200 - (8000 / 12 / 4))
+    assert isclose(
+        de_minimis_monthly_ceiling(),
+        2500 + 400 + (12000 / 12) + (8000 / 12) + (6000 / 12) + (0.30 * 610 * 26),
+    )
+    rice_employee = SimpleNamespace(
+        rice_allowance_per_day=200,
+        laundry_allowance=0,
+        medical_allowance=0,
+        uniform_allowance=0,
+        christmas_gift_allowance=0,
+        meal_allowance=0,
+    )
+    four_cutoff_split = de_minimis_allowance_breakdown(
+        rice_employee, worked_days=5, cutoff_count=4
+    )
+    five_cutoff_split = de_minimis_allowance_breakdown(
+        rice_employee, worked_days=5, cutoff_count=5
+    )
+    assert four_cutoff_split == (625, 375)
+    assert five_cutoff_split == (500, 500)
     assert compute_weekly_employer_deductions(600 * 6 * 4, weeks=4) == {
         "sss": 362.5,
         "sss_ec": 2.5,

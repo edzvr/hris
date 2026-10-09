@@ -74,6 +74,7 @@ class Employee(db.Model, UserMixin):
     loan_balance = db.Column(db.Float, default=0.0)
     sl_credits = db.Column(db.Integer, default=5)
     payroll_preparation_access = db.Column(db.Boolean, nullable=False, default=False)
+    admin_payroll_access = db.Column(db.Boolean, nullable=False, default=False)
 
     # Relationships
     attendances = db.relationship("Attendance", back_populates="employee", lazy=True)
@@ -520,9 +521,28 @@ class HRDocument(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     issued_at = db.Column(db.DateTime, nullable=True)
     document_id = db.Column(db.String(32), nullable=True)
+    attachment_filename = db.Column(db.String(255), nullable=True)
+    attachment_original_name = db.Column(db.String(255), nullable=True)
+    attachment_sha256 = db.Column(db.String(64), nullable=True)
+    signature_required = db.Column(db.Boolean, nullable=False, default=True)
+    employee_signature_name = db.Column(db.String(150), nullable=True)
+    employee_signature_image = db.Column(db.Text, nullable=True)
+    employee_signature_method = db.Column(db.String(20), nullable=True)
+    employee_signature_statement = db.Column(db.Text, nullable=True)
+    employee_signed_at = db.Column(db.DateTime, nullable=True)
+    employee_signature_ip = db.Column(db.String(64), nullable=True)
+    employee_signature_user_agent = db.Column(db.String(255), nullable=True)
+    liability_id = db.Column(db.Integer, db.ForeignKey("employee_liabilities.id"), nullable=True)
+    wet_signed_filename = db.Column(db.String(255), nullable=True)
+    wet_signed_original_name = db.Column(db.String(255), nullable=True)
+    wet_signed_sha256 = db.Column(db.String(64), nullable=True)
+    wet_signed_at = db.Column(db.DateTime, nullable=True)
+    wet_signed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
 
     employee = db.relationship("Employee", foreign_keys=[employee_id], backref="hr_documents")
     creator = db.relationship("Employee", foreign_keys=[created_by])
+    liability = db.relationship("EmployeeLiability")
+    wet_signer = db.relationship("Employee", foreign_keys=[wet_signed_by])
 
 
 class StaffConcern(db.Model):

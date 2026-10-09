@@ -82,13 +82,18 @@
 <main class="page-shell">
     <h1>Payroll Dashboard</h1>
     <p><a class="btn" href="{{ url_for('admin_payroll_history') }}">📜 View Payroll History</a></p>
-    <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%B %d, %Y') }} to {{ end_cutoff.strftime('%B %d, %Y') }} <span>(Saturday start date to Friday end date)</span></p>
+    <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} <span>(Saturday through Friday)</span></p>
+    <p>The combined monthly de minimis ceiling adds the limits for every supported benefit category. Each benefit still follows its own legal limit; any category excess is taxable. Expand the breakdown to edit amounts.</p>
 
     <form method="GET" style="margin:12px 0;">
-        <label for="cutoff-start">Select payroll cutoff start date (Saturday only):</label>
-        <input id="cutoff-start" type="date" name="cutoff_start" value="{{ start_cutoff }}" required
-               onchange="if (new Date(this.value + 'T00:00:00').getDay() !== 6) { alert('Please select a Saturday start date. The Friday end date is automatic.'); this.value = '{{ start_cutoff }}'; }">
-        <span style="margin-left:8px;">End date is automatic: <strong>{{ end_cutoff.strftime('%B %d, %Y') }}</strong></span>
+        <label for="cutoff-start">Pumili ng payroll cutoff (Sabado–Biyernes):</label>
+        <select id="cutoff-start" name="cutoff_start" required>
+            {% for cutoff in cutoff_options %}
+            <option value="{{ cutoff.start.isoformat() }}" {% if cutoff.start == start_cutoff %}selected{% endif %}>
+                {{ cutoff.label }}
+            </option>
+            {% endfor %}
+        </select>
         <button type="submit">Load Cutoff</button>
     </form>
 
@@ -105,7 +110,6 @@
 
     <section class="accounting" style="padding:14px; margin:12px 0;">
         <h2>Accounting Overview</h2>
-        <p>Confidential admin-only totals for the selected cutoff. Owner payroll is kept on its individual payroll record and excluded from these totals and company summaries.</p>
         <strong>Staff Payroll: ₱{{ accounting_totals.staff_net_pay|currency }}</strong>
         &nbsp; | &nbsp;
         <strong>Admin Payroll: ₱{{ accounting_totals.admin_net_pay|currency }}</strong>
@@ -162,11 +166,7 @@
                     <th>Company</th>
                     <th>Review Status</th>
                     <th>Daily Rate</th>
-                    <th>Rice Allowance / Day</th>
-                    <th>Rice De Minimis</th>
-                    <th>Rice Ceiling / Month</th>
-                    <th>Other De Minimis / Month</th>
-                    <th>Owner Monthly Contributions / Deduction Cutoff</th>
+                    <th title="Combined monthly ceiling across supported de minimis categories">De Minimis (combined monthly ceiling)</th>
                     <th>Worked Days</th>
                     <th>Approved OT Pay</th>
                     <th>Gross Income</th>
@@ -185,16 +185,12 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label payroll-section"><td colspan="22">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label payroll-section"><td colspan="18">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
                         <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                            {% if p.is_payroll_attendance_exempt %}
-                            <span>Owner - finalize individually</span>
-                            {% else %}
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
-                            {% endif %}
                             {{ p.emp.first_name }} {{ p.emp.last_name }}
                         </label>
                     </td>
@@ -204,44 +200,27 @@
                         <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
                     </td>
                     <td>
-                        <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 0 }}">
-                    </td>
-                    <td>
-                        <input type="hidden" name="rice_de_minimis_{{ p.emp.id }}" value="0">
-                        <input type="checkbox" name="rice_de_minimis_{{ p.emp.id }}" value="1" {% if p.emp.rice_allowance_is_de_minimis %}checked{% endif %}>
-                    </td>
-                    <td>
-                        <input type="number" min="0" step="0.01" name="rice_ceiling_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_ceiling or 2500 }}">
-                    </td>
-                    <td>
-                        <label>Laundry <input type="number" min="0" step="0.01" name="laundry_allowance_{{ p.emp.id }}" value="{{ p.emp.laundry_allowance or 0 }}"></label>
-                        <label>Medical <input type="number" min="0" step="0.01" name="medical_allowance_{{ p.emp.id }}" value="{{ p.emp.medical_allowance or 0 }}"></label>
-                        <label>Uniform <input type="number" min="0" step="0.01" name="uniform_allowance_{{ p.emp.id }}" value="{{ p.emp.uniform_allowance or 0 }}"></label>
-                        <label>Christmas <input type="number" min="0" step="0.01" name="christmas_gift_allowance_{{ p.emp.id }}" value="{{ p.emp.christmas_gift_allowance or 0 }}"></label>
-                        <label>OT/Night Meal <input type="number" min="0" step="0.01" name="meal_allowance_{{ p.emp.id }}" value="{{ p.emp.meal_allowance or 0 }}"></label>
-                    </td>
-                    <td>
-                        {% if p.is_payroll_attendance_exempt %}
-                        {% set manual_target = p.emp.manual_contribution_cutoff_start if p.emp.manual_contribution_cutoff_start in manual_contribution_cutoffs else start_cutoff %}
-                        <label>SSS / month
-                            <input type="number" min="0" step="0.01" name="manual_monthly_sss_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_sss or 0 }}">
-                        </label>
-                        <label>PhilHealth / month
-                            <input type="number" min="0" step="0.01" name="manual_monthly_philhealth_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_philhealth or 0 }}">
-                        </label>
-                        <label>Pag-IBIG / month
-                            <input type="number" min="0" step="0.01" name="manual_monthly_pagibig_{{ p.emp.id }}" value="{{ p.emp.manual_monthly_pagibig or 0 }}">
-                        </label>
-                        <label>Deduct full amount on
-                            <select name="manual_contribution_cutoff_start_{{ p.emp.id }}">
-                                {% for manual_cutoff in manual_contribution_cutoffs %}
-                                <option value="{{ manual_cutoff }}" {% if manual_cutoff == manual_target %}selected{% endif %}>{{ manual_cutoff.strftime('%b %d') }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        {% else %}
-                        Auto-calculated
-                        {% endif %}
+                        <details>
+                            <summary>₱{{ p.de_minimis_monthly_ceiling|currency }} monthly ceiling</summary>
+                            <label>Rice subsidy / day
+                                <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 0 }}">
+                            </label>
+                            <label>Laundry / month
+                                <input type="number" min="0" step="0.01" name="laundry_allowance_{{ p.emp.id }}" value="{{ p.emp.laundry_allowance or 0 }}">
+                            </label>
+                            <label>Medical / month
+                                <input type="number" min="0" step="0.01" name="medical_allowance_{{ p.emp.id }}" value="{{ p.emp.medical_allowance or 0 }}">
+                            </label>
+                            <label>Uniform / month
+                                <input type="number" min="0" step="0.01" name="uniform_allowance_{{ p.emp.id }}" value="{{ p.emp.uniform_allowance or 0 }}">
+                            </label>
+                            <label>Christmas / month
+                                <input type="number" min="0" step="0.01" name="christmas_gift_allowance_{{ p.emp.id }}" value="{{ p.emp.christmas_gift_allowance or 0 }}">
+                            </label>
+                            <label>OT/Night Meal / month
+                                <input type="number" min="0" step="0.01" name="meal_allowance_{{ p.emp.id }}" value="{{ p.emp.meal_allowance or 0 }}">
+                            </label>
+                        </details>
                     </td>
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payroll Loan Review</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#eef3f1; margin:0; padding:24px; color:#263238; }
+        main { max-width:1100px; margin:0 auto; }
+        .panel { background:#fff; padding:20px; margin-bottom:18px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+        .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:14px; }
+        label { font-weight:700; }
+        input, select { box-sizing:border-box; padding:9px; margin:6px 8px 6px 0; font:inherit; }
+        input[type="number"] { width:150px; }
+        table { width:100%; border-collapse:collapse; margin-top:14px; }
+        th, td { border:1px solid #d8e0dc; padding:10px; text-align:left; vertical-align:middle; }
+        th { background:#2879ad; color:#fff; }
+        .table-wrap { overflow-x:auto; }
+        .btn { display:inline-block; padding:9px 13px; margin:3px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; }
+        .locked { color:#52636c; font-weight:700; }
+        .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+<main>
+    <section class="panel">
+        <h1>Payroll Loan Review</h1>
+        <p class="notice">Ihambing ang natitirang loan at deduction sa inyong manual listahan. Loan balance at deduction lang ang maaaring i-edit dito. Ikaw pa rin ang magre-review at magfi-finalize ng payroll.</p>
+        <p><strong>Cutoff:</strong> {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }}</p>
+        <form method="GET">
+            <label for="cutoff-start">Pumili ng payroll cutoff (Sabado–Biyernes):</label>
+            <select id="cutoff-start" name="cutoff_start" required>
+                {% for cutoff in cutoff_options %}
+                <option value="{{ cutoff.start.isoformat() }}" {% if cutoff.start == start_cutoff %}selected{% endif %}>
+                    {{ cutoff.label }}
+                </option>
+                {% endfor %}
+            </select>
+            <button class="btn" type="submit">Load Cutoff</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <form method="POST">
+            <input type="hidden" name="cutoff_start" value="{{ start_cutoff.isoformat() }}">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Company</th>
+                            <th>Remaining Loan Balance</th>
+                            <th>Loan Deduction This Cutoff</th>
+                            <th>After This Deduction</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in loan_rows %}
+                        <tr>
+                            <td>{{ row.employee.full_name() }}</td>
+                            <td>{{ row.employee.company or 'N/A' }}</td>
+                            <td>
+                                {% if row.finalized %}
+                                ₱{{ row.balance|currency }}
+                                {% else %}
+                                <label class="sr-only" for="loan-balance-{{ row.employee.id }}">Remaining loan for {{ row.employee.full_name() }}</label>
+                                <input id="loan-balance-{{ row.employee.id }}" type="number" min="0" step="0.01" name="loan_balance_{{ row.employee.id }}" value="{{ '%.2f'|format(row.balance) }}" required>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.finalized %}
+                                <span class="locked">₱{{ row.deduction|currency }} — Finalized</span>
+                                {% else %}
+                                <label class="sr-only" for="loan-deduction-{{ row.employee.id }}">Cutoff deduction for {{ row.employee.full_name() }}</label>
+                                <input id="loan-deduction-{{ row.employee.id }}" type="number" min="0" step="0.01" max="{{ row.balance }}" name="loan_deduction_{{ row.employee.id }}" value="{{ '%.2f'|format(row.deduction) }}" required>
+                                {% endif %}
+                            </td>
+                            <td>₱{{ row.after_deduction|currency }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5">Walang staff loan records na ipapakita para sa cutoff na ito.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if loan_rows|selectattr('finalized', 'equalto', false)|list %}
+            <button class="btn" type="submit">Save Loan Checks</button>
+            {% endif %}
+        </form>
+    </section>
+    <p><a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a></p>
+</main>
+</body>
+</html>

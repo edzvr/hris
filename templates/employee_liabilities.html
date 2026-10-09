@@ -28,7 +28,7 @@
 <main>
     <section class="panel">
         <h1>{{ 'Employee Liabilities / Shortage' if is_admin else 'My Liabilities / Recoverable Deductions' }}</h1>
-        <p class="notice"><strong>Paalala:</strong> Ito ay hiwalay na documentation ng employee accountability tulad ng uncollected company receivable, cash shortage, damage, or authorized other deduction. Kapag approved at may written agreement, lalabas ito sa payroll bilang hiwalay na line item: Recoverable Receivable / Liability Deduction. Kapag nagbayad ang customer, ang refundable/releasable amount ay dapat i-record dito.</p>
+        <p class="notice"><strong>Paalala:</strong> Ito ay hiwalay na documentation ng employee accountability tulad ng uncollected company receivable, cash shortage, damage, or authorized other deduction. Ang bagong liability ay hindi muna ikakaltas sa payroll hangga't hindi na-iisyu at napipirmahan ang naka-link na Liability Agreement sa HR Documents (digital o wet-signed scan). Kapag nagbayad ang customer, ang refundable/releasable amount ay dapat i-record dito.</p>
         <div class="summary">
             <div><strong>Original Amount</strong><br>PHP {{ totals.original|currency }}</div>
             <div><strong>Deducted</strong><br>PHP {{ totals.deducted|currency }}</div>
@@ -57,21 +57,11 @@
             <label>Customer / Account
                 <input type="text" name="customer_name" placeholder="Customer name or account">
             </label>
-            <label>Agreement Date
-                <input type="date" name="agreement_date">
-            </label>
             <label>Total Amount
                 <input type="number" name="total_amount" min="0.01" step="0.01" required>
             </label>
             <label>Deduction per Cutoff
                 <input type="number" name="deduction_per_cutoff" min="0" step="0.01" required>
-            </label>
-            <label>Acknowledgment
-                <select name="acknowledgment_status">
-                    <option value="Acknowledged">Acknowledged / With written agreement</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Disputed">Disputed</option>
-                </select>
             </label>
             <label>Reference
                 <input type="text" name="reference" placeholder="Agreement / OR / case reference">
