@@ -48,7 +48,11 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
             log_in(client, staff)
         assert client.get('/payroll_dashboard').status_code == 403
         assert client.get('/payroll-loan-review').status_code == 200
-        assert b'Review Loan Deductions' in client.get('/dashboard_staff').data
+        dashboard = client.get('/dashboard_staff').data
+        assert b'Review Loan Deductions' in dashboard
+        assert dashboard.index(b'Review Loan Deductions') < dashboard.index(
+            b'<details class="dashboard-tools">'
+        )
     finally:
         with app.app_context():
             db.session.rollback()

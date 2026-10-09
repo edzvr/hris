@@ -205,6 +205,14 @@
     {% set dashboard_is_admin = false %}
     {% include 'partials/dashboard_summary.html' %}
 
+    {% if current_user.admin_payroll_access %}
+    <div class="container card dashboard-section">
+        <h2>Payroll Loan Review</h2>
+        <p>Review the loan balance and deduction against your manual list. Payroll finalization remains with the admin.</p>
+        <a href="{{ url_for('payroll_loan_review') }}" class="btn btn-primary">💼 Review Loan Deductions</a>
+    </div>
+    {% endif %}
+
     <details class="dashboard-tools">
     <summary>All staff tools, resources &amp; account settings</summary>
     <div class="container card dashboard-section">
@@ -220,9 +228,6 @@
       </div>
         <div class="dashboard-links">
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
-            {% if current_user.admin_payroll_access %}
-            <a href="{{ url_for('payroll_loan_review') }}" class="btn btn-primary">💼 Review Loan Deductions</a>
-            {% endif %}
             {% if current_user.payroll_preparation_access %}
             <a href="{{ url_for('biometric_import') }}" class="btn btn-primary">📥 Biometric Upload</a>
             <a href="{{ url_for('payroll_summary', company='Auto Expert') }}" class="btn btn-primary">📄 Download Auto Expert Summary</a>
