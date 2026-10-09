@@ -110,6 +110,9 @@
 
 <div class="section">
     <h3>Saturday-to-Friday Payslips {% if selected_year %} ({{ selected_year }}) {% endif %}</h3>
+    {% if current_user.role.lower() != 'admin' %}
+    <p>Review your finalized payslip and confirm whether the figures look correct. This confirms that you reviewed the figures only; it is not a receipt for payment and does not waive your right to raise a concern.</p>
+    {% endif %}
     {% if current_user.role.lower() == 'staff' and latest_finalized_payslip %}
     <p>
         <strong>Latest finalized cutoff:</strong>
@@ -120,6 +123,7 @@
     <table>
         <tr>
             <th>Cutoff Start</th><th>Cutoff End</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th><th>Payslip</th>
+            {% if current_user.role.lower() != 'admin' %}<th>Your Review</th>{% endif %}
         </tr>
         {% for record in history %}
         <tr>
@@ -136,9 +140,36 @@
                 Awaiting Admin finalization
                 {% endif %}
             </td>
+            {% if current_user.role.lower() != 'admin' %}
+            <td>
+                {% if record.is_paid %}
+                    {% set review_status = record.confirmation_status or 'Not requested' %}
+                    {% if review_status == 'Confirmed' %}
+                        <strong>Confirmed</strong>
+                        {% if record.confirmed_at %}<br><small>{{ record.confirmed_at|manila_datetime }}</small>{% endif %}
+                    {% elif review_status == 'Needs Correction' %}
+                        <strong>Sent to Admin for review</strong>
+                        {% if record.confirmation_note %}<br><small>{{ record.confirmation_note }}</small>{% endif %}
+                    {% elif review_status == 'Pending' %}
+                        <form method="post" action="{{ url_for('submit_payroll_confirmation', payroll_id=record.id) }}">
+                            <button class="btn" type="submit" name="action" value="confirm">I reviewed this; the figures look correct</button>
+                            <label>
+                                Something looks wrong? Describe it for Admin:
+                                <textarea name="confirmation_note" maxlength="2000" rows="3"></textarea>
+                            </label>
+                            <button class="btn" type="submit" name="action" value="report_issue">Report an issue</button>
+                        </form>
+                    {% else %}
+                        No staff review requested
+                    {% endif %}
+                {% else %}
+                    Available after Admin finalizes payroll
+                {% endif %}
+            </td>
+            {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="6">No payroll records found.</td></tr>
+        <tr><td colspan="{{ 7 if current_user.role.lower() != 'admin' else 6 }}">No payroll records found.</td></tr>
         {% endfor %}
     </table>
 </div>

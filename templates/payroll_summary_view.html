@@ -50,13 +50,14 @@
                 <th>Loan</th>
                 <th>Deductions</th>
                 <th>Net Pay</th>
-                <th>Status</th>
+                <th>Payroll Status</th>
+                <th>Staff Review</th>
             </tr>
         </thead>
         <tbody>
             {% for row in rows %}
             {% if loop.first or row.is_admin != rows[loop.index0 - 1].is_admin %}
-            <tr><th colspan="11">{{ 'Admin Payroll' if row.is_admin else 'Staff Payroll' }}</th></tr>
+            <tr><th colspan="12">{{ 'Admin Payroll' if row.is_admin else 'Staff Payroll' }}</th></tr>
             {% endif %}
             <tr>
                 <td>{{ row.employee.full_name() }}</td>
@@ -69,7 +70,23 @@
                 <td>₱{{ row.loan|currency }}</td>
                 <td>₱{{ row.total_deductions|currency }}</td>
                 <td>₱{{ row.net_pay|currency }}</td>
-                <td>{{ 'PAID' if row.payroll_record and row.payroll_record.is_paid else 'UNPAID' }}</td>
+                <td>{{ 'Finalized' if row.payroll_record and row.payroll_record.is_paid else 'Not finalized' }}</td>
+                <td>
+                    {% if row.payroll_record and row.payroll_record.is_paid %}
+                        {% set review_status = row.payroll_record.confirmation_status or 'Not requested' %}
+                        {{ review_status }}
+                        {% if row.payroll_record.confirmation_note %}
+                        <br><small>{{ row.payroll_record.confirmation_note }}</small>
+                        {% endif %}
+                        {% if review_status in ['Needs Correction', 'Not requested'] and current_user.role|lower == 'admin' %}
+                        <form method="post" action="{{ url_for('request_payroll_reconfirmation', payroll_id=row.payroll_record.id) }}">
+                            <button type="submit">{{ 'Request staff to review again' if review_status == 'Needs Correction' else 'Request staff review' }}</button>
+                        </form>
+                        {% endif %}
+                    {% else %}
+                        Not released
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>

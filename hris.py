@@ -761,6 +761,12 @@ def ensure_payroll_columns():
         statements.append("ALTER TABLE payrolls ADD COLUMN employer_pagibig FLOAT")
     if "liability_deduction_applied" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
+    if "confirmation_status" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN confirmation_status VARCHAR(30)")
+    if "confirmation_note" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN confirmation_note TEXT")
+    if "confirmed_at" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN confirmed_at TIMESTAMP")
     for statement in statements:
         db.session.execute(text(statement))
     db.session.commit()
@@ -5475,12 +5481,78 @@ def mark_payroll_summary_paid():
         record.loan = row['loan']
         record.total_deductions = row['total_deductions']
         record.net_pay = row['net_pay']
+        if not record.is_paid:
+            record.confirmation_status = 'Pending'
+            record.confirmation_note = None
+            record.confirmed_at = None
         record.is_paid = True
         if record.id is None:
             db.session.add(record)
     db.session.commit()
     flash(f'{company} payroll marked as paid.', 'success')
     return redirect(url_for('payroll_dashboard'))
+
+
+@app.route('/payroll/confirmation/<int:payroll_id>', methods=['POST'])
+@login_required
+def submit_payroll_confirmation(payroll_id):
+    payroll_record = Payroll.query.get_or_404(payroll_id)
+    if payroll_record.employee_id != current_user.id:
+        return 'Access denied', 403
+    if not payroll_record.is_paid:
+        abort(400, 'Payroll must be finalized before staff confirmation.')
+
+    action = request.form.get('action')
+    if action == 'confirm':
+        if payroll_record.confirmation_status == 'Needs Correction':
+            flash('Wait for Admin to review the reported issue before confirming again.', 'warning')
+            return redirect(url_for('payroll', employee_id=current_user.id))
+        payroll_record.confirmation_status = 'Confirmed'
+        payroll_record.confirmation_note = None
+        payroll_record.confirmed_at = datetime.utcnow()
+        flash('Your payroll review confirmation was saved.', 'success')
+    elif action == 'report_issue':
+        note = request.form.get('confirmation_note', '').strip()
+        if not note:
+            flash('Describe what looks incorrect so Admin can review it.', 'danger')
+            return redirect(url_for('payroll', employee_id=current_user.id))
+        if len(note) > 2000:
+            flash('The payroll issue description must be 2,000 characters or fewer.', 'danger')
+            return redirect(url_for('payroll', employee_id=current_user.id))
+        payroll_record.confirmation_status = 'Needs Correction'
+        payroll_record.confirmation_note = note
+        payroll_record.confirmed_at = None
+        flash('Your payroll issue was sent to Admin for review.', 'success')
+    else:
+        abort(400, 'Invalid payroll review action.')
+
+    db.session.commit()
+    return redirect(url_for('payroll', employee_id=current_user.id))
+
+
+@app.route('/payroll/confirmation/<int:payroll_id>/request-again', methods=['POST'])
+@login_required
+def request_payroll_reconfirmation(payroll_id):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    payroll_record = Payroll.query.get_or_404(payroll_id)
+    if not payroll_record.is_paid or payroll_record.confirmation_status not in {
+        None, 'Needs Correction'
+    }:
+        abort(400, 'Only finalized payroll without an active confirmation can be requested.')
+    payroll_record.confirmation_status = 'Pending'
+    payroll_record.confirmation_note = None
+    payroll_record.confirmed_at = None
+    db.session.commit()
+    flash('Payroll is marked ready for staff to review again.', 'success')
+    employee_company = str(payroll_record.employee.company or '').strip().lower()
+    company = 'Trece-Uno' if employee_company.startswith('trece') else 'Auto Expert'
+    return redirect(url_for(
+        'payroll_summary',
+        company=company,
+        cutoff_start=payroll_record.cutoff_start.isoformat(),
+        view='true',
+    ))
 
 
 @app.route('/apply_ot', methods=['GET', 'POST'])
@@ -6157,6 +6229,9 @@ def payroll(employee_id):
             apply_liability_deduction(emp.id, liability_deduction)
             payroll_record.liability_deduction_applied = True
         payroll_record.is_paid = True
+        payroll_record.confirmation_status = 'Pending'
+        payroll_record.confirmation_note = None
+        payroll_record.confirmed_at = None
         db.session.commit()
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
@@ -6395,6 +6470,9 @@ def bulk_finalize_payroll():
                 apply_liability_deduction(int(employee_id), payroll_record.liability_deduction)
                 payroll_record.liability_deduction_applied = True
             payroll_record.is_paid = True
+            payroll_record.confirmation_status = 'Pending'
+            payroll_record.confirmation_note = None
+            payroll_record.confirmed_at = None
             finalized += 1
     db.session.commit()
     flash(f'{finalized} payroll records finalized for this cutoff.', 'success')
@@ -6422,6 +6500,9 @@ def reopen_payroll(employee_id):
             reverse_liability_deduction(employee_id, payroll_record.liability_deduction)
             payroll_record.liability_deduction_applied = False
         payroll_record.is_paid = False
+        payroll_record.confirmation_status = None
+        payroll_record.confirmation_note = None
+        payroll_record.confirmed_at = None
         db.session.commit()
         flash('Payroll reopened and its loan deduction was reversed. Open the payroll page to recalculate it.', 'success')
     else:

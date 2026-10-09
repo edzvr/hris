@@ -390,6 +390,9 @@ class Payroll(db.Model):
     is_paid = db.Column(db.Boolean, default=False)
     loan_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
     liability_deduction_applied = db.Column(db.Boolean, nullable=False, default=False)
+    confirmation_status = db.Column(db.String(30), nullable=True)
+    confirmation_note = db.Column(db.Text, nullable=True)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
 
 
 class EmployeeLiability(db.Model):
