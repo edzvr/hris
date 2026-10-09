@@ -33,7 +33,7 @@
         <div class="navigation-items">
           {% if title == 'Help & Concerns' %}<a href="{{ url_for('staff_guide') }}">Staff Guide</a>{% endif %}
           {% for endpoint, label in navigation_links if endpoint in endpoints %}
-            {% set href = url_for(endpoint, employee_id=navigation_user_id) if endpoint in ['payroll', 'attendance', 'quiz', 'merit_demerit'] else url_for(endpoint, user_id=navigation_user_id) if endpoint == 'profile' else url_for(endpoint) %}
+            {% set href = url_for(endpoint, employee_id=navigation_user_id) if endpoint in ['payroll', 'attendance', 'quiz', 'merit_demerit'] else url_for(endpoint, user_id=navigation_user_id) if endpoint == 'profile' else url_for(endpoint, company=('Trece-Uno' if navigation_company|lower|trim in ['trece', 'trece-uno'] else 'Auto Expert'), view='true') if endpoint == 'payroll_summary' else url_for(endpoint) %}
             <a href="{{ href }}">{{ label }}</a>
           {% endfor %}
           {% if title == 'My Account' %}

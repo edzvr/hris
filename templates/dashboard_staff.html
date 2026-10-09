@@ -210,6 +210,7 @@
         <h2>Payroll Loan Review</h2>
         <p>Review the loan balance and deduction against your manual list. Payroll finalization remains with the admin.</p>
         <a href="{{ url_for('payroll_loan_review') }}" class="btn btn-primary">💼 Review Loan Deductions</a>
+        <a href="{{ url_for('payroll_summary', company=('Trece-Uno' if current_user.company and current_user.company.lower().startswith('trece') else 'Auto Expert'), view='true') }}" class="btn btn-primary">📊 Cash Payroll Summary</a>
     </div>
     {% endif %}
 
@@ -230,8 +231,7 @@
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
             {% if current_user.payroll_preparation_access %}
             <a href="{{ url_for('biometric_import') }}" class="btn btn-primary">📥 Biometric Upload</a>
-            <a href="{{ url_for('payroll_summary', company='Auto Expert') }}" class="btn btn-primary">📄 Download Auto Expert Summary</a>
-            <a href="{{ url_for('payroll_summary', company='Trece-Uno') }}" class="btn btn-primary">📄 Download Trece-Uno Summary</a>
+            <a href="{{ url_for('payroll_summary', company=('Trece-Uno' if current_user.company and current_user.company.lower().startswith('trece') else 'Auto Expert'), view='true') }}" class="btn btn-primary">📊 View Company Payroll Summary</a>
             {% endif %}
             <a href="{{ url_for('staff_guide') }}" class="btn btn-primary">📘 Staff Guide</a>
             <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Request Attendance Correction</a>

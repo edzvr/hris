@@ -1291,7 +1291,9 @@ def inject_authenticated_sidebar(response):
             ('company_files', 'Company Files'),
         ])
         if can_review_payroll_loans(current_user):
-            links.insert(2, ('payroll_loan_review', 'Review Loan Deductions'))
+            links.insert(2, ('payroll_loan_review', 'Payroll Loan Review'))
+        if can_prepare_payroll(current_user) or can_review_payroll_loans(current_user):
+            links.insert(3, ('payroll_summary', 'Cash Payroll Summary'))
     if is_admin:
         links.extend([
             ('holiday_ot_dashboard', 'Attendance and OT'),
@@ -1318,7 +1320,7 @@ def inject_authenticated_sidebar(response):
     if not is_admin:
         navigation_groups = [
             ('Attendance', {'attendance', 'attendance_correction', 'apply_ot'}),
-            ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'thirteenth_month', 'employee_liabilities'}),
+            ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'payroll_summary', 'payroll_loan_review', 'thirteenth_month', 'employee_liabilities'}),
             ('Loan & Leave', {'loan', 'leave'}),
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
             ('Documents & Updates', {'hr_documents', 'bulletin', 'company_files', 'monthly_reminders'}),
@@ -4319,10 +4321,21 @@ def download_annual_tax_summary(company, year):
                      download_name=f'Annual_Tax_Summary_{company}_{year}.pdf', mimetype='application/pdf')
 
 
-def build_company_payroll_summary(company, cutoff_start, cutoff_end):
-    employees = Employee.query.filter(company_employee_filter(company)).order_by(
-        Employee.last_name, Employee.first_name
-    ).all()
+def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_admins=False):
+    if include_admins:
+        company_filter = (
+            Employee.company.in_(['Trece', 'Trece-Uno'])
+            if company == 'Trece-Uno'
+            else Employee.company == 'Auto Expert'
+        )
+        employees = Employee.query.filter(
+            company_filter,
+            Employee.payroll_attendance_exempt.is_(False),
+        ).order_by(Employee.last_name, Employee.first_name).all()
+    else:
+        employees = Employee.query.filter(company_employee_filter(company)).order_by(
+            Employee.last_name, Employee.first_name
+        ).all()
     rows = []
     for emp in employees:
         attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
@@ -4366,6 +4379,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
         total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + liability_deduction + withholding_tax
         rows.append({
             'employee': emp,
+            'is_admin': 'admin' in str(emp.role or '').lower(),
             'worked_days': worked_days_count,
             'gross_income': gross_income,
             'sss': deductions['sss'],
@@ -4383,6 +4397,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end):
             'net_pay': gross_income + rice_exempt - total_deductions,
             'payroll_record': payroll_record,
         })
+    rows.sort(key=lambda row: (not row['is_admin'], row['employee'].last_name or '', row['employee'].first_name or ''))
     return rows
 
 
@@ -4550,7 +4565,17 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
         pdf.drawString(x, 520, header)
     y = 503
     pdf.setFont('Helvetica', 8)
+    current_group = None
     for row in rows:
+        group = 'Admin Payroll' if row['is_admin'] else 'Staff Payroll'
+        if group != current_group:
+            if y < 58:
+                break
+            pdf.setFont('Helvetica-Bold', 9)
+            pdf.drawString(30, y, group)
+            y -= 14
+            current_group = group
+            pdf.setFont('Helvetica', 8)
         values = [
             row['employee'].full_name()[:28], str(row['worked_days']),
             f"{row['gross_income']:,.2f}", f"{row['sss']:,.2f}",
@@ -5303,18 +5328,47 @@ def verify_payslip(verification_id):
 @app.route('/payroll/summary')
 @login_required
 def payroll_summary():
-    if not can_prepare_payroll(current_user) and not can_manage_admin_payroll(current_user):
+    is_admin = can_manage_admin_payroll(current_user)
+    can_view_summary = (
+        can_prepare_payroll(current_user)
+        or can_review_payroll_loans(current_user)
+    )
+    if not can_view_summary:
         return 'Access denied', 403
-    company = request.args.get('company', 'Trece-Uno')
+    if is_admin:
+        company = request.args.get('company', 'Trece-Uno')
+    else:
+        staff_company = str(current_user.company or '').strip().lower()
+        if staff_company.startswith('trece'):
+            company = 'Trece-Uno'
+        elif staff_company in {'auto expert', 'auto-expert', 'autoxpert'}:
+            company = 'Auto Expert'
+        else:
+            return 'Access denied', 403
+        requested_company = request.args.get('company')
+        if requested_company and requested_company != company:
+            return 'Access denied', 403
     if company not in {'Trece-Uno', 'Auto Expert'}:
         abort(400)
     try:
         cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
     except ValueError:
         abort(400)
-    rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
+    rows = build_company_payroll_summary(
+        company,
+        cutoff_start,
+        cutoff_end,
+        include_admins=is_admin or can_review_payroll_loans(current_user),
+    )
     if request.args.get('view') == 'true':
-        return render_template('payroll_summary_view.html', rows=rows, company=company, cutoff_start=cutoff_start, cutoff_end=cutoff_end - timedelta(days=1))
+        return render_template(
+            'payroll_summary_view.html',
+            rows=rows,
+            company=company,
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1),
+            cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
+        )
     pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
     return send_file(
         io.BytesIO(pdf_data), as_attachment=True,
@@ -5334,7 +5388,9 @@ def email_payroll_summary():
         flash('Please select a company and enter an email address.', 'danger')
         return redirect(url_for('payroll_dashboard'))
     cutoff_start, cutoff_end = completed_cutoff()
-    rows = build_company_payroll_summary(company, cutoff_start, cutoff_end)
+    rows = build_company_payroll_summary(
+        company, cutoff_start, cutoff_end, include_admins=True
+    )
     pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
     sent = send_notification_email(
         [recipient], f'{company} Payroll Summary - {cutoff_start}',

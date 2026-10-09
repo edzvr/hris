@@ -22,6 +22,21 @@
         <div class="muted">Address: Trece Martires Cavite, Philippines<br>Prepared by: Admin</div>
     </div>
 
+    <form method="get" action="{{ url_for('payroll_summary') }}">
+        <input type="hidden" name="company" value="{{ company }}">
+        <input type="hidden" name="view" value="true">
+        <label for="cutoff-start">Payroll cutoff:</label>
+        <select id="cutoff-start" name="cutoff_start" required>
+            {% for cutoff in cutoff_options %}
+            <option value="{{ cutoff.start.isoformat() }}" {% if cutoff.start == cutoff_start %}selected{% endif %}>
+                {{ cutoff.label }}
+            </option>
+            {% endfor %}
+        </select>
+        <button type="submit">View Summary</button>
+        <a href="{{ url_for('payroll_summary', company=company, cutoff_start=cutoff_start.isoformat()) }}">Download PDF</a>
+    </form>
+
     <table>
         <thead>
             <tr>
@@ -40,6 +55,9 @@
         </thead>
         <tbody>
             {% for row in rows %}
+            {% if loop.first or row.is_admin != rows[loop.index0 - 1].is_admin %}
+            <tr><th colspan="11">{{ 'Admin Payroll' if row.is_admin else 'Staff Payroll' }}</th></tr>
+            {% endif %}
             <tr>
                 <td>{{ row.employee.full_name() }}</td>
                 <td>{{ row.worked_days }}</td>

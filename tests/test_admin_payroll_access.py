@@ -48,11 +48,16 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
             log_in(client, staff)
         assert client.get('/payroll_dashboard').status_code == 403
         assert client.get('/payroll-loan-review').status_code == 200
+        assert client.get(
+            '/payroll/summary?company=Trece-Uno&view=true&cutoff_start=2026-10-03'
+        ).status_code == 200
         dashboard = client.get('/dashboard_staff').data
         assert b'Review Loan Deductions' in dashboard
+        assert b'Cash Payroll Summary' in dashboard
         assert dashboard.index(b'Review Loan Deductions') < dashboard.index(
             b'<details class="dashboard-tools">'
         )
+        assert b'Payroll Loan Review' in dashboard
     finally:
         with app.app_context():
             db.session.rollback()
@@ -88,6 +93,98 @@ def test_unselected_staff_cannot_open_admin_payroll_routes():
         with app.app_context():
             db.session.rollback()
             db.session.delete(db.session.get(Employee, staff_id))
+            db.session.commit()
+
+
+def test_payroll_preparer_sees_only_company_summary_and_admin_summary_is_grouped():
+    with app.app_context():
+        preparer = Employee(
+            first_name='Payroll',
+            last_name='Preparer',
+            role='staff',
+            company='Auto Expert',
+            payroll_preparation_access=True,
+        )
+        staff = Employee(
+            first_name='Company',
+            last_name='Staff',
+            role='staff',
+            company='Auto Expert',
+        )
+        admin = Employee(
+            first_name='Company',
+            last_name='Admin',
+            role='admin',
+            company='Auto Expert',
+            payroll_attendance_exempt=False,
+        )
+        delegate = Employee(
+            first_name='Payroll',
+            last_name='LoanReviewer',
+            role='staff',
+            company='Auto Expert',
+            admin_payroll_access=True,
+        )
+        db.session.add_all([preparer, staff, admin, delegate])
+        db.session.commit()
+        preparer_id, staff_id, admin_id, delegate_id = (
+            preparer.id, staff.id, admin.id, delegate.id
+        )
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, preparer_id))
+        own_summary = client.get(
+            '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'
+        )
+        assert own_summary.status_code == 200
+        assert b'AUTO EXPERT PAYROLL SUMMARY' in own_summary.data
+        assert b'Company Staff' in own_summary.data
+        assert b'Company Admin' not in own_summary.data
+        assert b'Payroll Summary' in client.get('/dashboard_staff').data
+        assert client.get(
+            '/payroll/summary?company=Trece-Uno&view=true&cutoff_start=2026-10-03'
+        ).status_code == 403
+
+        with app.app_context():
+            log_in(client, db.session.get(Employee, delegate_id))
+        delegate_summary = client.get(
+            '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'
+        )
+        assert delegate_summary.status_code == 200
+        assert b'Company Staff' in delegate_summary.data
+        assert b'Company Admin' in delegate_summary.data
+        assert b'Admin Payroll' in delegate_summary.data
+        assert b'Staff Payroll' in delegate_summary.data
+        assert b'Cash Payroll Summary' in client.get('/dashboard_staff').data
+        assert b'Payroll Loan Review' in client.get('/dashboard_staff').data
+        assert client.get('/payroll_dashboard').status_code == 403
+        assert client.get(
+            '/payroll/summary?company=Trece-Uno&view=true&cutoff_start=2026-10-03'
+        ).status_code == 403
+        assert client.post(
+            '/payroll/bulk-finalize',
+            data={'cutoff_start': '2026-10-03', 'selected_employee_ids': ['1']},
+        ).status_code == 403
+
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+        admin_summary = client.get(
+            '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'
+        )
+        assert admin_summary.status_code == 200
+        assert b'Admin Payroll' in admin_summary.data
+        assert b'Staff Payroll' in admin_summary.data
+        assert admin_summary.data.index(b'Admin Payroll') < admin_summary.data.index(
+            b'Staff Payroll'
+        )
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            db.session.delete(db.session.get(Employee, preparer_id))
+            db.session.delete(db.session.get(Employee, staff_id))
+            db.session.delete(db.session.get(Employee, admin_id))
+            db.session.delete(db.session.get(Employee, delegate_id))
             db.session.commit()
 
 
@@ -180,7 +277,15 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert b'Private Owner' not in response.data
         assert b'Admin Payroll' not in response.data
         assert client.get('/admin/payroll-history').status_code == 403
-        assert client.get('/payroll/summary?company=Trece-Uno').status_code == 403
+        summary = client.get(
+            '/payroll/summary?company=Trece-Uno&view=true&cutoff_start=2026-10-03'
+        )
+        assert summary.status_code == 200
+        assert b'Loan Reviewer' in summary.data
+        assert b'Private Owner' not in summary.data
+        assert client.get(
+            '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'
+        ).status_code == 403
 
         response = client.post(
             '/payroll-loan-review',
