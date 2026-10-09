@@ -58,6 +58,7 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
             b'<details class="dashboard-tools">'
         )
         assert b'Payroll Loan Review' in dashboard
+        assert b'Cash Payroll Summary' in dashboard
     finally:
         with app.app_context():
             db.session.rollback()
@@ -191,9 +192,16 @@ def test_payroll_preparer_sees_only_company_summary_and_admin_summary_is_grouped
 def test_payroll_cutoff_picker_shows_date_ranges_and_save_preserves_selection():
     with app.app_context():
         admin = Employee(first_name='Cutoff', last_name='Admin', role='admin')
-        db.session.add(admin)
+        staff = Employee(
+            first_name='Rice',
+            last_name='Default',
+            role='staff',
+            company='Trece-Uno',
+            rice_allowance_per_day=0,
+        )
+        db.session.add_all([admin, staff])
         db.session.commit()
-        admin_id = admin.id
+        admin_id, staff_id = admin.id, staff.id
     try:
         client = app.test_client()
         with app.app_context():
@@ -203,7 +211,8 @@ def test_payroll_cutoff_picker_shows_date_ranges_and_save_preserves_selection():
         assert b'Pumili ng payroll cutoff' in response.data
         assert b'Oct 03' in response.data
         assert b'Oct 09, 2026' in response.data
-        assert b'De Minimis (combined monthly ceiling)' in response.data
+        assert b'De Minimis Ceiling (not extra pay)' in response.data
+        assert b'value="95"' in response.data
         assert b'Rice Ceiling / Month' not in response.data
         assert b'Rice De Minimis' not in response.data
 
@@ -219,8 +228,12 @@ def test_payroll_cutoff_picker_shows_date_ranges_and_save_preserves_selection():
         with app.app_context():
             db.session.rollback()
             admin = db.session.get(Employee, admin_id)
+            staff = db.session.get(Employee, staff_id)
             if admin:
                 db.session.delete(admin)
+            if staff:
+                db.session.delete(staff)
+            if admin or staff:
                 db.session.commit()
 
 
@@ -242,7 +255,23 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
             payroll_attendance_exempt=True,
             loan_balance=5000,
         )
-        db.session.add_all([delegate, owner])
+        trece_admin_staff = Employee(
+            first_name='Trece',
+            last_name='AdminRole',
+            role='admin',
+            company='Trece-Uno',
+            payroll_attendance_exempt=False,
+        )
+        other_company_staff = Employee(
+            first_name='Auto',
+            last_name='ExpertStaff',
+            role='staff',
+            company='Auto Expert',
+            loan_balance=1200,
+        )
+        db.session.add_all([
+            delegate, owner, trece_admin_staff, other_company_staff
+        ])
         db.session.flush()
         payroll = Payroll(
             employee_id=delegate.id,
@@ -262,7 +291,9 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         )
         db.session.add_all([payroll, owner_payroll])
         db.session.commit()
-        delegate_id, owner_id = delegate.id, owner.id
+        delegate_id, owner_id, trece_admin_staff_id, other_company_staff_id = (
+            delegate.id, owner.id, trece_admin_staff.id, other_company_staff.id
+        )
         payroll_id, owner_payroll_id = payroll.id, owner_payroll.id
 
     try:
@@ -273,8 +304,11 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert response.status_code == 200
         assert b'Loan Reviewer' in response.data
         assert b'900.00' in response.data
+        assert b'Auto ExpertStaff' not in response.data
+        assert b'1,200.00' not in response.data
         assert b'12,345' not in response.data
         assert b'Private Owner' not in response.data
+        assert b'Trece AdminRole' not in response.data
         assert b'Admin Payroll' not in response.data
         assert client.get('/admin/payroll-history').status_code == 403
         summary = client.get(
@@ -283,6 +317,8 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert summary.status_code == 200
         assert b'Loan Reviewer' in summary.data
         assert b'Private Owner' not in summary.data
+        assert b'Trece AdminRole' in summary.data
+        assert b'Admin Payroll' in summary.data
         assert client.get(
             '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'
         ).status_code == 403
@@ -293,6 +329,8 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
                 'cutoff_start': '2026-10-03',
                 f'loan_balance_{delegate_id}': '700',
                 f'loan_deduction_{delegate_id}': '350',
+                f'loan_balance_{other_company_staff_id}': '0',
+                f'loan_deduction_{other_company_staff_id}': '1200',
                 f'daily_rate_{delegate_id}': '1',
             },
         )
@@ -302,8 +340,12 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         )
         with app.app_context():
             delegate = db.session.get(Employee, delegate_id)
+            other_company_staff = db.session.get(
+                Employee, other_company_staff_id
+            )
             payroll = db.session.get(Payroll, payroll_id)
             assert delegate.loan_balance == 700
+            assert other_company_staff.loan_balance == 1200
             assert delegate.daily_rate == 695
             assert payroll.loan == 350
             assert payroll.gross_income == 12345
@@ -335,4 +377,6 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
             db.session.delete(db.session.get(Payroll, owner_payroll_id))
             db.session.delete(db.session.get(Employee, delegate_id))
             db.session.delete(db.session.get(Employee, owner_id))
+            db.session.delete(db.session.get(Employee, trece_admin_staff_id))
+            db.session.delete(db.session.get(Employee, other_company_staff_id))
             db.session.commit()

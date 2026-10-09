@@ -213,6 +213,19 @@ def test_rice_allowance_always_uses_current_de_minimis_ceiling():
     assert rice_allowance_breakdown(employee, worked_days=5, cutoff_count=4) == (625, 375)
 
 
+def test_rice_allowance_defaults_to_95_per_worked_day_without_paying_the_ceiling():
+    employee = SimpleNamespace(
+        rice_allowance_per_day=0,
+        rice_allowance_is_de_minimis=True,
+        rice_allowance_ceiling=0,
+    )
+
+    assert rice_allowance_breakdown(employee, worked_days=5, cutoff_count=4) == (475, 0)
+    assert de_minimis_allowance_breakdown(
+        employee, worked_days=5, cutoff_count=4
+    ) == (475, 0)
+
+
 def test_other_de_minimis_is_combined_for_display_but_keeps_category_limits():
     employee = SimpleNamespace(
         rice_allowance_per_day=0,

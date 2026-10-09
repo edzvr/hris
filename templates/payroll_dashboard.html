@@ -83,7 +83,7 @@
     <h1>Payroll Dashboard</h1>
     <p><a class="btn" href="{{ url_for('admin_payroll_history') }}">📜 View Payroll History</a></p>
     <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} <span>(Saturday through Friday)</span></p>
-    <p>The combined monthly de minimis ceiling adds the limits for every supported benefit category. Each benefit still follows its own legal limit; any category excess is taxable. Expand the breakdown to edit amounts.</p>
+    <p>The combined de minimis ceiling is only a tax-exempt limit, not extra salary or an automatic allowance. Only rice subsidy is automatically added at ₱95 per worked day; other de minimis benefits count only when an amount is entered. Each category keeps its own applicable limit.</p>
 
     <form method="GET" style="margin:12px 0;">
         <label for="cutoff-start">Pumili ng payroll cutoff (Sabado–Biyernes):</label>
@@ -166,7 +166,7 @@
                     <th>Company</th>
                     <th>Review Status</th>
                     <th>Daily Rate</th>
-                    <th title="Combined monthly ceiling across supported de minimis categories">De Minimis (combined monthly ceiling)</th>
+                    <th title="Combined ceiling only; not automatically added to salary">De Minimis Ceiling (not extra pay)</th>
                     <th>Worked Days</th>
                     <th>Approved OT Pay</th>
                     <th>Gross Income</th>
@@ -201,9 +201,9 @@
                     </td>
                     <td>
                         <details>
-                            <summary>₱{{ p.de_minimis_monthly_ceiling|currency }} monthly ceiling</summary>
-                            <label>Rice subsidy / day
-                                <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 0 }}">
+                            <summary>₱{{ p.de_minimis_monthly_ceiling|currency }} ceiling only</summary>
+                            <label>Automatic rice subsidy / worked day
+                                <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 95 }}">
                             </label>
                             <label>Laundry / month
                                 <input type="number" min="0" step="0.01" name="laundry_allowance_{{ p.emp.id }}" value="{{ p.emp.laundry_allowance or 0 }}">

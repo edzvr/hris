@@ -3839,14 +3839,25 @@ def payroll_loan_review():
         flash('Select a valid Saturday cutoff start date.', 'danger')
         return redirect(url_for('payroll_loan_review'))
 
-    employees = Employee.query.filter(
+    employee_query = Employee.query.filter(
         ~Employee.role.ilike('%admin%'),
         Employee.payroll_attendance_exempt.is_(False),
         Employee.first_name.isnot(None),
         Employee.first_name != '',
         Employee.last_name.isnot(None),
         Employee.last_name != '',
-    ).order_by(Employee.company, Employee.last_name, Employee.first_name).all()
+    )
+    if not can_manage_admin_payroll(current_user):
+        staff_company = str(current_user.company or '').strip().lower()
+        if staff_company.startswith('trece'):
+            employee_query = employee_query.filter(company_employee_filter('Trece-Uno'))
+        elif staff_company in {'auto expert', 'auto-expert', 'autoxpert', 'autoexpert'}:
+            employee_query = employee_query.filter(company_employee_filter('Auto Expert'))
+        else:
+            return 'Access denied', 403
+    employees = employee_query.order_by(
+        Employee.company, Employee.last_name, Employee.first_name
+    ).all()
 
     if request.method == 'POST':
         try:
@@ -5685,6 +5696,7 @@ from sqlalchemy import extract
 import os, io
 
 
+RICE_SUBSIDY_PER_DAY = 95.0
 RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT = 2500.0
 OTHER_DE_MINIMIS_MONTHLY_LIMITS = {
     'laundry_allowance': 400.0,
@@ -5704,7 +5716,11 @@ def de_minimis_monthly_ceiling():
 
 def rice_allowance_breakdown(employee, worked_days, cutoff_count=4):
     """Return the weekly rice subsidy split under the statutory monthly limit."""
-    amount = max(float(getattr(employee, 'rice_allowance_per_day', 0) or 0), 0.0)
+    configured_amount = getattr(employee, 'rice_allowance_per_day', None)
+    amount = max(
+        float(configured_amount or RICE_SUBSIDY_PER_DAY),
+        0.0,
+    )
     total = amount * max(float(worked_days or 0), 0.0)
     cutoff_limit = RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT / max(cutoff_count, 1)
     return split_allowance(total, cutoff_limit, True)

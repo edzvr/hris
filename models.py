@@ -62,7 +62,7 @@ class Employee(db.Model, UserMixin):
     # Payroll-related fields
     daily_rate = db.Column(db.Float, default=695.0)
     allowance = db.Column(db.Float, default=0.0)
-    rice_allowance_per_day = db.Column(db.Float, default=0.0)
+    rice_allowance_per_day = db.Column(db.Float, default=95.0)
     rice_allowance_is_de_minimis = db.Column(db.Boolean, nullable=False, default=True)
     rice_allowance_ceiling = db.Column(db.Float, default=2500.0)
     laundry_allowance = db.Column(db.Float, default=0.0)
