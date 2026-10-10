@@ -24,7 +24,12 @@
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
         .form-field { display: flex; flex-direction: column; gap: 5px; }
         .form-field.full { grid-column: 1 / -1; }
-        input, textarea { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
+        input, textarea, select { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #c8d0d7; border-radius: 5px; font: inherit; }
+        input[type="checkbox"] { width: auto; align-self: flex-start; }
+        .section-heading { grid-column: 1 / -1; margin: 18px 0 0; padding-bottom: 8px; border-bottom: 1px solid #c8d0d7; font-size: 1.08rem; }
+        .section-heading:first-child { margin-top: 0; }
+        .table-scroll { overflow-x: auto; }
+        .details-grid p { overflow-wrap: anywhere; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #e5e9ed; padding: 9px; text-align: left; }
         th { background: #f7f9fb; }
@@ -63,37 +68,36 @@
         </div>
 
         <div class="details-grid" id="profile-view">
-            <p><strong>System Role:</strong> {{ emp.role or 'N/A' }}</p>
-            <p><strong>Job Description:</strong> {{ emp.job_description or 'N/A' }}</p>
+            <h3 class="section-heading">Personal &amp; Contact Information</h3>
+            <p><strong>Contact Number:</strong> {{ emp.contact_no or 'N/A' }}</p>
+            <p><strong>Date of Birth:</strong> {{ emp.dob or 'N/A' }}</p>
+            <p><strong>Gender:</strong> {{ emp.gender or 'N/A' }}</p>
+            <p><strong>Civil Status:</strong> {{ emp.civil_status or 'N/A' }}</p>
             <p><strong>Email:</strong> {{ emp.email or 'N/A' }}</p>
             <p><strong>Address:</strong> {{ emp.address or 'N/A' }}</p>
+            <h3 class="section-heading">Employment Information</h3>
+            <p><strong>System Role:</strong> {{ emp.role or 'N/A' }}</p>
+            <p><strong>Job Description:</strong> {{ emp.job_description or 'N/A' }}</p>
+            <p><strong>Company:</strong> {{ emp.company or 'N/A' }}</p>
             <p><strong>Date Hired / Date Started:</strong> {{ emp.date_started or 'N/A' }}</p>
             <p><strong>Employment Status:</strong> {{ emp.employment_status or 'N/A' }}</p>
             <p><strong>Probation End Date:</strong> {{ emp.probation_end_date or 'N/A' }}</p>
             <p><strong>Regularization Date:</strong> {{ emp.regularization_date or 'N/A' }}</p>
-            <p><strong>Gender:</strong> {{ emp.gender or 'N/A' }}</p>
-            <p><strong>Civil Status:</strong> {{ emp.civil_status or 'N/A' }}</p>
             <p><strong>Immediate Supervisor:</strong> {{ emp.immediate_supervisor or 'N/A' }}</p>
             <p><strong>Work Location:</strong> {{ emp.work_location or 'N/A' }}</p>
+            <h3 class="section-heading">Government IDs</h3>
             <p><strong>SSS:</strong> {{ emp.sss or 'N/A' }}</p>
             <p><strong>PhilHealth:</strong> {{ emp.philhealth or 'N/A' }}</p>
             <p><strong>Pag-IBIG:</strong> {{ emp.pagibig or 'N/A' }}</p>
             <p><strong>TIN:</strong> {{ emp.tin or 'N/A' }}</p>
-            <p><strong>Emergency Person:</strong> {{ emp.emergency_person or 'N/A' }}</p>
-            <p><strong>Emergency Contact:</strong> {{ emp.emergency_contact or 'N/A' }}</p>
-            <p><strong>Emergency Address:</strong> {{ emp.emergency_address or 'N/A' }}</p>
+            <h3 class="section-heading">Bank Information</h3>
             <p><strong>Bank:</strong> {{ emp.bank_name or 'N/A' }}</p>
             <p><strong>Bank Account Name:</strong> {{ emp.bank_account_name or 'N/A' }}</p>
             <p><strong>Bank Account Number:</strong> {{ emp.bank_account_number or 'N/A' }}</p>
-        </div>
-
-        <h3>Resume / Bio Data</h3>
-        <div class="details-grid">
-            <p><strong>Professional Summary:</strong><br>{{ emp.resume_summary or 'N/A' }}</p>
-            <p><strong>Education:</strong><br>{{ emp.resume_education or 'N/A' }}</p>
-            <p><strong>Work Experience:</strong><br>{{ emp.resume_experience or 'N/A' }}</p>
-            <p><strong>Skills:</strong><br>{{ emp.resume_skills or 'N/A' }}</p>
-            <p><strong>References:</strong><br>{{ emp.resume_references or 'N/A' }}</p>
+            <h3 class="section-heading">Emergency Contact</h3>
+            <p><strong>Emergency Person:</strong> {{ emp.emergency_person or 'N/A' }}</p>
+            <p><strong>Emergency Contact:</strong> {{ emp.emergency_contact or 'N/A' }}</p>
+            <p><strong>Emergency Address:</strong> {{ emp.emergency_address or 'N/A' }}</p>
         </div>
 
         {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
@@ -102,6 +106,7 @@
         <button class="btn" type="button" onclick="toggleEdit()">Edit Profile</button>
         <form method="POST" enctype="multipart/form-data" class="edit-form" id="profile-edit" action="{{ url_for('profile', user_id=emp.id) }}">
             <div class="form-grid">
+                <h3 class="section-heading">Personal &amp; Contact Information</h3>
                 <label class="form-field">First Name<input type="text" name="first_name" value="{{ emp.first_name or '' }}" required></label>
                 <label class="form-field">Middle Name<input type="text" name="middle_name" value="{{ emp.middle_name or '' }}"></label>
                 <label class="form-field">Last Name<input type="text" name="last_name" value="{{ emp.last_name or '' }}" required></label>
@@ -109,8 +114,9 @@
                 <label class="form-field">Email<input type="email" name="email" value="{{ emp.email or '' }}"></label>
                 <label class="form-field">Contact No<input type="text" name="contact_no" value="{{ emp.contact_no or '' }}"></label>
                 <label class="form-field full">Address<input type="text" name="address" value="{{ emp.address or '' }}"></label>
-                <label class="form-field">Date Hired / Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
                 <label class="form-field">Date of Birth<input type="date" name="dob" value="{{ emp.dob or '' }}"></label>
+                <h3 class="section-heading">Employment Information</h3>
+                <label class="form-field">Date Hired / Date Started<input type="date" name="date_started" value="{{ emp.date_started or '' }}"></label>
                 <label class="form-field">Job Description
                     <select name="job_description" required>
                         {% if not emp.job_description %}
@@ -153,9 +159,11 @@
                 <label class="form-field">Civil Status<input type="text" name="civil_status" value="{{ emp.civil_status or '' }}"></label>
                 <label class="form-field">Immediate Supervisor<input type="text" name="immediate_supervisor" value="{{ emp.immediate_supervisor or '' }}"></label>
                 <label class="form-field">Work Location<input type="text" name="work_location" value="{{ emp.work_location or '' }}"></label>
+                <h3 class="section-heading">Bank Information (Admin Only)</h3>
                 <label class="form-field">Bank Name<input type="text" name="bank_name" value="{{ emp.bank_name or '' }}"></label>
                 <label class="form-field">Bank Account Name<input type="text" name="bank_account_name" value="{{ emp.bank_account_name or '' }}"></label>
                 <label class="form-field">Bank Account Number<input type="text" name="bank_account_number" value="{{ emp.bank_account_number or '' }}"></label>
+                <h3 class="section-heading">System &amp; Payroll Access (Admin Only)</h3>
                 <label class="form-field">Biometric ID<input type="text" name="biometric_id" value="{{ emp.biometric_id or '' }}"></label>
                 <label class="form-field"><span>Payroll Preparation Access</span><input type="checkbox" name="payroll_preparation_access" value="1" {% if emp.payroll_preparation_access %}checked{% endif %}></label>
                 {% if emp.role.lower() == 'staff' %}
@@ -164,18 +172,16 @@
                 <label class="form-field"><span>Owner: exclude attendance pay and payroll summaries</span><input type="checkbox" name="payroll_attendance_exempt" value="1" {% if emp.payroll_attendance_exempt %}checked{% endif %}></label>
                 {% endif %}
                 {% endif %}
+                <h3 class="section-heading">Government IDs</h3>
                 <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>
                 <label class="form-field">TIN<input type="text" name="tin" value="{{ emp.tin or '' }}"></label>
                 <label class="form-field">Pag-IBIG<input type="text" name="pagibig" value="{{ emp.pagibig or '' }}"></label>
+                <h3 class="section-heading">Emergency Contact</h3>
                 <label class="form-field">Emergency Person Name<input type="text" name="emergency_person" value="{{ emp.emergency_person or '' }}"></label>
                 <label class="form-field">Emergency Contact<input type="text" name="emergency_contact" value="{{ emp.emergency_contact or '' }}"></label>
                 <label class="form-field full">Emergency Address<input type="text" name="emergency_address" value="{{ emp.emergency_address or '' }}"></label>
-                <label class="form-field full">Professional Summary<textarea name="resume_summary" rows="3">{{ emp.resume_summary or '' }}</textarea></label>
-                <label class="form-field full">Education<textarea name="resume_education" rows="3">{{ emp.resume_education or '' }}</textarea></label>
-                <label class="form-field full">Work Experience<textarea name="resume_experience" rows="4">{{ emp.resume_experience or '' }}</textarea></label>
-                <label class="form-field full">Skills<textarea name="resume_skills" rows="3">{{ emp.resume_skills or '' }}</textarea></label>
-                <label class="form-field full">References<textarea name="resume_references" rows="3">{{ emp.resume_references or '' }}</textarea></label>
+                <h3 class="section-heading">Profile Photo</h3>
                 <label class="form-field full">Profile Picture<input type="file" name="profile_pic" accept="image/*"></label>
             </div>
             <button type="submit" class="btn">Save Changes</button>
@@ -218,26 +224,26 @@
             | Late: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Late')|list|length }}</strong>
             | Absent: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Absent')|list|length }}</strong>
         </p>
-        <table>
+        <div class="table-scroll"><table>
             <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>OT</th></tr></thead>
             <tbody>
             {% for record in profile_attendance_records %}
                 <tr><td>{{ record.date }}</td><td>{{ record.clock_in }}</td><td>{{ record.clock_out }}</td><td>{{ '%.2f'|format(record.hours) }}</td><td>{{ record.status }}</td><td>{{ record.ot or '—' }}</td></tr>
             {% else %}<tr><td colspan="6">No attendance records found.</td></tr>{% endfor %}
             </tbody>
-        </table>
+        </table></div>
     </div>
 
     <div id="payroll" class="tab-content">
         <h2>Payroll History</h2>
-        <table>
+        <div class="table-scroll"><table>
             <thead><tr><th>Cut-off</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th></tr></thead>
             <tbody>
             {% for record in emp.payrolls|sort(attribute='cutoff_start', reverse=true) %}
                 <tr><td>{{ record.cutoff_start }} - {{ record.cutoff_end }}</td><td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td><td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td><td>₱{{ '%.2f'|format(record.net_pay or 0) }}</td></tr>
             {% else %}<tr><td colspan="4">No payroll records found.</td></tr>{% endfor %}
             </tbody>
-        </table>
+        </table></div>
     </div>
 
     <div id="feed" class="tab-content">

@@ -764,8 +764,10 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
             ),
         )
 
-    assert payslip["rest_day"] == 823.875
-    assert payslip["rest_day_overtime_hours"] == 6.5
+    assert payslip["rest_day_pay"] == 633.75
+    assert payslip["rest_day_hours"] == 6.5
+    assert payslip["rest_day"] == 0
+    assert payslip["rest_day_overtime_hours"] == 0
     assert payslip["sunday_overtime"] == 0
     assert payslip["basic_pay"] == 3600
     assert payslip["actual_worked_days"] == 6

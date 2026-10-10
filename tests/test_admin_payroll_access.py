@@ -1,8 +1,10 @@
+from io import BytesIO
 from datetime import date, datetime, timedelta
 
 import hris
 from hris import app, ensure_employee_hr_columns
 from models import Attendance, Employee, OTApplication, Payroll, PayslipVerification, db
+from pypdf import PdfReader
 
 
 def log_in(client, employee):
@@ -64,6 +66,18 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
         assert summary_pdf.status_code == 200
         assert summary_pdf.mimetype == 'application/pdf'
         assert summary_pdf.data.startswith(b'%PDF-')
+        assert summary_pdf.headers['X-HRIS-Downloaded-By'] == 'Payroll Delegate (Staff)'
+        downloaded_at = summary_pdf.headers['X-HRIS-Downloaded-At']
+        assert datetime.strptime(
+            downloaded_at, '%Y-%m-%d %I:%M:%S %p PHT'
+        )
+        summary_text = '\n'.join(
+            page.extract_text() or ''
+            for page in PdfReader(BytesIO(summary_pdf.data)).pages
+        )
+        assert 'Downloaded at:' in summary_text
+        assert 'Downloaded by: Payroll Delegate (Staff)' in summary_text
+        assert downloaded_at in summary_text
         with app.app_context():
             verification = PayslipVerification.query.filter_by(
                 document_type='payroll_summary',
@@ -249,9 +263,36 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
             assert payroll.total_deductions == 495
             assert payroll.net_pay == -495
             assert payroll.is_paid is False
+        for user_id, downloader in (
+            (staff_id, 'Payroll Loan Staff (Staff)'),
+            (admin_id, 'Payroll Editor (Admin)'),
+        ):
+            with app.app_context():
+                log_in(client, db.session.get(Employee, user_id))
+            response = client.get(f'/payslip/{staff_id}/{payroll_id}/download')
+            assert response.status_code == 200
+            reader = PdfReader(BytesIO(response.data))
+            pdf_text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+            assert f'Downloaded by: {downloader}' in pdf_text
+            assert response.headers['X-HRIS-Downloaded-At'] in pdf_text
+            assert 'Scan QR to verify.' in pdf_text
+            assert any(
+                obj.get_object().get('/Subtype') == '/Image'
+                for obj in reader.pages[-1]['/Resources']['/XObject'].values()
+            )
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+        response = client.get(payroll_url + '&download=true')
+        assert response.status_code == 200
+        reader = PdfReader(BytesIO(response.data))
+        pdf_text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+        assert 'Downloaded by: Payroll Editor (Admin)' in pdf_text
+        assert response.headers['X-HRIS-Downloaded-At'] in pdf_text
+        assert 'Scan QR to verify' in pdf_text
     finally:
         with app.app_context():
             db.session.rollback()
+            PayslipVerification.query.filter_by(payroll_id=payroll_id).delete()
             payroll = db.session.get(Payroll, payroll_id)
             staff = db.session.get(Employee, staff_id)
             admin = db.session.get(Employee, admin_id)
@@ -650,11 +691,11 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert response.status_code == 200
         assert b'Loan Reviewer' in response.data
         assert b'900.00' in response.data
-        assert b'Auto ExpertStaff' not in response.data
+        assert b'Auto Expertstaff' not in response.data
         assert b'1,200.00' not in response.data
         assert b'12,345' not in response.data
         assert b'Private Owner' not in response.data
-        assert b'Trece AdminRole' not in response.data
+        assert b'Trece Adminrole' not in response.data
         assert b'Admin Payroll' not in response.data
         assert client.get('/admin/payroll-history').status_code == 403
         summary = client.get(
@@ -663,7 +704,7 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert summary.status_code == 200
         assert b'Loan Reviewer' in summary.data
         assert b'Private Owner' not in summary.data
-        assert b'Trece AdminRole' in summary.data
+        assert b'Trece Adminrole' in summary.data
         assert b'Admin Payroll' in summary.data
         assert client.get(
             '/payroll/summary?company=Auto+Expert&view=true&cutoff_start=2026-10-03'

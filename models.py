@@ -2,6 +2,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from sqlalchemy.orm import validates
+from utils.names import format_person_name, format_suffix_name
 
 db = SQLAlchemy()
 
@@ -96,9 +98,19 @@ class Employee(db.Model, UserMixin):
     def check_password(self, raw_password):
         return check_password_hash(self.password, raw_password)
 
+    @validates("first_name", "middle_name", "last_name", "suffix_name")
+    def normalize_name(self, key, value):
+        formatter = format_suffix_name if key == "suffix_name" else format_person_name
+        return formatter(value) or None
+
     def full_name(self):
-        name_parts = [self.first_name, self.middle_name, self.last_name, self.suffix_name]
-        return " ".join(part.strip() for part in name_parts if part and part.strip())
+        name_parts = [
+            format_person_name(self.first_name),
+            format_person_name(self.middle_name),
+            format_person_name(self.last_name),
+            format_suffix_name(self.suffix_name),
+        ]
+        return " ".join(part for part in name_parts if part)
 
 
 class JobDescriptionOption(db.Model):

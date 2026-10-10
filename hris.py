@@ -11,9 +11,12 @@ from flask_migrate import Migrate
 from sqlalchemy import MetaData, Table as SQLAlchemyTable, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from pypdf import PdfReader, PdfWriter, Transformation
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename 
+from werkzeug.http import dump_options_header, parse_options_header
 from utils.email_delivery import send_brevo_email
+from utils.names import format_person_name, format_suffix_name
 
 try:
     from dotenv import load_dotenv
@@ -59,15 +62,6 @@ def has_strong_password(password):
         and re.search(r"\d", password)
         and re.search(r"[^A-Za-z0-9]", password)
     )
-
-
-def format_person_name(value):
-    return " ".join(part.capitalize() for part in str(value or "").strip().split())
-
-
-def format_suffix_name(value):
-    suffix = str(value or "").strip().upper().replace(".", "")
-    return {"JR": "Jr.", "SR": "Sr.", "II": "II", "III": "III", "IV": "IV"}.get(suffix, format_person_name(value))
 
 
 def evaluation_points(average_rating):
@@ -1145,6 +1139,20 @@ def ensure_job_description_options():
     db.session.commit()
 
 
+def normalize_employee_names():
+    changed = False
+    for employee in Employee.query.all():
+        for field in ("first_name", "middle_name", "last_name", "suffix_name"):
+            value = getattr(employee, field)
+            formatter = format_suffix_name if field == "suffix_name" else format_person_name
+            normalized = formatter(value) or None
+            if value != normalized:
+                setattr(employee, field, normalized)
+                changed = True
+    if changed:
+        db.session.commit()
+
+
 with app.app_context():
     db.create_all()
     ensure_employee_resume_columns()
@@ -1161,6 +1169,7 @@ with app.app_context():
     ensure_job_description_options()
     ensure_document_verification_columns()
     bootstrap_postgres_from_sqlite()
+    normalize_employee_names()
     sync_postgres_id_sequences()
 
 migrate = Migrate(app, db)
@@ -1243,6 +1252,105 @@ def audit_authenticated_request(response):
         elif response.headers.get('Content-Disposition', '').lower().startswith('attachment'):
             action = 'File download'
         record_audit_action(action, response)
+    return response
+
+
+@app.after_request
+def stamp_download_response(response):
+    content_disposition = response.headers.get('Content-Disposition', '').lower()
+    is_attachment = content_disposition.startswith('attachment')
+    is_pdf = response.mimetype == 'application/pdf'
+    if response.status_code != 200 or (not is_attachment and not is_pdf):
+        return response
+    if not current_user.is_authenticated:
+        return response
+
+    downloaded_at = datetime.now(ZoneInfo('Asia/Manila'))
+    downloaded_by = (
+        f'{current_user.full_name()} '
+        f'({str(current_user.role or "user").title()})'
+    )
+    downloaded_by = downloaded_by.encode('ascii', 'replace').decode('ascii')
+    timestamp_text = downloaded_at.strftime('%Y-%m-%d %I:%M:%S %p PHT')
+    response.headers['X-HRIS-Downloaded-At'] = timestamp_text
+    response.headers['X-HRIS-Downloaded-By'] = downloaded_by
+    response.headers['Cache-Control'] = 'private, no-store'
+    if is_attachment:
+        disposition, options = parse_options_header(
+            response.headers['Content-Disposition']
+        )
+        filename = options.get('filename')
+        if filename:
+            name, extension = os.path.splitext(filename)
+            options['filename'] = (
+                f'{name}_DL_{downloaded_at:%Y%m%d_%H%M%S}_PHT{extension}'
+            )
+            response.headers['Content-Disposition'] = dump_options_header(
+                disposition, options
+            )
+
+    unmodified_document_endpoints = {
+        'download_employee_document',
+        'download_file',
+        'view_hr_document_attachment',
+        'view_wet_signed_hr_document',
+    }
+    if (
+        not is_attachment
+        or not is_pdf
+        or request.endpoint in unmodified_document_endpoints
+    ):
+        return response
+
+    response.direct_passthrough = False
+    source_pdf = PdfReader(io.BytesIO(response.get_data()))
+    if not source_pdf.pages:
+        raise ValueError('Cannot stamp a PDF without pages.')
+
+    writer = PdfWriter()
+    for page_number, page in enumerate(source_pdf.pages):
+        writer.add_page(page)
+        if page_number == len(source_pdf.pages) - 1:
+            stamped_page = writer.pages[-1]
+            footer_height = 40
+            stamped_page.add_transformation(
+                Transformation().translate(ty=footer_height)
+            )
+            stamped_page.mediabox.upper_right = (
+                float(page.mediabox.right),
+                float(page.mediabox.top) + footer_height,
+            )
+            stamped_page.cropbox = stamped_page.mediabox
+            page_size = (
+                float(page.mediabox.width),
+                float(page.mediabox.height) + footer_height,
+            )
+            stamp_buffer = io.BytesIO()
+            stamp_pdf = canvas.Canvas(stamp_buffer, pagesize=page_size)
+            stamp_pdf.setFont('Helvetica', 7)
+            stamp_pdf.drawString(30, 24, f'Downloaded by: {downloaded_by}')
+            stamp_pdf.drawString(30, 12, f'Downloaded at: {timestamp_text}')
+            stamp_pdf.save()
+            stamp_buffer.seek(0)
+            stamp_page = PdfReader(stamp_buffer).pages[0]
+            stamped_page.merge_page(stamp_page)
+
+    metadata = {
+        key: str(value)
+        for key, value in (source_pdf.metadata or {}).items()
+        if value is not None
+    }
+    metadata.update({
+        '/HRISDownloadedBy': downloaded_by,
+        '/HRISDownloadedAt': timestamp_text,
+    })
+    writer.add_metadata(metadata)
+    stamped_pdf = io.BytesIO()
+    writer.write(stamped_pdf)
+    response.set_data(stamped_pdf.getvalue())
+    response.headers.pop('ETag', None)
+    response.headers.pop('Content-Range', None)
+    response.headers.pop('Accept-Ranges', None)
     return response
 
 
@@ -3982,6 +4090,26 @@ def holiday_multiplier(attendance):
     return round(base_multiplier * 1.30, 2)
 
 
+def restday_pay_breakdown(attendance, daily_rate):
+    hours = payroll_overtime_hours(attendance)
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    if attendance.date.weekday() == 6 and not holiday:
+        regular_hours = min(hours, 8.0)
+        overtime_hours = max(hours - 8.0, 0.0)
+        return (
+            regular_hours * (daily_rate / 8) * 1.30,
+            overtime_hours * (daily_rate / 8) * 1.69,
+            regular_hours,
+            overtime_hours,
+        )
+    return (0.0, (daily_rate / 8) * holiday_multiplier(attendance) * hours, 0.0, hours)
+
+
+def payroll_extra_pay(attendance, daily_rate):
+    restday_pay, overtime_pay, _, _ = restday_pay_breakdown(attendance, daily_rate)
+    return restday_pay + overtime_pay
+
+
 def scheduled_workday_near(employee, holiday_date, direction):
     target = holiday_date + timedelta(days=direction)
     for _ in range(7):
@@ -4727,7 +4855,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(record, daily_rate) for record in attendance)
         overtime_pay = sum(
-            (daily_rate / 8) * holiday_multiplier(record) * payroll_overtime_hours(record)
+            payroll_extra_pay(record, daily_rate)
             for record in attendance
             if attendance_overtime_is_payable(record)
         )
@@ -5676,6 +5804,16 @@ def generate_qr_image_bytes(verify_url, size=140):
     return buffer.getvalue()
 
 
+def format_recorded_time(recorded_at):
+    if recorded_at is None:
+        return 'N/A'
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=ZoneInfo('UTC'))
+    return recorded_at.astimezone(ZoneInfo('Asia/Manila')).strftime(
+        '%Y-%m-%d %I:%M:%S %p PHT'
+    )
+
+
 @app.route('/verify-document/<verification_id>')
 def verify_document(verification_id):
     record = PayslipVerification.query.filter_by(document_id=verification_id).first()
@@ -5718,14 +5856,15 @@ def verify_document(verification_id):
                     <p><strong>Employee:</strong> {{ employee_name }}</p>
                     <p><strong>Document Type:</strong> {{ record.document_type }}</p>
                     <p><strong>Document Label:</strong> {{ record.document_label or 'N/A' }}</p>
-                    <p><strong>Generated / Recorded:</strong> {{ record.created_at.strftime('%Y-%m-%d %H:%M') if record.created_at else 'N/A' }}</p>
+                    <p><strong>First Generated / Recorded (Philippine time):</strong> {{ recorded_at }}</p>
                     {% if record.cutoff_start and record.cutoff_end %}<p><strong>Period:</strong> {{ record.cutoff_start }} to {{ record.cutoff_end }}</p>{% endif %}
                     {% if record.net_pay %}<p><strong>Net Pay / Amount:</strong> PHP {{ "%.2f"|format(record.net_pay) }}</p>{% endif %}
                 </section>
                 <p style="font-size:.92rem;color:#546e7a;margin-top:18px;">For validation questions, contact the email/contact number shown above and provide the Document ID.</p>
             </main>
         </body></html>
-    ''', record=record, employee_name=(employee.full_name() if employee else 'Unknown Employee'), is_valid=is_valid, company_name=company_name, logo=logo, email=email, contact_no=contact_no)
+    ''', record=record, employee_name=(employee.full_name() if employee else 'Unknown Employee'), is_valid=is_valid, company_name=company_name, logo=logo, email=email, contact_no=contact_no,
+        recorded_at=format_recorded_time(record.created_at))
 
 
 @app.route('/verify-payslip/<verification_id>')
@@ -6318,6 +6457,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     late_ut = 0.0
     late_ut_hours = 0.0
     rest_day_pay = 0.0
+    rest_day_hours = 0.0
     special_holiday = 0.0
     regular_holiday = 0.0
     overtime_amounts = {
@@ -6357,12 +6497,11 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
 
         if not attendance_overtime_is_payable(attendance):
             continue
-        hours = payroll_overtime_hours(attendance)
-        amount = (
-            (daily_rate / 8)
-            * holiday_multiplier(attendance)
-            * hours
+        restday_amount, amount, paid_restday_hours, hours = restday_pay_breakdown(
+            attendance, daily_rate
         )
+        rest_day_pay += restday_amount
+        rest_day_hours += paid_restday_hours
         if holiday and holiday.holiday_type == "Regular Holiday":
             key = "regular_holiday_ot"
         elif holiday:
@@ -6379,7 +6518,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         overtime_hours[key] += hours
 
     calculated_overtime_pay = sum(overtime_amounts.values())
-    if overtime_pay and not calculated_overtime_pay:
+    if overtime_pay and not calculated_overtime_pay and not rest_day_pay:
         overtime_amounts["regular_overtime"] = float(overtime_pay)
         calculated_overtime_pay = float(overtime_pay)
 
@@ -6454,6 +6593,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "regular_overtime": regular_overtime,
         "sunday_overtime": sunday_overtime,
         "rest_day_pay": rest_day_pay,
+        "rest_day_hours": rest_day_hours,
         "rest_day": rest_day_overtime,
         "special_holiday": special_holiday,
         "special_holiday_ot": special_holiday_ot,
@@ -6655,7 +6795,7 @@ def payroll(employee_id):
     daily_rate = emp.daily_rate or 0
     basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
     approved_overtime_pay = sum(
-        (daily_rate / 8) * holiday_multiplier(attendance) * payroll_overtime_hours(attendance)
+        payroll_extra_pay(attendance, daily_rate)
         for attendance in paid_attendance
         if attendance_overtime_is_payable(attendance)
     )
@@ -7418,7 +7558,7 @@ def payroll_dashboard():
             if attendance_overtime_is_payable(attendance)
         )
         approved_ot_pay = sum(
-            (daily_rate / 8) * holiday_multiplier(attendance) * payroll_overtime_hours(attendance)
+            payroll_extra_pay(attendance, daily_rate)
             for attendance in ot_records
             if attendance_overtime_is_payable(attendance)
         )

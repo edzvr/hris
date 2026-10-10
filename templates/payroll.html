@@ -251,6 +251,14 @@
             <td></td>
         </tr>
         <tr>
+            <td>Rest Day Pay</td>
+            <td>{{ "%.2f"|format(payslip.rest_day_hours) }} hrs</td>
+            <td>₱{{ "%.2f"|format(payslip.rest_day_pay) }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
             <td>Rest Day OT</td>
             <td>{{ "%.2f"|format(payslip.rest_day_overtime_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.rest_day) }}</td>

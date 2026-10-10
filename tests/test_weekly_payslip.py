@@ -1,15 +1,79 @@
-from datetime import date
+from datetime import date, datetime
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
+from flask import Response
+from pypdf import PdfReader
+from reportlab.pdfgen import canvas
 
 from hris import (
     app,
     build_payslip_verification,
     generate_qr_image_bytes,
+    format_recorded_time,
+    restday_pay_breakdown,
+    stamp_download_response,
     weekly_payslip_table_data,
     weekly_withholding_tax,
 )
 from utils.helpers import compute_weekly_deductions
+
+
+def test_non_pdf_download_has_timestamped_filename_without_changing_contents():
+    user = SimpleNamespace(
+        is_authenticated=True, role='staff', full_name=lambda: 'Test Staff'
+    )
+    with app.test_request_context(), patch("hris.current_user", user):
+        response = Response('Name,Amount\nTest,100\n', mimetype='text/csv')
+        response.headers['Content-Disposition'] = 'attachment; filename=report.csv'
+        stamped = stamp_download_response(response)
+        assert stamped.data == b'Name,Amount\nTest,100\n'
+        assert '_DL_' in stamped.headers['Content-Disposition']
+        assert '_PHT.csv' in stamped.headers['Content-Disposition']
+        assert stamped.headers['Cache-Control'] == 'private, no-store'
+
+
+def test_pdf_download_footer_keeps_original_content_and_adds_no_receipt_page():
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(612, 792))
+    pdf.drawString(30, 12, 'Original footer')
+    pdf.save()
+    user = SimpleNamespace(
+        is_authenticated=True, role='admin', full_name=lambda: 'Test Admin'
+    )
+    with app.test_request_context(), patch("hris.current_user", user):
+        response = Response(buffer.getvalue(), mimetype='application/pdf')
+        response.headers['Content-Disposition'] = 'attachment; filename=report.pdf'
+        stamped = stamp_download_response(response)
+        reader = PdfReader(BytesIO(stamped.data))
+        assert len(reader.pages) == 1
+        assert float(reader.pages[0].mediabox.height) == 832
+        text = reader.pages[0].extract_text()
+        assert 'Original footer' in text
+        assert 'Downloaded by: Test Admin (Admin)' in text
+        assert stamped.headers['X-HRIS-Downloaded-At'] in text
+
+
+def test_verification_record_time_is_displayed_in_manila_not_raw_utc():
+    assert format_recorded_time(datetime(2026, 10, 10, 8, 24)) == (
+        "2026-10-10 04:24:00 PM PHT"
+    )
+
+
+def test_restday_first_eight_hours_and_overtime_have_separate_rates():
+    attendance = SimpleNamespace(date=date(2026, 10, 4))
+    with (
+        app.app_context(),
+        patch("hris.Holiday.query") as holidays,
+        patch("hris.payroll_overtime_hours") as overtime_hours,
+    ):
+        holidays.filter_by.return_value.first.return_value = None
+        overtime_hours.return_value = 4
+        assert restday_pay_breakdown(attendance, 600) == (390, 0, 4, 0)
+        overtime_hours.return_value = 8
+        assert restday_pay_breakdown(attendance, 600) == (780, 0, 8, 0)
+        overtime_hours.return_value = 10
+        assert restday_pay_breakdown(attendance, 600) == (780, 253.5, 8, 2)
 
 
 def test_build_payslip_verification_has_unique_reference_and_url():
