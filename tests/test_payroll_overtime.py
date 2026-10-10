@@ -106,24 +106,24 @@ def test_approved_application_counts_requested_hours_even_if_clock_out_is_earlie
     assert attendance.is_weekday_ot is True
 
 
-def test_nine_hour_overnight_ot_application_counts_all_approved_hours():
+def test_five_to_seven_pm_application_counts_two_approved_hours():
     attendance = SimpleNamespace(
         employee_id=1,
         date=date(2026, 10, 5),
-        clock_out=datetime(2026, 10, 5, 23, 0),
+        clock_out=datetime(2026, 10, 5, 18, 30),
         ot_status="Approved",
-        overtime_hours=6,
+        overtime_hours=1.5,
     )
     application = SimpleNamespace(
         start_time=datetime(2026, 10, 5, 17, 0).time(),
-        end_time=datetime(2026, 10, 5, 2, 0).time(),
+        end_time=datetime(2026, 10, 5, 19, 0).time(),
     )
 
     with app.app_context(), patch("hris.OTApplication.query") as applications:
         applications.filter_by.return_value.first.return_value = application
         hours = payroll_overtime_hours(attendance)
 
-    assert hours == 9
+    assert hours == 2
 
 
 def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():

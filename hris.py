@@ -3817,10 +3817,8 @@ def is_restday_overtime(attendance):
 def applied_overtime_hours(attendance, application):
     requested_start = datetime.combine(attendance.date, application.start_time)
     requested_end = datetime.combine(attendance.date, application.end_time)
-    if requested_end <= requested_start:
-        requested_end += timedelta(days=1)
     return round(
-        (requested_end - requested_start).total_seconds() / 3600,
+        max((requested_end - requested_start).total_seconds() / 3600, 0),
         2,
     )
 
@@ -5744,8 +5742,8 @@ def apply_ot():
         except (KeyError, TypeError, ValueError):
             flash('Please provide a valid OT date and time.', 'danger')
             return redirect(url_for('apply_ot'))
-        if end_time == start_time or not request.form.get('reason', '').strip():
-            flash('OT end time must differ from the start time and a reason is required.', 'danger')
+        if end_time <= start_time or not request.form.get('reason', '').strip():
+            flash('OT end time must be after the start time and a reason is required.', 'danger')
             return redirect(url_for('apply_ot'))
         existing = OTApplication.query.filter_by(
             employee_id=current_user.id, ot_date=ot_date, status='Pending'
