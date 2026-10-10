@@ -77,7 +77,108 @@ def test_weekday_overtime_requires_six_pm_clock_out():
     assert attendance.ot_status is None
 
 
-def test_approved_sunday_overtime_is_marked_as_restday_for_any_company():
+def test_approved_application_limits_overtime_to_requested_and_attended_period():
+    attendance = SimpleNamespace(
+        employee_id=1,
+        employee=SimpleNamespace(company="Auto Expert"),
+        date=date(2026, 9, 14),
+        clock_in=datetime(2026, 9, 14, 8, 0),
+        clock_out=datetime(2026, 9, 14, 20, 0),
+        overtime_hours=0,
+        is_restday_ot=False,
+        is_holiday_ot=False,
+        is_weekday_ot=False,
+        ot_status="Pending",
+    )
+    application = SimpleNamespace(
+        start_time=datetime(2026, 9, 14, 18, 0).time(),
+        end_time=datetime(2026, 9, 14, 21, 0).time(),
+    )
+
+    with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:
+        applications.filter_by.return_value.first.return_value = application
+        holidays.filter_by.return_value.first.return_value = None
+        apply_overtime_details(attendance)
+
+    assert attendance.overtime_hours == 2
+    assert attendance.ot_status == "Approved"
+    assert attendance.is_weekday_ot is True
+
+
+def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
+    employee = SimpleNamespace(
+        id=5,
+        company="Trece-Uno",
+        daily_rate=600,
+        allowance=0,
+        incentives=0,
+        rice_allowance_per_day=95,
+    )
+    attendance_records = []
+    for day in (3, 5, 6, 7, 8, 9):
+        target_date = date(2026, 10, day)
+        has_approved_ot = day in (5, 6, 7)
+        attendance_records.append(SimpleNamespace(
+            id=day,
+            employee_id=employee.id,
+            employee=employee,
+            date=target_date,
+            hours=8,
+            clock_in=datetime(2026, 10, day, 8, 0),
+            clock_out=datetime(2026, 10, day, 23, 50)
+            if has_approved_ot else datetime(2026, 10, day, 17, 0),
+            overtime_hours=5.83 if has_approved_ot else 0,
+            ot_status="Approved" if has_approved_ot else None,
+            is_restday_ot=False,
+            is_holiday_ot=False,
+            is_weekday_ot=has_approved_ot,
+        ))
+    payroll_record = SimpleNamespace(
+        cutoff_start=date(2026, 10, 3),
+        cutoff_end=date(2026, 10, 9),
+        gross_income=4513.75,
+        total_deductions=0,
+        net_pay=5013.75,
+        sss=0,
+        philhealth=0,
+        pagibig=0,
+        withholding_tax=0,
+        loan=0,
+        liability_deduction=0,
+        cash_advance=0,
+    )
+    application = SimpleNamespace(
+        start_time=datetime(2026, 10, 5, 18, 0).time(),
+        end_time=datetime(2026, 10, 5, 21, 0).time(),
+    )
+
+    with (
+        app.app_context(),
+        patch("hris.Attendance.query") as attendance_query,
+        patch("hris.OTApplication.query") as applications,
+        patch("hris.Holiday.query") as holidays,
+    ):
+        attendance_query.filter.return_value.all.return_value = attendance_records
+        applications.filter_by.return_value.first.side_effect = [
+            application, application, application
+        ]
+        holidays.filter_by.return_value.first.return_value = None
+        payslip = build_payslip_breakdown(
+            employee, payroll_record, worked_days_count=6
+        )
+
+    assert payslip["basic_pay"] == 3600
+    assert payslip["basic_hours"] == 48
+    assert payslip["regular_overtime_hours"] == 9
+    assert payslip["regular_overtime"] == 843.75
+    assert payslip["rice_allowance"] == 570
+    assert payslip["rice_allowance_exempt"] == 500
+    assert payslip["rice_allowance_taxable"] == 70
+    assert payslip["gross_pay"] == 5013.75
+    assert payslip["adjustment"] == 0
+
+
+def test_admin_can_approve_attendance_overtime_without_application():
     attendance = SimpleNamespace(
         employee_id=1,
         employee=SimpleNamespace(company="Auto Expert"),
@@ -94,11 +195,13 @@ def test_approved_sunday_overtime_is_marked_as_restday_for_any_company():
     with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:
         applications.filter_by.return_value.first.return_value = None
         holidays.filter_by.return_value.first.return_value = None
-        apply_overtime_details(attendance, force_approved=True)
+        approved = apply_overtime_details(attendance, force_approved=True)
 
+    assert approved is True
     assert attendance.overtime_hours == 2
     assert attendance.is_restday_ot is True
     assert attendance.is_weekday_ot is False
+    assert attendance.ot_status == "Approved"
 
 
 def test_overtime_multipliers_match_dole_day_types():
@@ -407,6 +510,8 @@ def test_approved_trece_sunday_overtime_uses_rest_day_ot_even_if_flag_is_stale()
         employee=SimpleNamespace(company="Trece-Uno"),
         date=date(2026, 9, 13),
         hours=8,
+        clock_in=datetime(2026, 9, 13, 8, 0),
+        clock_out=datetime(2026, 9, 13, 19, 0),
         overtime_hours=2,
         ot_status="Approved",
         is_restday_ot=False,
@@ -448,12 +553,18 @@ def test_approved_trece_sunday_overtime_uses_rest_day_ot_even_if_flag_is_stale()
         net_pay=3853.5,
     )
 
+    application = SimpleNamespace(
+        start_time=datetime(2026, 9, 13, 17, 0).time(),
+        end_time=datetime(2026, 9, 13, 19, 30).time(),
+    )
     with (
         app.app_context(),
         patch("hris.Attendance.query") as attendance_query,
+        patch("hris.OTApplication.query") as applications,
         patch("hris.Holiday.query") as holidays,
         patch("hris.de_minimis_allowance_breakdown", return_value=(0, 0)),
     ):
+        applications.filter_by.return_value.first.return_value = application
         attendance_query.filter.return_value.all.return_value = [attendance, *weekday_attendances]
         holidays.filter_by.return_value.first.return_value = None
         payslip = build_payslip_breakdown(

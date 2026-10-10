@@ -1971,6 +1971,7 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
             else "Half-day" if hours_worked <= 4
             else log.status
         )
+        overtime_hours = payroll_overtime_hours(log)
         rows.append({
             "date": log.date.strftime('%Y-%m-%d'),
             "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
@@ -1981,8 +1982,8 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
                 max(scheduled_hours - hours_worked, 0.0), 2
             ) if log.clock_in and log.clock_out else 0,
             "ot": (
-                f"{log.ot_status} ({float(log.overtime_hours or 0):.2f} h)"
-                if float(log.overtime_hours or 0) > 0 else ""
+                f"{log.ot_status} ({overtime_hours:.2f} h)"
+                if overtime_hours > 0 else ""
             ),
             "branch": getattr(log, "company", "N/A"),
         })
@@ -3813,9 +3814,40 @@ def is_restday_overtime(attendance):
     return bool(attendance.is_restday_ot or attendance.date.weekday() == 6)
 
 
+def applied_overtime_hours(attendance, application):
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    is_regular_weekday = attendance.date.weekday() != 6 and not holiday
+    overtime_start = datetime.combine(
+        attendance.date,
+        time(18, 0) if is_regular_weekday else time(17, 0),
+    )
+    requested_start = datetime.combine(attendance.date, application.start_time)
+    requested_end = datetime.combine(attendance.date, application.end_time)
+    actual_start = max(overtime_start, requested_start)
+    actual_end = min(attendance.clock_out, requested_end)
+    return round(
+        max((actual_end - actual_start).total_seconds() / 3600, 0),
+        2,
+    )
+
+
+def payroll_overtime_hours(attendance):
+    if attendance.ot_status == "Approved":
+        application = OTApplication.query.filter_by(
+            employee_id=attendance.employee_id,
+            ot_date=attendance.date,
+            status="Approved",
+        ).first()
+        if application:
+            if not attendance.clock_out:
+                return 0.0
+            return applied_overtime_hours(attendance, application)
+    return float(attendance.overtime_hours or 0)
+
+
 def apply_overtime_details(attendance, force_approved=False):
     if not attendance.clock_in or not attendance.clock_out:
-        return
+        return False
 
     holiday = Holiday.query.filter_by(date=attendance.date).first()
     is_regular_weekday = attendance.date.weekday() != 6 and not holiday
@@ -3823,16 +3855,19 @@ def apply_overtime_details(attendance, force_approved=False):
         attendance.date,
         time(18, 0) if is_regular_weekday else time(17, 0)
     )
-    attendance.overtime_hours = round(
-        max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
-        2
-    )
     application = OTApplication.query.filter_by(
         employee_id=attendance.employee_id,
         ot_date=attendance.date,
         status="Approved"
     ).first()
     is_approved = bool(application or force_approved)
+    if application:
+        attendance.overtime_hours = applied_overtime_hours(attendance, application)
+    else:
+        attendance.overtime_hours = round(
+            max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
+            2,
+        )
     attendance.is_restday_ot = bool(
         is_approved and attendance.overtime_hours > 0 and attendance.date.weekday() == 6
     )
@@ -3844,6 +3879,7 @@ def apply_overtime_details(attendance, force_approved=False):
         and not attendance.is_holiday_ot
     )
     attendance.ot_status = "Approved" if is_approved and attendance.overtime_hours > 0 else None
+    return attendance.ot_status == "Approved"
 
 
 def holiday_multiplier(attendance):
@@ -3896,8 +3932,7 @@ def eligible_for_regular_holiday_pay(attendance):
     )
 
 
-def regular_day_pay(attendance, daily_rate):
-    holiday = Holiday.query.filter_by(date=attendance.date).first()
+def regular_attendance_hours(attendance):
     clock_in = getattr(attendance, 'clock_in', None)
     clock_out = getattr(attendance, 'clock_out', None)
     recorded_hours = (
@@ -3905,7 +3940,12 @@ def regular_day_pay(attendance, daily_rate):
         if clock_in and clock_out
         else float(attendance.hours or 0)
     )
-    regular_hours = min(max(float(recorded_hours or 0), 0.0), 8.0)
+    return min(max(float(recorded_hours or 0), 0.0), 8.0)
+
+
+def regular_day_pay(attendance, daily_rate):
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    regular_hours = regular_attendance_hours(attendance)
     prorated_daily_rate = daily_rate * (regular_hours / 8.0) if regular_hours else 0.0
     is_restday = attendance.date.weekday() == 6
     if holiday and holiday.holiday_type == 'Regular Holiday':
@@ -4536,7 +4576,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(record, daily_rate) for record in attendance)
         overtime_pay = sum(
-            (daily_rate / 8) * holiday_multiplier(record) * float(record.overtime_hours or 0)
+            (daily_rate / 8) * holiday_multiplier(record) * payroll_overtime_hours(record)
             for record in attendance
             if record.ot_status == 'Approved'
         )
@@ -6038,6 +6078,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
 
     daily_rate = float(emp.daily_rate or 0)
     basic_pay = 0.0
+    basic_hours = 0.0
     rest_day_pay = 0.0
     special_holiday = 0.0
     regular_holiday = 0.0
@@ -6048,6 +6089,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "special_holiday_ot": 0.0,
         "regular_holiday_ot": 0.0,
     }
+    overtime_hours = {key: 0.0 for key in overtime_amounts}
     for attendance in attendance_records:
         holiday = Holiday.query.filter_by(date=attendance.date).first()
         day_pay = regular_day_pay(attendance, daily_rate)
@@ -6060,13 +6102,16 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
             rest_day_pay += day_pay
         else:
             basic_pay += day_pay
+            if not trece_sunday:
+                basic_hours += regular_attendance_hours(attendance)
 
         if attendance.ot_status != "Approved":
             continue
+        hours = payroll_overtime_hours(attendance)
         amount = (
             (daily_rate / 8)
             * holiday_multiplier(attendance)
-            * float(attendance.overtime_hours or 0)
+            * hours
         )
         if holiday and holiday.holiday_type == "Regular Holiday":
             key = "regular_holiday_ot"
@@ -6081,6 +6126,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         else:
             key = "regular_overtime"
         overtime_amounts[key] += amount
+        overtime_hours[key] += hours
 
     calculated_overtime_pay = sum(overtime_amounts.values())
     if overtime_pay and not calculated_overtime_pay:
@@ -6116,7 +6162,8 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         + special_holiday + regular_holiday + calculated_overtime_pay
         + night_differential
     )
-    adjustment = round(gross_income - itemized_earnings, 2)
+    gross_pay = round(gross_income + rice_exempt, 2)
+    adjustment = round(gross_pay - itemized_earnings, 2)
     known_deductions = (
         late_ut + sss + philhealth + pagibig + sss_loan
         + liability_deduction + hdmf_loan + cash_advance + withholding_tax
@@ -6128,6 +6175,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     return {
         "employee": emp,
         "actual_worked_days": worked_days_count,
+        "basic_hours": basic_hours,
         "basic_pay": basic_pay,
         "allowance": allowance,
         "rice_allowance": rice_taxable + rice_exempt,
@@ -6155,8 +6203,14 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "cash_advance": cash_advance,
         "other_deductions": other_deductions,
         "gross_income": gross_income,
+        "gross_pay": gross_pay,
         "total_deductions": total_deductions,
         "net_pay": net_pay,
+        "regular_overtime_hours": overtime_hours["regular_overtime"],
+        "sunday_overtime_hours": overtime_hours["sunday_overtime"],
+        "rest_day_overtime_hours": overtime_hours["rest_day"],
+        "special_holiday_overtime_hours": overtime_hours["special_holiday_ot"],
+        "regular_holiday_overtime_hours": overtime_hours["regular_holiday_ot"],
     }
 
 
@@ -6165,21 +6219,22 @@ def weekly_payslip_table_data(payslip):
     amount = lambda key: f"{payslip[key]:,.2f}"
     return [
         ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
-        ["Basic Pay", str(payslip["actual_worked_days"]), amount("basic_pay"), "Tardiness/Absence", "", amount("late_ut")],
+        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Tardiness/Absence", "", amount("late_ut")],
         ["Weekly Allowance", "", amount("allowance"), "SSS", "", amount("sss")],
         ["Incentives", "", amount("incentives"), "PhilHealth", "", amount("philhealth")],
         ["De Minimis (Exempt)", "", amount("rice_allowance_exempt"), "", "", ""],
+        ["De Minimis (Taxable)", "", amount("rice_allowance_taxable"), "", "", ""],
         ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
         ["Regular Holiday Pay", "", amount("regular_holiday"), "Loan Deduction", "", amount("sss_loan")],
-        ["Regular OT", "", amount("regular_overtime"), "Liability Deduction", "", amount("liability_deduction")],
-        ["Sunday OT", "", amount("sunday_overtime"), "Cash Advance", "", amount("cash_advance")],
-        ["Rest Day OT", "", amount("rest_day"), "Other Deductions", "", amount("other_deductions")],
-        ["Special Holiday OT", "", amount("special_holiday_ot"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
-        ["Regular Holiday OT", "", amount("regular_holiday_ot"), "NET PAY", "", amount("net_pay")],
+        ["Regular OT", f'{payslip["regular_overtime_hours"]:.2f}', amount("regular_overtime"), "Liability Deduction", "", amount("liability_deduction")],
+        ["Sunday OT", f'{payslip["sunday_overtime_hours"]:.2f}', amount("sunday_overtime"), "Cash Advance", "", amount("cash_advance")],
+        ["Rest Day OT", f'{payslip["rest_day_overtime_hours"]:.2f}', amount("rest_day"), "Other Deductions", "", amount("other_deductions")],
+        ["Special Holiday OT", f'{payslip["special_holiday_overtime_hours"]:.2f}', amount("special_holiday_ot"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
+        ["Regular Holiday OT", f'{payslip["regular_holiday_overtime_hours"]:.2f}', amount("regular_holiday_ot"), "NET PAY", "", amount("net_pay")],
         ["Night Differential", "", amount("night_differential"), "", "", ""],
         ["Adjustment", "", amount("adjustment"), "", "", ""],
-        ["GROSS PAY", "", amount("gross_income"), "", "", ""],
+        ["GROSS PAY", "", amount("gross_pay"), "", "", ""],
     ]
 
 
@@ -6272,22 +6327,10 @@ def payroll(employee_id):
     paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
     worked_days_count = payroll_worked_days_count(emp, paid_attendance)
 
-    approved_overtime_hours = 0
-    if not emp.payroll_attendance_exempt:
-        approved_overtime_hours = db.session.query(
-            db.func.coalesce(db.func.sum(Attendance.overtime_hours), 0)
-        ).filter(
-            Attendance.employee_id == employee_id,
-            Attendance.clock_out != None,
-            Attendance.ot_status == 'Approved',
-            Attendance.clock_in >= start_cutoff,
-            Attendance.clock_in < end_cutoff
-        ).scalar()
-
     daily_rate = emp.daily_rate or 0
     basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
     approved_overtime_pay = sum(
-        (daily_rate / 8) * holiday_multiplier(attendance) * float(attendance.overtime_hours or 0)
+        (daily_rate / 8) * holiday_multiplier(attendance) * payroll_overtime_hours(attendance)
         for attendance in paid_attendance
         if attendance.ot_status == 'Approved'
     )
@@ -6888,19 +6931,19 @@ def payroll_dashboard():
         basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
         ot_records = [
             attendance for attendance in paid_attendance
-            if float(attendance.overtime_hours or 0) > 0
+            if payroll_overtime_hours(attendance) > 0
         ]
         ot_hours = sum(
-            float(attendance.overtime_hours or 0)
+            payroll_overtime_hours(attendance)
             for attendance in ot_records
         )
         approved_ot_hours = sum(
-            float(attendance.overtime_hours or 0)
+            payroll_overtime_hours(attendance)
             for attendance in ot_records
             if attendance.ot_status == 'Approved'
         )
         approved_ot_pay = sum(
-            (daily_rate / 8) * holiday_multiplier(attendance) * float(attendance.overtime_hours or 0)
+            (daily_rate / 8) * holiday_multiplier(attendance) * payroll_overtime_hours(attendance)
             for attendance in ot_records
             if attendance.ot_status == 'Approved'
         )
@@ -7035,6 +7078,7 @@ def holiday_ot_dashboard():
                     processed_count += 1
             db.session.commit()
             result = "approved" if action == "bulk_approve" else "rejected"
+            result = "approved" if action == "bulk_approve" else "rejected"
             flash(f"✅ {processed_count} overtime record(s) {result}.", "success")
             return redirect(url_for('holiday_ot_dashboard', cutoff_start=cutoff_start))
         if att_id and action:
@@ -7100,7 +7144,7 @@ def holiday_ot_dashboard():
             data = [['Attendance ID','Employee','Date','Holiday Name','Status','Clock Out','OT Hours','OT Type','OT Status']]
             for att in records:
                 ot_type = "Weekday" if att.is_weekday_ot else "Rest Day" if att.is_restday_ot else "Holiday" if att.is_holiday_ot else "Beyond 5PM"
-                ot_hours = att.overtime_hours or 0
+                ot_hours = payroll_overtime_hours(att)
                 row = [
                     att.id,
                     f"{att.employee.first_name} {att.employee.last_name}",
@@ -7120,6 +7164,10 @@ def holiday_ot_dashboard():
 
     return render_template("holiday_ot_dashboard.html",
                            records=records,
+                           overtime_hours_by_attendance_id={
+                               attendance.id: payroll_overtime_hours(attendance)
+                               for attendance in records
+                           },
                            applications=applications,
                            holidays=holidays,
                            filter_status=filter_status,

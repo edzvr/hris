@@ -103,7 +103,7 @@
                 <td>{{ att.status }}</td>
                 <td>{{ att.clock_out }}</td>
                 <td>
-                    {{ att.overtime_hours or 0 }}
+                    {{ "%.2f"|format(overtime_hours_by_attendance_id.get(att.id, att.overtime_hours or 0)) }}
                 </td>
                 <td>
                     {% if att.is_weekday_ot %}Weekday

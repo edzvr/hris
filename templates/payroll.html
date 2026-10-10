@@ -209,7 +209,7 @@
         <tr>
             <td>Actual Worked Days</td>
             <td>{{ payslip.actual_worked_days }}</td>
-            <td>₱{{ "%.2f"|format(payslip.gross_income) }}</td>
+            <td>₱{{ "%.2f"|format(payslip.gross_pay) }}</td>
             <td>Late/UT</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.late_ut) }}</td>
@@ -287,9 +287,9 @@
             <td><strong>₱{{ "%.2f"|format(payslip.total_deductions) }}</strong></td>
         </tr>
         <tr>
-            <td><strong>Gross Income</strong></td>
+            <td><strong>Gross Pay</strong></td>
             <td></td>
-            <td><strong>₱{{ "%.2f"|format(payslip.gross_income) }}</strong></td>
+            <td><strong>₱{{ "%.2f"|format(payslip.gross_pay) }}</strong></td>
             <td><strong>NET PAY</strong></td>
             <td></td>
             <td><strong>₱{{ "%.2f"|format(payslip.net_pay) }}</strong></td>
