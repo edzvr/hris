@@ -207,9 +207,9 @@
             <th>Amount</th>
         </tr>
         <tr>
-            <td>Actual Worked Days</td>
-            <td>{{ payslip.actual_worked_days }}</td>
-            <td>₱{{ "%.2f"|format(payslip.gross_pay) }}</td>
+            <td>Basic Pay</td>
+            <td>{{ payslip.actual_worked_days }} days / {{ "%.2f"|format(payslip.basic_hours) }} hrs</td>
+            <td>₱{{ "%.2f"|format(payslip.basic_pay) }}</td>
             <td>Late/UT</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.late_ut) }}</td>

@@ -19,6 +19,7 @@ from hris import (
     rice_allowance_breakdown,
     other_de_minimis_monthly_total,
     de_minimis_monthly_ceiling,
+    payroll_overtime_hours,
     regular_day_pay,
     update_manual_owner_contribution_settings,
 )
@@ -77,7 +78,7 @@ def test_weekday_overtime_requires_six_pm_clock_out():
     assert attendance.ot_status is None
 
 
-def test_approved_application_limits_overtime_to_requested_and_attended_period():
+def test_approved_application_counts_requested_hours_even_if_clock_out_is_earlier():
     attendance = SimpleNamespace(
         employee_id=1,
         employee=SimpleNamespace(company="Auto Expert"),
@@ -100,9 +101,29 @@ def test_approved_application_limits_overtime_to_requested_and_attended_period()
         holidays.filter_by.return_value.first.return_value = None
         apply_overtime_details(attendance)
 
-    assert attendance.overtime_hours == 2
+    assert attendance.overtime_hours == 3
     assert attendance.ot_status == "Approved"
     assert attendance.is_weekday_ot is True
+
+
+def test_nine_hour_overnight_ot_application_counts_all_approved_hours():
+    attendance = SimpleNamespace(
+        employee_id=1,
+        date=date(2026, 10, 5),
+        clock_out=datetime(2026, 10, 5, 23, 0),
+        ot_status="Approved",
+        overtime_hours=6,
+    )
+    application = SimpleNamespace(
+        start_time=datetime(2026, 10, 5, 17, 0).time(),
+        end_time=datetime(2026, 10, 5, 2, 0).time(),
+    )
+
+    with app.app_context(), patch("hris.OTApplication.query") as applications:
+        applications.filter_by.return_value.first.return_value = application
+        hours = payroll_overtime_hours(attendance)
+
+    assert hours == 9
 
 
 def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
@@ -575,7 +596,7 @@ def test_approved_trece_sunday_overtime_uses_rest_day_ot_even_if_flag_is_stale()
             ),
         )
 
-    assert payslip["rest_day"] == 253.5
+    assert payslip["rest_day"] == 316.875
     assert payslip["sunday_overtime"] == 0
     assert payslip["basic_pay"] == 3600
     assert payslip["actual_worked_days"] == 6
