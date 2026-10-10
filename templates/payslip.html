@@ -37,7 +37,8 @@
             <p><strong>Cut-Off:</strong> {{ payroll.cutoff_start.strftime('%m-%d-%Y') }} ~ {{ payroll.cutoff_end.strftime('%m-%d-%Y') }}</p>
             <p><strong>Position/Department:</strong> {{ employee.job_description or 'N/A' }} / {{ employee.company or 'N/A' }}</p>
             <p><strong>Daily Rate:</strong> ₱{{ (employee.daily_rate or 0)|currency }}</p>
-            <p><strong>Reference:</strong> PAY-{{ "%06d"|format(payroll.id) }}</p>
+            <p><strong>Reference:</strong> {{ verification.document_id }}</p>
+            <p><strong>Generated:</strong> {{ generated_at.strftime('%Y-%m-%d %I:%M %p') }} PHT</p>
         </div>
 
         <table class="table">
@@ -59,7 +60,7 @@
                     <p>Regular Holiday OT ({{ "%.2f"|format(payslip.regular_holiday_overtime_hours) }} hrs): ₱{{ payslip.regular_holiday_ot|currency }}</p>
                     <p>Night Differential: ₱{{ payslip.night_differential|currency }}</p>
                     <p>Other Earnings / Adjustment: ₱{{ payslip.payslip_adjustment|currency }}</p>
-                    <p><strong>Gross Pay: ₱{{ payslip.gross_pay|currency }}</strong></p>
+                    <p style="font-weight:700; font-size:1.08rem;">Gross Pay: ₱{{ payslip.gross_pay|currency }}</p>
                 </td>
                 <td>
                     <p>SSS: ₱{{ payslip.sss|currency }}</p>
@@ -78,7 +79,23 @@
             </tr>
         </table>
 
-        <p class="net-pay"><strong>Net Pay: ₱{{ payslip.net_pay|currency }}</strong></p>
+        <p class="net-pay" style="font-weight:700; font-size:1.2rem;"><strong>Net Pay: ₱{{ payslip.net_pay|currency }}</strong></p>
+        {% if payslip.attendance_issues %}
+        <div style="margin-top: 14px;">
+            <p><strong>Absent / Late / Undertime / Half-day dates:</strong></p>
+            <ul style="margin-top: 6px;">
+                {% for issue in payslip.attendance_issues %}
+                <li>{{ issue.date.strftime('%Y-%m-%d') }} — {{ issue.issues|join(', ') }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% if qr_data_uri %}
+        <div style="margin-top: 16px; text-align: right;">
+            <img src="{{ qr_data_uri }}" alt="Payslip verification QR code" width="100" height="100">
+            <p><small>Scan QR to verify this payslip.</small></p>
+        </div>
+        {% endif %}
         <p style="margin-top: 18px; font-size: 0.94rem; color: #44556b;"><strong>Address:</strong> Trece Martires Cavite, Philippines<br><strong>Prepared by:</strong> Admin</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:55px;text-align:center;">
             <div style="border-top:1px solid #333;padding-top:8px;">Authorized Person Signature</div>

@@ -1,5 +1,5 @@
 # ------------------ HRIS MAIN APP ------------------
-import os, random, logging, re, hashlib, csv
+import os, random, logging, re, hashlib, csv, base64
 import secrets
 import struct
 from math import isfinite
@@ -739,10 +739,16 @@ def ensure_payroll_columns():
     statements = []
     if "withholding_tax" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN withholding_tax FLOAT DEFAULT 0")
+    if "withholding_tax_override" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN withholding_tax_override FLOAT")
     if "loan_deduction_applied" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN loan_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
     if "liability_deduction" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction FLOAT DEFAULT 0")
+    if "liability_deduction_override" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction_override FLOAT")
+    if "other_deductions" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN other_deductions FLOAT NOT NULL DEFAULT 0")
     if "sss_loan" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN sss_loan FLOAT DEFAULT 0")
     if "pagibig_loan" not in payroll_columns:
@@ -4645,6 +4651,61 @@ def download_annual_tax_summary(company, year):
                      download_name=f'Annual_Tax_Summary_{company}_{year}.pdf', mimetype='application/pdf')
 
 
+CAVITE_MINIMUM_DAILY_WAGE = 600.0
+
+
+def is_minimum_wage_earner(employee):
+    return (
+        0 < float(getattr(employee, 'daily_rate', 0) or 0)
+        <= CAVITE_MINIMUM_DAILY_WAGE
+    )
+
+
+def weekly_withholding_tax(employee, monthly_taxable_income, weeks_in_month):
+    if is_minimum_wage_earner(employee):
+        return 0.0
+    return round(
+        compute_withholding_tax(monthly_taxable_income) / weeks_in_month,
+        2,
+    )
+
+
+def attendance_issue_rows(employee, cutoff_start, cutoff_end):
+    attendance_rows = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date >= cutoff_start,
+        Attendance.date <= cutoff_end,
+    ).order_by(Attendance.date).all()
+    issues_by_date = {}
+    for attendance in attendance_rows:
+        if str(attendance.status or '').strip().lower() == 'absent':
+            issues_by_date.setdefault(attendance.date, []).append('Absent')
+            continue
+        issues = issues_by_date.setdefault(attendance.date, [])
+        if attendance.clock_in and attendance.clock_in.time() > time(8, 10):
+            issues.append('Late')
+        if attendance.clock_in and attendance.clock_out:
+            scheduled_hours = (
+                4.0
+                if is_trece_sunday(employee, attendance.date)
+                else 8.0 if attendance.date.weekday() != 6 else None
+            )
+            hours = regular_attendance_hours(attendance)
+            if scheduled_hours is not None and hours < scheduled_hours:
+                issues.append(
+                    'Half-day' if hours <= scheduled_hours / 2 else 'Undertime'
+                )
+        if not issues:
+            issues_by_date.pop(attendance.date, None)
+    return [
+        {
+            'date': issue_date,
+            'issues': issue_list,
+        }
+        for issue_date, issue_list in sorted(issues_by_date.items())
+    ]
+
+
 def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_admins=False):
     if include_admins:
         company_filter = (
@@ -4704,12 +4765,19 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         pagibig_loan = (
             float(payroll_record.pagibig_loan or 0) if payroll_record else 0.0
         )
-        liability_deduction = liability_cutoff_deduction(emp.id)
+        liability_deduction = (
+            float(payroll_record.liability_deduction_override)
+            if payroll_record is not None
+            and payroll_record.liability_deduction_override is not None
+            else liability_cutoff_deduction(emp.id)
+        )
         monthly_taxable_income = (gross_income * weeks_in_month) - (
             (deductions['sss'] + deductions['philhealth'] + deductions['pagibig'])
             * weeks_in_month
         )
-        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
+        withholding_tax = weekly_withholding_tax(
+            emp, monthly_taxable_income, weeks_in_month
+        )
         total_deductions = (
             deductions['sss'] + deductions['philhealth'] + deductions['pagibig']
             + sss_loan + pagibig_loan + loan + liability_deduction
@@ -6222,6 +6290,11 @@ def de_minimis_allowance_breakdown(
 
 def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_pay=0.0):
     """Return an itemized weekly payslip that reconciles to the payroll record."""
+    cutoff_attendance = Attendance.query.filter(
+        Attendance.employee_id == emp.id,
+        Attendance.date >= payroll_record.cutoff_start,
+        Attendance.date <= payroll_record.cutoff_end,
+    ).order_by(Attendance.date).all()
     attendance_records = Attendance.query.filter(
         Attendance.employee_id == emp.id,
         Attendance.date >= payroll_record.cutoff_start,
@@ -6230,6 +6303,10 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     ).all()
     if not worked_days_count:
         worked_days_count = payroll_worked_days_count(emp, attendance_records)
+
+    attendance_issues = attendance_issue_rows(
+        emp, payroll_record.cutoff_start, payroll_record.cutoff_end
+    )
 
     daily_rate = float(emp.daily_rate or 0)
     basic_pay = 0.0
@@ -6354,6 +6431,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     return {
         "employee": emp,
         "actual_worked_days": worked_days_count,
+        "attendance_issues": attendance_issues,
         "basic_hours": basic_hours,
         "basic_pay": basic_pay,
         "late_ut_hours": late_ut_hours,
@@ -6484,6 +6562,10 @@ def payroll(employee_id):
             "loan": request.form.get('loan_deduction'),
             "sss_loan": request.form.get('sss_loan'),
             "pagibig_loan": request.form.get('pagibig_loan'),
+            "cash_advance": request.form.get('cash_advance'),
+            "withholding_tax_override": request.form.get('withholding_tax'),
+            "liability_deduction_override": request.form.get('liability_deduction'),
+            "other_deductions": request.form.get('other_deductions'),
         }
         provided_loan_inputs = {
             key: value
@@ -6502,7 +6584,7 @@ def payroll(employee_id):
             ):
                 db.session.rollback()
                 flash(
-                    "Reopen this payroll before changing loan deductions.",
+                    "Reopen this payroll before changing deductions.",
                     "warning",
                 )
                 return redirect(url_for(
@@ -6517,7 +6599,7 @@ def payroll(employee_id):
                 }
             except ValueError:
                 db.session.rollback()
-                flash("Enter valid loan deduction amounts.", "danger")
+                flash("Enter valid deduction amounts.", "danger")
                 return redirect(url_for(
                     'payroll',
                     employee_id=employee_id,
@@ -6525,7 +6607,7 @@ def payroll(employee_id):
                 ))
             if any(value < 0 for value in parsed_loan_inputs.values()):
                 db.session.rollback()
-                flash("Loan deductions cannot be negative.", "danger")
+                flash("Deductions cannot be negative.", "danger")
                 return redirect(url_for(
                     'payroll',
                     employee_id=employee_id,
@@ -6629,10 +6711,16 @@ def payroll(employee_id):
     monthly_taxable_income = (gross_income * weeks_in_month) - (
         (sss + philhealth + pagibig) * weeks_in_month
     )
-    withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
+    withholding_tax = weekly_withholding_tax(
+        emp, monthly_taxable_income, weeks_in_month
+    )
+    if payroll_record is not None and payroll_record.withholding_tax_override is not None:
+        withholding_tax = float(payroll_record.withholding_tax_override)
+    cash_advance = float(payroll_record.cash_advance or 0) if payroll_record else 0.0
+    other_deductions = float(payroll_record.other_deductions or 0) if payroll_record else 0.0
     total_deductions = (
         sss + philhealth + pagibig + sss_loan + pagibig_loan + loan
-        + liability_deduction + withholding_tax
+        + liability_deduction + withholding_tax + cash_advance + other_deductions
     )
     net_pay = gross_income + rice_exempt - total_deductions
 
@@ -6658,18 +6746,19 @@ def payroll(employee_id):
     payroll_record.sss_loan = sss_loan
     payroll_record.pagibig_loan = pagibig_loan
     payroll_record.liability_deduction = liability_deduction
-    payroll_record.cash_advance = 0.0
+    payroll_record.cash_advance = cash_advance
+    payroll_record.other_deductions = other_deductions
     if request.args.get('save') == 'true':
         if payroll_record.is_paid or payroll_record.loan_deduction_applied:
             flash(
-                "Reopen this payroll before saving changes to loan deductions.",
+                "Reopen this payroll before saving deduction changes.",
                 "warning",
             )
         else:
             if payroll_record.id is None:
                 db.session.add(payroll_record)
             db.session.commit()
-            flash("Loan deductions and payroll totals were saved.", "success")
+            flash("Deductions and payroll totals were saved.", "success")
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
             db.session.add(payroll_record)
@@ -6685,7 +6774,24 @@ def payroll(employee_id):
         payroll_record.confirmed_at = None
         db.session.commit()
 
+    # Verification QR codes require a stable payroll record reference.
+    if request.args.get("download") == "true" and payroll_record.id is None:
+        db.session.add(payroll_record)
+        db.session.commit()
+
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
+    verification = None
+    qr_bytes = None
+    if request.args.get("download") == "true" and payroll_record.id is not None:
+        verification = build_payslip_verification(
+            emp.id,
+            payroll_record.id,
+            payroll_record.cutoff_start,
+            payroll_record.cutoff_end,
+            payroll_record.net_pay,
+        )
+        qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    generated_at = datetime.now(ZoneInfo('Asia/Manila'))
 
     # 👉 Generate payslip PDF in memory
     buffer = io.BytesIO()
@@ -6706,7 +6812,12 @@ def payroll(employee_id):
     c.drawString(50, 698, f"Position: {emp.job_description or 'N/A'}")
     c.drawString(300, 714, f"Daily Rate: PHP {float(emp.daily_rate or 0):.2f}")
     c.drawString(300, 698, f"Department: {emp.company}")
-    c.drawString(50, 682, f"Reference: PAY-{payroll_record.id or 0:06d}")
+    c.drawString(
+        50,
+        682,
+        f"Reference: {verification['document_id'] if verification else f'PAY-{payroll_record.id or 0:06d}'}",
+    )
+    c.drawString(300, 682, f"Generated: {generated_at:%Y-%m-%d %I:%M %p} PHT")
 
     data = weekly_payslip_table_data(payslip)
 
@@ -6714,8 +6825,9 @@ def payroll(employee_id):
     table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTNAME', (0,-1), (2,-1), 'Helvetica-Bold'),
-        ('FONTNAME', (3,-5), (5,-4), 'Helvetica-Bold'),
+        ('BACKGROUND', (0,-2), (-1,-1), colors.lightgrey),
+        ('FONTNAME', (0,-2), (2,-2), 'Helvetica-Bold'),
+        ('FONTNAME', (3,-2), (5,-1), 'Helvetica-Bold'),
         ('GRID', (0,0), (-1,-1), 0.75, colors.black),
         ('ALIGN', (1,1), (-1,-1), 'CENTER'),
         ('ALIGN', (2,2), (2,-1), 'RIGHT'),
@@ -6729,6 +6841,32 @@ def payroll(employee_id):
     table.drawOn(c, 20, table_y)
 
     signature_y = table_y - 20
+    if payslip["attendance_issues"]:
+        attendance_rows = [["Attendance Issue Dates", "Issue"]]
+        attendance_rows.extend(
+            [
+                [issue["date"].strftime("%Y-%m-%d"), ", ".join(issue["issues"])]
+                for issue in payslip["attendance_issues"]
+            ]
+        )
+        attendance_table = Table(
+            attendance_rows,
+            colWidths=[150, 250],
+            repeatRows=1,
+        )
+        attendance_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+            ('TOPPADDING', (0,0), (-1,-1), 3),
+        ]))
+        _, attendance_table_height = attendance_table.wrapOn(c, 400, 200)
+        attendance_table_y = table_y - attendance_table_height - 8
+        attendance_table.drawOn(c, 50, attendance_table_y)
+        signature_y = attendance_table_y - 20
+
     c.line(50, signature_y, 550, signature_y)
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, signature_y - 15, "Authorized by Admin")
@@ -6737,6 +6875,10 @@ def payroll(employee_id):
     c.setFont("Helvetica", 10)
     c.drawString(50, signature_y - 75, "Authorized Person Signature")
     c.drawString(350, signature_y - 75, "Date")
+    if qr_bytes:
+        c.drawImage(ImageReader(io.BytesIO(qr_bytes)), 485, 24, width=60, height=60)
+        c.setFont("Helvetica-Oblique", 7)
+        c.drawString(440, 15, "Scan QR to verify")
 
     c.showPage()
     c.save()
@@ -6980,12 +7122,26 @@ def payslip(emp_id, payroll_id):
         return redirect(url_for('dashboard_staff'))
 
     breakdown = build_payslip_breakdown(employee, payroll_record)
+    verification = build_payslip_verification(
+        employee.id,
+        payroll_record.id,
+        payroll_record.cutoff_start,
+        payroll_record.cutoff_end,
+        payroll_record.net_pay,
+    )
+    qr_bytes = generate_qr_image_bytes(verification['verify_url'])
 
     return render_template(
         "payslip.html",
         employee=employee,
         payroll=payroll_record,
-        payslip=breakdown
+        payslip=breakdown,
+        verification=verification,
+        qr_data_uri=(
+            f"data:image/png;base64,{base64.b64encode(qr_bytes).decode('ascii')}"
+            if qr_bytes else None
+        ),
+        generated_at=datetime.now(ZoneInfo('Asia/Manila')),
     )
 
 
@@ -7006,6 +7162,7 @@ def download_payslip(emp_id, payroll_id):
         payroll_record.net_pay,
     )
     qr_bytes = generate_qr_image_bytes(verification['verify_url'])
+    generated_at = datetime.now(ZoneInfo('Asia/Manila'))
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
@@ -7021,6 +7178,7 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(300, 698, f'Reference: {verification["document_id"]}')
     pdf.drawString(50, 682, f'Department: {employee.company or "N/A"}')
     pdf.drawString(300, 682, 'Prepared by: Admin')
+    pdf.drawString(50, 666, f'Generated: {generated_at:%Y-%m-%d %I:%M %p} PHT')
     data = weekly_payslip_table_data(payslip)
     table = Table(data, colWidths=[120, 60, 80, 120, 60, 80])
     table.setStyle(TableStyle([
@@ -7126,6 +7284,12 @@ def payroll_dashboard():
             incentives = request.form.get(f'incentives_{emp.id}')
             loan_balance = request.form.get(f'loan_{emp.id}')
             loan_deduction = request.form.get(f'loan_deduction_{emp.id}')
+            sss_loan_deduction = request.form.get(f'sss_loan_{emp.id}')
+            pagibig_loan_deduction = request.form.get(f'pagibig_loan_{emp.id}')
+            withholding_tax_override = request.form.get(f'withholding_tax_{emp.id}')
+            liability_deduction_override = request.form.get(f'liability_deduction_{emp.id}')
+            cash_advance = request.form.get(f'cash_advance_{emp.id}')
+            other_deductions = request.form.get(f'other_deductions_{emp.id}')
             try:
                 if daily_rate is not None:
                     emp.daily_rate = max(float(daily_rate), 0)
@@ -7141,7 +7305,19 @@ def payroll_dashboard():
                     emp.incentives = max(float(incentives), 0)
                 if loan_balance is not None:
                     emp.loan_balance = max(float(loan_balance), 0)
-                if loan_deduction is not None:
+                deduction_inputs_present = any(
+                    value is not None and str(value).strip() != ""
+                    for value in (
+                        loan_deduction,
+                        sss_loan_deduction,
+                        pagibig_loan_deduction,
+                        withholding_tax_override,
+                        liability_deduction_override,
+                        cash_advance,
+                        other_deductions,
+                    )
+                )
+                if deduction_inputs_present:
                     payroll_record = Payroll.query.filter_by(
                         employee_id=emp.id,
                         cutoff_start=start_cutoff.date(),
@@ -7154,14 +7330,13 @@ def payroll_dashboard():
                         db.session.rollback()
                         flash(
                             f"Reopen {emp.first_name} {emp.last_name}'s payroll "
-                            "before changing the company loan deduction.",
+                            "before changing deductions.",
                             'warning',
                         )
                         return redirect(url_for(
                             'payroll_dashboard',
                             cutoff_start=cutoff_start.isoformat(),
                         ))
-                    requested_deduction = max(float(loan_deduction), 0)
                     if payroll_record is None:
                         payroll_record = Payroll(
                             employee_id=emp.id,
@@ -7169,9 +7344,23 @@ def payroll_dashboard():
                             cutoff_end=(end_cutoff - timedelta(days=1)).date()
                         )
                         db.session.add(payroll_record)
-                    payroll_record.loan = loan_cutoff_deduction(
-                        emp.loan_balance, requested_deduction
-                    )
+                    if loan_deduction is not None and loan_deduction.strip() != "":
+                        requested_deduction = max(float(loan_deduction), 0)
+                        payroll_record.loan = loan_cutoff_deduction(
+                            emp.loan_balance, requested_deduction
+                        )
+                    if sss_loan_deduction is not None and sss_loan_deduction.strip() != "":
+                        payroll_record.sss_loan = max(float(sss_loan_deduction), 0)
+                    if pagibig_loan_deduction is not None and pagibig_loan_deduction.strip() != "":
+                        payroll_record.pagibig_loan = max(float(pagibig_loan_deduction), 0)
+                    if withholding_tax_override is not None and withholding_tax_override.strip() != "":
+                        payroll_record.withholding_tax_override = max(float(withholding_tax_override), 0)
+                    if liability_deduction_override is not None and liability_deduction_override.strip() != "":
+                        payroll_record.liability_deduction_override = max(float(liability_deduction_override), 0)
+                    if cash_advance is not None and cash_advance.strip() != "":
+                        payroll_record.cash_advance = max(float(cash_advance), 0)
+                    if other_deductions is not None and other_deductions.strip() != "":
+                        payroll_record.other_deductions = max(float(other_deductions), 0)
                 update_manual_owner_contribution_settings(
                     emp, request.form, cutoff_start
                 )
@@ -7288,7 +7477,12 @@ def payroll_dashboard():
             if payroll_record is not None
             else 0.0
         )
-        liability_deduction = liability_cutoff_deduction(emp.id)
+        liability_deduction = (
+            float(payroll_record.liability_deduction_override)
+            if payroll_record is not None
+            and payroll_record.liability_deduction_override is not None
+            else liability_cutoff_deduction(emp.id)
+        )
 
         deduction_values = payroll_statutory_deductions(payroll_record, deduction_values)
         sss = deduction_values['sss']
@@ -7298,10 +7492,16 @@ def payroll_dashboard():
         monthly_taxable_income = (gross_income * weeks_in_month) - (
             (sss + philhealth + pagibig) * weeks_in_month
         )
-        withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
+        withholding_tax = weekly_withholding_tax(
+            emp, monthly_taxable_income, weeks_in_month
+        )
+        if payroll_record is not None and payroll_record.withholding_tax_override is not None:
+            withholding_tax = float(payroll_record.withholding_tax_override)
+        cash_advance = float(payroll_record.cash_advance or 0) if payroll_record else 0.0
+        other_deductions = float(payroll_record.other_deductions or 0) if payroll_record else 0.0
         deductions = (
             sss + philhealth + pagibig + sss_loan + pagibig_loan + loan
-            + liability_deduction + withholding_tax
+            + liability_deduction + cash_advance + withholding_tax + other_deductions
         )
         net_pay = gross_income + rice_exempt - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
@@ -7341,6 +7541,8 @@ def payroll_dashboard():
             "pagibig_loan": pagibig_loan,
             "loan_deduction": loan,
             "liability_deduction": liability_deduction,
+            "cash_advance": cash_advance,
+            "other_deductions": other_deductions,
             "withholding_tax": withholding_tax,
             "gross_income": gross_income,
             "deductions": deductions,

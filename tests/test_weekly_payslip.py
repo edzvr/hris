@@ -2,7 +2,13 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from hris import app, weekly_payslip_table_data, build_payslip_verification
+from hris import (
+    app,
+    build_payslip_verification,
+    generate_qr_image_bytes,
+    weekly_payslip_table_data,
+    weekly_withholding_tax,
+)
 from utils.helpers import compute_weekly_deductions
 
 
@@ -54,6 +60,14 @@ def test_same_payslip_record_keeps_same_verification_id():
     assert second["verification_hash"] == "existing-hash"
 
 
+def test_payslip_verification_qr_is_generated_as_png():
+    qr_image = generate_qr_image_bytes(
+        "https://example.com/verify-document/PAY-TEST1234"
+    )
+
+    assert qr_image.startswith(b"\x89PNG\r\n\x1a\n")
+
+
 def test_weekly_deductions_use_monthly_equivalent_and_four_week_proration():
     deductions = compute_weekly_deductions(3222 * 4, weeks=4)
 
@@ -74,6 +88,18 @@ def test_weekly_contributions_use_current_attendance_adjusted_monthly_basis():
         "pagibig": 50.0,
         "total": 321.25,
     }
+
+
+def test_cavite_minimum_wage_earner_is_exempt_from_withholding_tax():
+    employee = SimpleNamespace(daily_rate=600.0)
+
+    assert weekly_withholding_tax(employee, 30000.0, 4) == 0.0
+
+
+def test_daily_rate_above_cavite_minimum_uses_train_tax_brackets():
+    employee = SimpleNamespace(daily_rate=600.01)
+
+    assert weekly_withholding_tax(employee, 30000.0, 4) == 458.35
 
 
 def test_weekly_payslip_table_is_itemized():

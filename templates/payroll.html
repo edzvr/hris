@@ -307,7 +307,15 @@
             <td></td>
             <td>Recoverable Receivable / Liability</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.liability_deduction) }}</td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="liability_deduction" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.liability_deduction) }}"
+                       aria-label="Liability deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.liability_deduction) }}
+                {% endif %}
+            </td>
         </tr>
         <tr>
             <td>Special Holiday</td>
@@ -323,7 +331,15 @@
             <td>₱{{ "%.2f"|format(payslip.special_holiday_ot) }}</td>
             <td>Cash Advance</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.cash_advance) }}</td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="cash_advance" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.cash_advance) }}"
+                       aria-label="Cash advance deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.cash_advance) }}
+                {% endif %}
+            </td>
         </tr>
         <tr>
             <td>Regular Holiday</td>
@@ -331,17 +347,41 @@
             <td>₱{{ "%.2f"|format(payslip.regular_holiday) }}</td>
             <td>Withholding Tax</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.withholding_tax) }}</td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="withholding_tax" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.withholding_tax) }}"
+                       aria-label="Withholding tax deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.withholding_tax) }}
+                {% endif %}
+            </td>
         </tr>
         <tr>
             <td>Regular Holiday OT</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.regular_holiday_ot) }}</td>
+            <td>Other Deductions</td>
+            <td></td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="other_deductions" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.other_deductions) }}"
+                       aria-label="Other deductions this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.other_deductions) }}
+                {% endif %}
+            </td>
+        </tr>
+        <tr style="font-weight:700; background:#f1f5f9;">
+            <td></td>
+            <td></td>
+            <td></td>
             <td>Gross Deductions</td>
             <td></td>
             <td><strong>₱{{ "%.2f"|format(payslip.total_deductions) }}</strong></td>
         </tr>
-        <tr>
+        <tr style="font-weight:700; background:#e2e8f0;">
             <td><strong>Gross Pay</strong></td>
             <td></td>
             <td><strong>₱{{ "%.2f"|format(payslip.gross_pay) }}</strong></td>
@@ -354,9 +394,17 @@
         {% if loan_editable %}
         <button type="submit" class="btn">Save & Recalculate Payroll</button>
         {% else %}
-        <p>Reopen this finalized payroll to edit and save loan deductions.</p>
+        <p>Reopen this finalized payroll to edit and save deductions.</p>
         {% endif %}
     </form>
+    {% endif %}
+    {% if payslip.attendance_issues %}
+    <h4>Absent / Late / Undertime / Half-day dates</h4>
+    <ul>
+        {% for issue in payslip.attendance_issues %}
+        <li>{{ issue.date.strftime('%Y-%m-%d') }} — {{ issue.issues|join(', ') }}</li>
+        {% endfor %}
+    </ul>
     {% endif %}
 </div>
 {% endif %}
