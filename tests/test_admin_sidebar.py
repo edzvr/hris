@@ -20,11 +20,16 @@ def test_admin_has_grouped_vertical_navigation_and_all_routes():
     assert 'class="hris-admin-sidebar-page"' in html
     assert 'aria-label="Admin navigation"' in html
     for heading in (
-        "Overview &amp; Account", "Employees &amp; Attendance",
-        "Payroll &amp; Contributions", "Performance &amp; Concerns",
+        "Overview &amp; Account", "Payroll &amp; Contributions",
+        "People &amp; Attendance", "Performance &amp; Concerns",
         "Documents &amp; Reports", "System",
     ):
         assert heading in html
+    assert html.index("Payroll &amp; Contributions") < html.index("People &amp; Attendance")
+    assert '<details aria-label="Overview &amp; Account">' in html
+    assert '<details aria-label="Payroll &amp; Contributions">' in html
+    assert '<details aria-label="People &amp; Attendance">' in html
+    assert 'aria-label="Overview &amp; Account" open' not in html
     with app.test_request_context():
         from flask import url_for
         for endpoint in (
