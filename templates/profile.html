@@ -160,8 +160,9 @@
                 <label class="form-field"><span>Payroll Preparation Access</span><input type="checkbox" name="payroll_preparation_access" value="1" {% if emp.payroll_preparation_access %}checked{% endif %}></label>
                 {% if emp.role.lower() == 'staff' %}
                 <label class="form-field"><span>Payroll Loan Review Access (loan balance and deduction only; no finalization)</span><input type="checkbox" name="admin_payroll_access" value="1" {% if emp.admin_payroll_access %}checked{% endif %}></label>
-                {% endif %}
+                {% else %}
                 <label class="form-field"><span>Owner: exclude attendance pay and payroll summaries</span><input type="checkbox" name="payroll_attendance_exempt" value="1" {% if emp.payroll_attendance_exempt %}checked{% endif %}></label>
+                {% endif %}
                 {% endif %}
                 <label class="form-field">SSS<input type="text" name="sss" value="{{ emp.sss or '' }}"></label>
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>

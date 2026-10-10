@@ -1,6 +1,6 @@
 from datetime import date
 
-from hris import app
+from hris import app, ensure_employee_hr_columns
 from models import Employee, Payroll, db
 
 
@@ -20,6 +20,7 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
             company='Trece-Uno',
             job_description='Office Staff',
             employment_status='Regular',
+            payroll_attendance_exempt=True,
         )
         db.session.add_all([admin, staff])
         db.session.commit()
@@ -29,6 +30,9 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
         with app.app_context():
             admin = db.session.get(Employee, admin_id)
             log_in(client, admin)
+        profile_page = client.get(f'/profile/{staff_id}')
+        assert profile_page.status_code == 200
+        assert b'Owner: exclude attendance pay and payroll summaries' not in profile_page.data
         response = client.post(
             f'/profile/{staff_id}',
             data={
@@ -39,12 +43,14 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
                 'role': 'staff',
                 'company': 'Trece-Uno',
                 'admin_payroll_access': '1',
+                'payroll_attendance_exempt': '1',
             },
         )
         assert response.status_code == 302
         with app.app_context():
             staff = db.session.get(Employee, staff_id)
             assert staff.admin_payroll_access is True
+            assert staff.payroll_attendance_exempt is False
             log_in(client, staff)
         assert client.get('/payroll_dashboard').status_code == 403
         assert client.get('/payroll-loan-review').status_code == 200
@@ -64,6 +70,66 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
             db.session.rollback()
             db.session.delete(db.session.get(Employee, staff_id))
             db.session.delete(db.session.get(Employee, admin_id))
+            db.session.commit()
+
+
+def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll():
+    with app.app_context():
+        admin = Employee(first_name='Payroll', last_name='Owner', role='admin')
+        karl = Employee(
+            first_name='Karl',
+            last_name='Ronquillo',
+            role='staff',
+            company='Trece-Uno',
+            payroll_preparation_access=True,
+            admin_payroll_access=True,
+            payroll_attendance_exempt=True,
+        )
+        keira = Employee(
+            first_name='Keira',
+            last_name='Ronquillo',
+            role='staff',
+            company='Trece-Uno',
+            payroll_preparation_access=True,
+            admin_payroll_access=True,
+            payroll_attendance_exempt=True,
+        )
+        owner = Employee(
+            first_name='Payroll',
+            last_name='Admin',
+            role='admin',
+            company='Trece-Uno',
+            payroll_attendance_exempt=True,
+        )
+        db.session.add_all([admin, karl, keira, owner])
+        db.session.commit()
+        admin_id, karl_id, keira_id, owner_id = (
+            admin.id, karl.id, keira.id, owner.id
+        )
+
+    try:
+        with app.app_context():
+            ensure_employee_hr_columns()
+            assert db.session.get(Employee, karl_id).payroll_attendance_exempt is False
+            assert db.session.get(Employee, keira_id).payroll_attendance_exempt is False
+            assert db.session.get(Employee, owner_id).payroll_attendance_exempt is True
+
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+        response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
+        assert response.status_code == 200
+        assert b'Karl Ronquillo' in response.data
+        assert b'Keira Ronquillo' in response.data
+        assert b'Finalize Payroll' in response.data
+        assert b'Payroll Admin' not in response.data
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            for employee_id in (karl_id, keira_id, owner_id, admin_id):
+                employee = db.session.get(Employee, employee_id)
+                if employee:
+                    db.session.delete(employee)
             db.session.commit()
 
 

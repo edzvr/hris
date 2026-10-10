@@ -983,6 +983,12 @@ def ensure_employee_hr_columns():
             WHERE LOWER(role) = 'admin'
               AND LOWER(email) IN ('randolfronquillo20@gmail.com', 'edzvronquillo@gmail.com')
         """))
+    db.session.execute(text("""
+        UPDATE employees
+        SET payroll_attendance_exempt = FALSE
+        WHERE LOWER(COALESCE(role, '')) != 'admin'
+          AND payroll_attendance_exempt = TRUE
+    """))
     db.session.commit()
 
 
@@ -2077,15 +2083,16 @@ def profile(user_id):
                 emp.bank_account_number = request.form.get('bank_account_number', '').strip() or None
                 emp.biometric_id = request.form.get('biometric_id', '').strip() or None
                 emp.payroll_preparation_access = request.form.get('payroll_preparation_access') == '1'
-                emp.payroll_attendance_exempt = (
-                    request.form.get('payroll_attendance_exempt') == '1'
-                )
 
                 role = request.form.get('role', emp.role or '').strip().lower()
                 if role not in {'staff', 'admin'}:
                     flash('Please choose a valid system role.', 'danger')
                     return redirect(url_for('profile', user_id=user_id))
                 emp.role = role
+                emp.payroll_attendance_exempt = (
+                    role == 'admin'
+                    and request.form.get('payroll_attendance_exempt') == '1'
+                )
                 emp.admin_payroll_access = (
                     role == 'staff'
                     and request.form.get('admin_payroll_access') == '1'
