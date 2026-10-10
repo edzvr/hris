@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 
 import hris
 from hris import app, ensure_employee_hr_columns
-from models import Attendance, Employee, Payroll, db
+from models import Attendance, Employee, OTApplication, Payroll, db
 
 
 def log_in(client, employee):
@@ -271,11 +271,24 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
         )
         missing_punch = Attendance(
             employee=staff,
-            date=cutoff_start + timedelta(days=1),
+            date=cutoff_start + timedelta(days=3),
             clock_in=None,
             clock_out=None,
             status='No In / No Out',
             hours=0,
+        )
+        rejected_sunday = Attendance(
+            employee=staff,
+            date=cutoff_start + timedelta(days=1),
+            clock_in=datetime(2026, 10, 4, 7, 30),
+            clock_out=datetime(2026, 10, 4, 12, 23),
+            status='Present',
+            hours=4.49,
+            overtime_hours=0,
+            ot_status='Rejected',
+            is_restday_ot=False,
+            is_holiday_ot=False,
+            is_weekday_ot=False,
         )
         lunch_punch = Attendance(
             employee=staff,
@@ -285,7 +298,9 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
             status='Present',
             hours=4.43,
         )
-        db.session.add_all([admin, staff, complete, missing_punch, lunch_punch])
+        db.session.add_all([
+            admin, staff, complete, missing_punch, rejected_sunday, lunch_punch
+        ])
         db.session.commit()
         admin_id, staff_id = admin.id, staff.id
 
@@ -301,10 +316,14 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
         assert b'Attendance Report Staff' in response.data
         assert b'15' in response.data
         assert b'<td>4.00</td>' in response.data
+        assert b'<td>Approved</td>' in response.data
+        assert b'Rest Day' in response.data
         assert b'<td>Yes</td>' in response.data
         assert b'No In / No Out' not in response.data
         assert b'No In' in response.data
         assert b'No Out' in response.data
+        assert b'Select all pending OT' not in response.data
+        assert b'selected_attendance_ids' not in response.data
 
         csv_response = client.get(
             '/holiday_overtime?cutoff_start=2026-10-03'
@@ -323,6 +342,61 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
                 db.session.delete(staff)
             if admin:
                 db.session.delete(admin)
+            db.session.commit()
+
+
+def test_trece_sunday_ot_application_must_start_after_scheduled_4_hour_shift():
+    with app.app_context():
+        staff = Employee(
+            first_name='Sunday',
+            last_name='Applicant',
+            role='staff',
+            company='Trece-Uno',
+        )
+        db.session.add(staff)
+        db.session.commit()
+        staff_id = staff.id
+
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, staff_id))
+
+        rejected = client.post(
+            '/apply_ot',
+            data={
+                'ot_date': '2026-10-04',
+                'start_time': '08:00',
+                'end_time': '10:00',
+                'reason': 'Regular Sunday hours',
+            },
+            follow_redirects=True,
+        )
+        assert rejected.status_code == 200
+        with app.app_context():
+            assert OTApplication.query.filter_by(employee_id=staff_id).count() == 0
+
+        accepted = client.post(
+            '/apply_ot',
+            data={
+                'ot_date': '2026-10-04',
+                'start_time': '12:00',
+                'end_time': '13:00',
+                'reason': 'Approved overtime after the shift',
+            },
+        )
+        assert accepted.status_code == 302
+        with app.app_context():
+            application = OTApplication.query.filter_by(employee_id=staff_id).first()
+            assert application is not None
+            assert application.start_time.strftime('%H:%M') == '12:00'
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            OTApplication.query.filter_by(employee_id=staff_id).delete()
+            employee = db.session.get(Employee, staff_id)
+            if employee:
+                db.session.delete(employee)
             db.session.commit()
 
 

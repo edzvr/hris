@@ -28,7 +28,8 @@
 <body>
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
-        <p class="notice"><strong>Strict regular holiday rule:</strong> Regular holiday pay is allowed only when the employee is present or on approved paid leave on the scheduled workday before and after the regular holiday. Approved OT is still reviewed separately.</p>
+        <p class="notice"><strong>Approval rule:</strong> Trece-Uno Sunday work from 8:00 AM to 12:00 PM is automatically counted as Rest Day OT when clock-in and clock-out are complete. Approve or reject only overtime applications listed below; attendance rows are informational.</p>
+        <p class="notice"><strong>Strict regular holiday rule:</strong> Regular holiday pay is allowed only when the employee is present or on approved paid leave on the scheduled workday before and after the regular holiday. Approved OT applications are reviewed separately.</p>
 
         <!-- Filter dropdown -->
         <div class="filter">
@@ -106,15 +107,8 @@
             {% endfor %}
         </table>
 
-        <form id="bulk-ot-approval-form" method="POST" style="margin: 16px 0 8px;">
-            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
-            <label><input type="checkbox" id="select-all-overtime"> Select all pending OT</label>
-            <button type="submit" name="action" value="bulk_approve" class="btn">Approve Selected</button>
-            <button type="submit" name="action" value="bulk_reject" class="btn btn-reject">Reject Selected</button>
-        </form>
         <table>
             <tr>
-                <th>Select</th>
                 <th>Attendance ID</th>
                 <th>Employee</th>
                 <th>Date</th>
@@ -124,15 +118,9 @@
                 <th>OT Hours</th>
                 <th>OT Type</th>
                 <th>OT Status</th>
-                <th>Actions</th>
             </tr>
             {% for att in records %}
             <tr>
-                <td>
-                    {% if att.ot_status != 'Approved' %}
-                    <input type="checkbox" form="bulk-ot-approval-form" name="selected_attendance_ids" value="{{ att.id }}">
-                    {% endif %}
-                </td>
                 <td>{{ att.id }}</td>
                 <td>{{ att.employee.first_name }} {{ att.employee.last_name }}</td>
                 <td>{{ att.date }}</td>
@@ -143,7 +131,8 @@
                     {{ "%.2f"|format(overtime_hours_by_attendance_id.get(att.id, att.overtime_hours or 0)) }}
                 </td>
                 <td>
-                    {% if att.is_weekday_ot %}Weekday
+                    {% if att.date.weekday() == 6 and att.employee.company.lower().startswith('trece') and overtime_hours_by_attendance_id.get(att.id, 0) > 0 %}Rest Day
+                    {% elif att.is_weekday_ot %}Weekday
                     {% elif att.is_restday_ot %}Rest Day
                     {% elif att.is_holiday_ot %}Holiday
                     {% elif att.date in holidays %}Holiday
@@ -151,25 +140,7 @@
                     {% elif att.clock_out and att.clock_out.time() >= time(18, 0) %}Beyond 6PM
                     {% else %}None{% endif %}
                 </td>
-                <td>{{ att.ot_status or 'Pending' }}</td>
-                <td>
-                    {% if att.ot_status != 'Approved' %}
-                        <form method="POST" style="display:inline;">
-                            <input type="hidden" name="att_id" value="{{ att.id }}">
-                            <input type="hidden" name="action" value="approve">
-                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
-                            <button type="submit" class="btn">Approve</button>
-                        </form>
-                        <form method="POST" style="display:inline;">
-                            <input type="hidden" name="att_id" value="{{ att.id }}">
-                            <input type="hidden" name="action" value="reject">
-                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
-                            <button type="submit" class="btn btn-reject">Reject</button>
-                        </form>
-                    {% else %}
-                        ✅ Approved
-                    {% endif %}
-                </td>
+                <td>{{ ot_status_by_attendance_id.get(att.id, 'Pending') }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -182,12 +153,5 @@
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>
         </div>
     </div>
-    <script>
-        document.getElementById('select-all-overtime').addEventListener('change', function () {
-            document.querySelectorAll('input[name="selected_attendance_ids"]').forEach(function (checkbox) {
-                checkbox.checked = this.checked;
-            }, this);
-        });
-    </script>
 </body>
 </html>
