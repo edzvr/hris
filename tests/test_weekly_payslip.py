@@ -84,7 +84,7 @@ def test_weekly_payslip_table_is_itemized():
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth", "pagibig",
-            "withholding_tax", "sss_loan", "liability_deduction",
+            "withholding_tax", "company_loan", "liability_deduction",
             "cash_advance", "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
             "other_deductions", "total_deductions", "net_pay",
@@ -102,7 +102,7 @@ def test_weekly_payslip_table_is_itemized():
         "Special Holiday Pay", "Regular Holiday Pay", "Regular OT",
         "De Minimis (Exempt)", "De Minimis (Taxable)",
         "Late/Undertime/Half-day", "SSS", "PhilHealth", "Pag-IBIG",
-        "Withholding Tax", "Loan Deduction", "GROSS PAY", "NET PAY",
+        "Withholding Tax", "Company Loan", "GROSS PAY", "NET PAY",
     } <= labels
 
 
@@ -114,7 +114,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth",
-            "pagibig", "withholding_tax", "sss_loan", "liability_deduction",
+            "pagibig", "withholding_tax", "company_loan", "liability_deduction",
             "cash_advance", "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
             "other_deductions", "total_deductions", "net_pay",
@@ -129,6 +129,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
         "basic_pay": 3332.25,
         "regular_overtime_hours": 9.83,
         "regular_overtime": 921.56,
+        "company_loan": 500,
         "rice_allowance_exempt": 500,
         "rice_allowance_taxable": 70,
         "rice_allowance": 570,
@@ -146,6 +147,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
     assert any(row[:3] == ["Regular OT", "9.83", "921.56"] for row in rows)
     assert ["De Minimis (Exempt)", "", "500.00", "", "", ""] in rows
     assert ["De Minimis (Taxable)", "", "70.00", "", "", ""] in rows
+    assert ["Regular Holiday Pay", "", "0.00", "Company Loan", "", "500.00"] in rows
     assert ["GROSS PAY", "", "4,823.81", "", "", ""] in rows
 
 
@@ -158,7 +160,7 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours",
             "sss", "philhealth", "pagibig", "withholding_tax",
-            "sss_loan", "liability_deduction", "cash_advance",
+            "company_loan", "liability_deduction", "cash_advance",
             "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
             "other_deductions", "total_deductions", "net_pay",

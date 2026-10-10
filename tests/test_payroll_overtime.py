@@ -17,6 +17,7 @@ from hris import (
     payroll_statutory_deductions,
     payroll_worked_days_count,
     rice_allowance_breakdown,
+    rice_allowance_month_context,
     other_de_minimis_monthly_total,
     de_minimis_monthly_ceiling,
     payroll_overtime_hours,
@@ -157,14 +158,14 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
     payroll_record = SimpleNamespace(
         cutoff_start=date(2026, 10, 3),
         cutoff_end=date(2026, 10, 9),
-        gross_income=4513.75,
-        total_deductions=0,
-        net_pay=5013.75,
+        gross_income=4443.75,
+        total_deductions=500,
+        net_pay=4513.75,
         sss=0,
         philhealth=0,
         pagibig=0,
         withholding_tax=0,
-        loan=0,
+        loan=500,
         liability_deduction=0,
         cash_advance=0,
     )
@@ -192,9 +193,11 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
     assert payslip["basic_hours"] == 48
     assert payslip["regular_overtime_hours"] == 9
     assert payslip["regular_overtime"] == 843.75
+    assert payslip["company_loan"] == 500
     assert payslip["rice_allowance"] == 570
-    assert payslip["rice_allowance_exempt"] == 500
-    assert payslip["rice_allowance_taxable"] == 70
+    assert payslip["rice_allowance_days"] == 6
+    assert payslip["rice_allowance_exempt"] == 570
+    assert payslip["rice_allowance_taxable"] == 0
     assert payslip["gross_pay"] == 5013.75
     assert payslip["adjustment"] == 0
 
@@ -440,7 +443,7 @@ def test_rice_allowance_always_uses_current_de_minimis_ceiling():
         rice_allowance_ceiling=0,
     )
 
-    assert rice_allowance_breakdown(employee, worked_days=5, cutoff_count=4) == (625, 375)
+    assert rice_allowance_breakdown(employee, worked_days=15, cutoff_count=5) == (2500, 500)
 
 
 def test_rice_allowance_defaults_to_95_per_worked_day_without_paying_the_ceiling():
@@ -450,10 +453,38 @@ def test_rice_allowance_defaults_to_95_per_worked_day_without_paying_the_ceiling
         rice_allowance_ceiling=0,
     )
 
-    assert rice_allowance_breakdown(employee, worked_days=5, cutoff_count=4) == (475, 0)
+    assert rice_allowance_breakdown(employee, worked_days=6, cutoff_count=5) == (570, 0)
     assert de_minimis_allowance_breakdown(
-        employee, worked_days=5, cutoff_count=4
-    ) == (475, 0)
+        employee, worked_days=6, cutoff_count=5
+    ) == (570, 0)
+
+
+def test_trece_rice_subsidy_is_capped_at_26_workdays_per_month():
+    employee = SimpleNamespace(
+        id=17,
+        company="Trece-Uno",
+        payroll_attendance_exempt=False,
+        rice_allowance_per_day=95,
+    )
+    prior_attendance = [
+        SimpleNamespace(date=date(2026, 10, day))
+        for day in range(3, 31)
+        if date(2026, 10, day).weekday() != 6
+    ]
+
+    with patch(
+        "hris.payroll_attendance_records",
+        return_value=prior_attendance,
+    ):
+        rice_days, rice_used = rice_allowance_month_context(
+            employee, date(2026, 10, 31), worked_days=6
+        )
+
+    assert rice_days == 2
+    assert rice_used == 2280
+    assert rice_allowance_breakdown(
+        employee, rice_days, cutoff_count=5, monthly_used=rice_used
+    ) == (190, 0)
 
 
 def test_other_de_minimis_is_combined_for_display_but_keeps_category_limits():
@@ -488,8 +519,14 @@ def test_other_de_minimis_is_combined_for_display_but_keeps_category_limits():
     five_cutoff_split = de_minimis_allowance_breakdown(
         rice_employee, worked_days=5, cutoff_count=5
     )
-    assert four_cutoff_split == (625, 375)
-    assert five_cutoff_split == (500, 500)
+    assert four_cutoff_split == (1000, 0)
+    assert five_cutoff_split == (1000, 0)
+    assert de_minimis_allowance_breakdown(
+        rice_employee,
+        worked_days=5,
+        cutoff_count=5,
+        rice_monthly_used=2000,
+    ) == (500, 500)
     assert compute_weekly_employer_deductions(600 * 6 * 4, weeks=4) == {
         "sss": 362.5,
         "sss_ec": 2.5,

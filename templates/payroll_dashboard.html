@@ -178,7 +178,7 @@
                     <th>Deductions</th>
                     <th>Net Pay</th>
                     <th>Outstanding Loan</th>
-                    <th>Loan Deduction This Cutoff</th>
+                    <th>Company Loan Deduction This Cutoff</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -233,10 +233,10 @@
                     <td>₱{{ p.deductions|currency }}</td>
                     <td><strong>₱{{ p.net_pay|currency }}</strong></td>
                     <td>
-                        <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}">
+                        <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}" {% if p.is_paid %}disabled{% endif %}>
                     </td>
                     <td>
-                        <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}">
+                        <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}" {% if p.is_paid %}disabled{% endif %}>
                     </td>
                     <td>
                         <button type="submit"

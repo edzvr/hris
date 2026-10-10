@@ -93,11 +93,6 @@
             Eligible for Service Incentive Leave (SIL)
         </label>
         <p>Remaining SIL credits: <strong>{{ emp.sil_credits or 0 }} day(s)</strong></p>
-        <label>
-            Loan deduction this cutoff:
-            <input type="number" name="loan_deduction" min="0" step="0.01"
-                     value="{{ "%.2f"|format(loan_deduction or 0) }}">
-        </label>
         <p>Outstanding loan balance: <strong>₱{{ "%.2f"|format(emp.loan_balance or 0) }}</strong></p>
         <button type="submit" class="btn">Save SIL Eligibility</button>
     </form>
@@ -193,6 +188,11 @@
 {% if payslip %}
 <div class="section">
     <h3>Detailed Payslip</h3>
+    {% if can_manage_payroll %}
+    <form method="POST" action="{{ url_for('payroll', employee_id=emp.id) }}">
+        <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+        <input type="hidden" name="save_payroll" value="1">
+    {% endif %}
     <table border="1" cellpadding="8" cellspacing="0" style="width:100%; border-collapse:collapse;">
         <tr>
             <th colspan="3" style="background:#f0f0f0;">Earnings</th>
@@ -220,7 +220,7 @@
                 <small>(Exempt ₱{{ "%.2f"|format(payslip.rice_allowance_exempt) }};
                     taxable ₱{{ "%.2f"|format(payslip.rice_allowance_taxable) }})</small>
             </td>
-            <td>₱{{ "%.2f"|format(payslip.rice_allowance_per_day) }} × {{ payslip.actual_worked_days }} days</td>
+            <td>₱{{ "%.2f"|format(payslip.rice_allowance_per_day) }} × {{ payslip.rice_allowance_days }} days</td>
             <td>₱{{ "%.2f"|format(payslip.rice_allowance) }}</td>
             <td>SSS</td>
             <td></td>
@@ -254,9 +254,20 @@
             <td>Rest Day</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.rest_day) }}</td>
-            <td>SSS Loan</td>
+            <td>Company Loan</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.sss_loan) }}</td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="loan_deduction" min="0" max="{{ emp.loan_balance or 0 }}"
+                       step="0.01" value="{{ "%.2f"|format(payslip.company_loan) }}"
+                       aria-label="Company loan deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.company_loan) }}
+                {% if can_manage_payroll %}
+                <small>Reopen payroll to edit.</small>
+                {% endif %}
+                {% endif %}
+            </td>
         </tr>
         <tr>
             <td></td>
@@ -307,6 +318,14 @@
             <td><strong>₱{{ "%.2f"|format(payslip.net_pay) }}</strong></td>
         </tr>
     </table>
+    {% if can_manage_payroll %}
+        {% if loan_editable %}
+        <button type="submit" class="btn">Save & Recalculate Payroll</button>
+        {% else %}
+        <p>Reopen this finalized payroll to edit and save the company loan deduction.</p>
+        {% endif %}
+    </form>
+    {% endif %}
 </div>
 {% endif %}
 

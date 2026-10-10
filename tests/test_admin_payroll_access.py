@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
 
+import hris
 from hris import app, ensure_employee_hr_columns
 from models import Employee, Payroll, db
 
@@ -123,6 +124,12 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert b'Keira Ronquillo' in response.data
         assert b'Finalize Payroll' in response.data
         assert b'Payroll Admin' not in response.data
+        assert f'name="loan_deduction_{karl_id}"'.encode() in response.data
+        assert f'name="loan_deduction_{keira_id}"'.encode() in response.data
+        assert b'Company Loan Deduction This Cutoff' in response.data
+        assert f'name="loan_deduction_{karl_id}"'.encode() in response.data
+        assert f'name="loan_deduction_{keira_id}"'.encode() in response.data
+        assert b'Company Loan Deduction This Cutoff' in response.data
     finally:
         with app.app_context():
             db.session.rollback()
@@ -130,6 +137,105 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
                 employee = db.session.get(Employee, employee_id)
                 if employee:
                     db.session.delete(employee)
+            db.session.commit()
+
+
+def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
+    cutoff_start = date(2026, 10, 3)
+    cutoff_end = cutoff_start + timedelta(days=6)
+    with app.app_context():
+        admin = Employee(first_name='Payroll', last_name='Editor', role='admin')
+        staff = Employee(
+            first_name='Payroll',
+            last_name='Loan Staff',
+            role='staff',
+            company='Trece-Uno',
+            daily_rate=600,
+            loan_balance=1000,
+        )
+        payroll = Payroll(
+            employee=staff,
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end,
+            loan=500,
+        )
+        db.session.add_all([admin, staff, payroll])
+        db.session.commit()
+        admin_id, staff_id, payroll_id = admin.id, staff.id, payroll.id
+
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+
+        payroll_url = f'/payroll/{staff_id}?cutoff_start={cutoff_start.isoformat()}'
+        response = client.get(payroll_url)
+        assert response.status_code == 200
+        assert b'name="loan_deduction"' in response.data
+        assert b'Save & Recalculate Payroll' in response.data
+
+        response = client.post(
+            f'/payroll/{staff_id}',
+            data={
+                'cutoff_start': cutoff_start.isoformat(),
+                'save_payroll': '1',
+                'loan_deduction': '300',
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        with app.app_context():
+            payroll = db.session.get(Payroll, payroll_id)
+            assert payroll.loan == 300
+            assert payroll.total_deductions == 300
+            assert payroll.net_pay == -300
+            assert payroll.is_paid is False
+
+        response = client.get(
+            f'/payroll/{staff_id}?finalize=true&cutoff_start={cutoff_start.isoformat()}'
+        )
+        assert response.status_code == 200
+        assert b'name="loan_deduction"' not in response.data
+        assert b'Reopen this finalized payroll to edit and save' in response.data
+
+        monkeypatch.setattr(
+            hris,
+            'completed_cutoff',
+            lambda: (cutoff_start, cutoff_start + timedelta(days=7)),
+        )
+        response = client.post(f'/payroll/{staff_id}/reopen')
+        assert response.status_code == 302
+        response = client.get(payroll_url)
+        assert response.status_code == 200
+        assert b'name="loan_deduction"' in response.data
+
+        client.post(
+            f'/payroll/{staff_id}',
+            data={
+                'cutoff_start': cutoff_start.isoformat(),
+                'save_payroll': '1',
+                'loan_deduction': '450',
+            },
+            follow_redirects=True,
+        )
+        with app.app_context():
+            payroll = db.session.get(Payroll, payroll_id)
+            assert payroll.loan == 450
+            assert payroll.total_deductions == 450
+            assert payroll.net_pay == -450
+            assert payroll.is_paid is False
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            payroll = db.session.get(Payroll, payroll_id)
+            staff = db.session.get(Employee, staff_id)
+            admin = db.session.get(Employee, admin_id)
+            if payroll:
+                db.session.delete(payroll)
+            if staff:
+                db.session.delete(staff)
+            if admin:
+                db.session.delete(admin)
             db.session.commit()
 
 

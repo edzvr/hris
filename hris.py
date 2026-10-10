@@ -4578,8 +4578,14 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         )
         worked_days_count = payroll_worked_days_count(emp, attendance)
         weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        rice_days, rice_monthly_used = rice_allowance_month_context(
+            emp, cutoff_start, worked_days_count
+        )
         rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
-            emp, worked_days_count, weeks_in_month
+            emp,
+            rice_days,
+            weeks_in_month,
+            rice_monthly_used=rice_monthly_used,
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + overtime_pay
         contribution_salary = basic_pay + rice_taxable
@@ -6027,16 +6033,48 @@ def de_minimis_monthly_ceiling():
     )
 
 
-def rice_allowance_breakdown(employee, worked_days, cutoff_count=4):
-    """Return the weekly rice subsidy split under the statutory monthly limit."""
+def rice_allowance_breakdown(
+    employee, worked_days, cutoff_count=4, monthly_used=0.0
+):
+    """Split this cutoff's rice subsidy against the remaining monthly limit."""
     configured_amount = getattr(employee, 'rice_allowance_per_day', None)
     amount = max(
         float(configured_amount or RICE_SUBSIDY_PER_DAY),
         0.0,
     )
     total = amount * max(float(worked_days or 0), 0.0)
-    cutoff_limit = RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT / max(cutoff_count, 1)
-    return split_allowance(total, cutoff_limit, True)
+    remaining_limit = max(
+        RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT
+        - max(float(monthly_used or 0), 0.0),
+        0.0,
+    )
+    return split_allowance(total, remaining_limit, True)
+
+
+def rice_allowance_month_context(employee, cutoff_start, worked_days):
+    """Return this cutoff's eligible rice days and earlier monthly rice amount."""
+    cutoff_starts = payroll_cutoff_dates_in_month(cutoff_start)
+    prior_days = 0
+    if cutoff_starts and cutoff_start > cutoff_starts[0]:
+        prior_attendance = payroll_attendance_records(
+            employee, cutoff_starts[0], cutoff_start
+        )
+        prior_days = payroll_worked_days_count(employee, prior_attendance)
+
+    configured_amount = getattr(employee, 'rice_allowance_per_day', None)
+    daily_amount = max(
+        float(configured_amount or RICE_SUBSIDY_PER_DAY),
+        0.0,
+    )
+    if str(getattr(employee, 'company', '') or '').lower().startswith('trece'):
+        prior_days = min(prior_days, 26)
+        current_days = min(
+            max(float(worked_days or 0), 0.0),
+            max(26 - prior_days, 0),
+        )
+    else:
+        current_days = max(float(worked_days or 0), 0.0)
+    return current_days, prior_days * daily_amount
 
 
 def other_de_minimis_monthly_total(employee):
@@ -6046,9 +6084,16 @@ def other_de_minimis_monthly_total(employee):
     )
 
 
-def de_minimis_allowance_breakdown(employee, worked_days, cutoff_count=4):
+def de_minimis_allowance_breakdown(
+    employee, worked_days, cutoff_count=4, rice_monthly_used=0.0
+):
     """Return total exempt and taxable portions for configured de minimis benefits."""
-    exempt, taxable = rice_allowance_breakdown(employee, worked_days, cutoff_count)
+    exempt, taxable = rice_allowance_breakdown(
+        employee,
+        worked_days,
+        cutoff_count,
+        monthly_used=rice_monthly_used,
+    )
     for field, monthly_ceiling in OTHER_DE_MINIMIS_MONTHLY_LIMITS.items():
         amount = max(float(getattr(employee, field, 0) or 0), 0.0) / max(cutoff_count, 1)
         category_exempt, category_taxable = split_allowance(
@@ -6148,7 +6193,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     philhealth = float(payroll_record.philhealth or 0)
     pagibig = float(payroll_record.pagibig or 0)
     withholding_tax = float(payroll_record.withholding_tax or 0)
-    sss_loan = float(payroll_record.loan or 0)
+    company_loan = float(payroll_record.loan or 0)
     liability_deduction = float(payroll_record.liability_deduction or 0)
     hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
@@ -6158,10 +6203,14 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         float(getattr(emp, "rice_allowance_per_day", None) or RICE_SUBSIDY_PER_DAY),
         0.0,
     )
+    rice_days, rice_monthly_used = rice_allowance_month_context(
+        emp, payroll_record.cutoff_start, worked_days_count
+    )
     rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
         emp,
-        worked_days_count,
+        rice_days,
         payroll_cutoffs_in_month(payroll_record.cutoff_start),
+        rice_monthly_used=rice_monthly_used,
     )
     incentives = float(emp.incentives or 0)
     regular_overtime = overtime_amounts["regular_overtime"]
@@ -6178,7 +6227,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     gross_pay = round(gross_income + rice_exempt, 2)
     adjustment = round(gross_pay - (itemized_earnings - late_ut), 2)
     known_deductions = (
-        late_ut + sss + philhealth + pagibig + sss_loan
+        late_ut + sss + philhealth + pagibig + company_loan
         + liability_deduction + hdmf_loan + cash_advance + withholding_tax
     )
     total_deductions = float(
@@ -6196,6 +6245,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "allowance": allowance,
         "rice_allowance": rice_taxable + rice_exempt,
         "rice_allowance_per_day": rice_allowance_per_day,
+        "rice_allowance_days": rice_days,
         "rice_allowance_exempt": rice_exempt,
         "rice_allowance_taxable": rice_taxable,
         "incentives": incentives,
@@ -6214,7 +6264,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "philhealth": philhealth,
         "pagibig": pagibig,
         "withholding_tax": withholding_tax,
-        "sss_loan": sss_loan,
+        "company_loan": company_loan,
         "liability_deduction": liability_deduction,
         "hdmf_loan": hdmf_loan,
         "cash_advance": cash_advance,
@@ -6243,7 +6293,7 @@ def weekly_payslip_table_data(payslip):
         ["De Minimis (Taxable)", "", amount("rice_allowance_taxable"), "", "", ""],
         ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
-        ["Regular Holiday Pay", "", amount("regular_holiday"), "Loan Deduction", "", amount("sss_loan")],
+        ["Regular Holiday Pay", "", amount("regular_holiday"), "Company Loan", "", amount("company_loan")],
         ["Regular OT", f'{payslip["regular_overtime_hours"]:.2f}', amount("regular_overtime"), "Liability Deduction", "", amount("liability_deduction")],
         ["Sunday OT", f'{payslip["sunday_overtime_hours"]:.2f}', amount("sunday_overtime"), "Cash Advance", "", amount("cash_advance")],
         ["Rest Day OT", f'{payslip["rest_day_overtime_hours"]:.2f}', amount("rest_day"), "Other Deductions", "", amount("other_deductions")],
@@ -6321,6 +6371,37 @@ def payroll(employee_id):
                 cutoff_start=start_cutoff.date(),
                 cutoff_end=(end_cutoff - timedelta(days=1)).date()
             ).first()
+            try:
+                requested_deduction = float(loan_deduction_input)
+            except ValueError:
+                db.session.rollback()
+                flash("Enter a valid company loan deduction.", "danger")
+                return redirect(url_for(
+                    'payroll',
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
+            if requested_deduction < 0:
+                db.session.rollback()
+                flash("Company loan deduction cannot be negative.", "danger")
+                return redirect(url_for(
+                    'payroll',
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
+            if payroll_record and (
+                payroll_record.is_paid or payroll_record.loan_deduction_applied
+            ):
+                db.session.rollback()
+                flash(
+                    "Reopen this payroll before changing its company loan deduction.",
+                    "warning",
+                )
+                return redirect(url_for(
+                    'payroll',
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
             if payroll_record is None:
                 payroll_record = Payroll(
                     employee_id=emp.id,
@@ -6329,16 +6410,30 @@ def payroll(employee_id):
                 )
                 db.session.add(payroll_record)
             payroll_record.loan = loan_cutoff_deduction(
-                emp.loan_balance, float(loan_deduction_input)
+                emp.loan_balance, requested_deduction
             )
+            save_payroll = request.form.get('save_payroll') == '1'
+        else:
+            save_payroll = False
 
         sil_eligible_input = request.form.get('sil_eligible')
         if sil_eligible_input is not None:
             emp.sil_eligible = sil_eligible_input == '1'
 
         db.session.commit()
+        if save_payroll:
+            return redirect(url_for(
+                'payroll',
+                employee_id=employee_id,
+                cutoff_start=cutoff_start.isoformat(),
+                save='true',
+            ))
         flash("✅ Payroll updated successfully!", "success")
-        return redirect(url_for('payroll', employee_id=employee_id))
+        return redirect(url_for(
+            'payroll',
+            employee_id=employee_id,
+            cutoff_start=cutoff_start.isoformat(),
+        ))
 
     # Compute payroll
     paid_attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
@@ -6352,8 +6447,14 @@ def payroll(employee_id):
         if attendance.ot_status == 'Approved'
     )
     weeks_in_month = payroll_cutoffs_in_month(start_cutoff.date())
+    rice_days, rice_monthly_used = rice_allowance_month_context(
+        emp, start_cutoff.date(), worked_days_count
+    )
     rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
-        emp, worked_days_count, weeks_in_month
+        emp,
+        rice_days,
+        weeks_in_month,
+        rice_monthly_used=rice_monthly_used,
     )
 
     cutoff_salary = sum(
@@ -6424,6 +6525,17 @@ def payroll(employee_id):
     payroll_record.loan = loan
     payroll_record.liability_deduction = liability_deduction
     payroll_record.cash_advance = 0.0
+    if request.args.get('save') == 'true':
+        if payroll_record.is_paid or payroll_record.loan_deduction_applied:
+            flash(
+                "Reopen this payroll before saving changes to the company loan.",
+                "warning",
+            )
+        else:
+            if payroll_record.id is None:
+                db.session.add(payroll_record)
+            db.session.commit()
+            flash("Company loan and payroll totals were saved.", "success")
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
             db.session.add(payroll_record)
@@ -6510,6 +6622,11 @@ def payroll(employee_id):
          history=history,
          payslip=payslip,
             loan_deduction=loan,
+         cutoff_start=cutoff_start,
+         can_manage_payroll=has_payroll_access,
+         loan_editable=not (
+             payroll_record.is_paid or payroll_record.loan_deduction_applied
+         ),
          selected_year=None,
          years=[],
          now=datetime.now())
@@ -6891,12 +7008,26 @@ def payroll_dashboard():
                 if loan_balance is not None:
                     emp.loan_balance = max(float(loan_balance), 0)
                 if loan_deduction is not None:
-                    requested_deduction = max(float(loan_deduction), 0)
                     payroll_record = Payroll.query.filter_by(
                         employee_id=emp.id,
                         cutoff_start=start_cutoff.date(),
                         cutoff_end=(end_cutoff - timedelta(days=1)).date()
                     ).first()
+                    if payroll_record and (
+                        payroll_record.is_paid
+                        or payroll_record.loan_deduction_applied
+                    ):
+                        db.session.rollback()
+                        flash(
+                            f"Reopen {emp.first_name} {emp.last_name}'s payroll "
+                            "before changing the company loan deduction.",
+                            'warning',
+                        )
+                        return redirect(url_for(
+                            'payroll_dashboard',
+                            cutoff_start=cutoff_start.isoformat(),
+                        ))
+                    requested_deduction = max(float(loan_deduction), 0)
                     if payroll_record is None:
                         payroll_record = Payroll(
                             employee_id=emp.id,
@@ -6965,8 +7096,14 @@ def payroll_dashboard():
             if attendance.ot_status == 'Approved'
         )
         weeks_in_month = payroll_cutoffs_in_month(cutoff_start)
+        rice_days, rice_monthly_used = rice_allowance_month_context(
+            emp, cutoff_start, worked_days_count
+        )
         rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
-            emp, worked_days_count, weeks_in_month
+            emp,
+            rice_days,
+            weeks_in_month,
+            rice_monthly_used=rice_monthly_used,
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + approved_ot_pay
 
