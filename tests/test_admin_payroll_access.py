@@ -277,7 +277,15 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
             status='No In / No Out',
             hours=0,
         )
-        db.session.add_all([admin, staff, complete, missing_punch])
+        lunch_punch = Attendance(
+            employee=staff,
+            date=cutoff_start + timedelta(days=2),
+            clock_in=datetime(2026, 10, 5, 7, 34),
+            clock_out=datetime(2026, 10, 5, 12, 46),
+            status='Present',
+            hours=4.43,
+        )
+        db.session.add_all([admin, staff, complete, missing_punch, lunch_punch])
         db.session.commit()
         admin_id, staff_id = admin.id, staff.id
 
@@ -292,6 +300,8 @@ def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches
         assert b'Attendance Report by Cutoff' in response.data
         assert b'Attendance Report Staff' in response.data
         assert b'15' in response.data
+        assert b'<td>4.00</td>' in response.data
+        assert b'<td>Yes</td>' in response.data
         assert b'No In / No Out' not in response.data
         assert b'No In' in response.data
         assert b'No Out' in response.data

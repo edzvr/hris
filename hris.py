@@ -2203,13 +2203,21 @@ def parse_ngteco_timecard(upload):
 def biometric_work_hours(clock_in, clock_out):
     if not clock_in or not clock_out:
         return None
+    workday_start = datetime.combine(clock_in.date(), time(8, 0))
     lunch_start = datetime.combine(clock_in.date(), time(12, 0))
     lunch_end = datetime.combine(clock_in.date(), time(13, 0))
-    lunch_overlap = max(
-        min(clock_out, lunch_end) - max(clock_in, lunch_start),
+    morning_hours = max(
+        min(clock_out, lunch_start) - max(clock_in, workday_start),
         timedelta(),
     )
-    return round(max((clock_out - clock_in - lunch_overlap).total_seconds(), 0) / 3600, 2)
+    afternoon_hours = max(
+        clock_out - max(clock_in, lunch_end),
+        timedelta(),
+    )
+    return round(
+        min((morning_hours + afternoon_hours).total_seconds() / 3600, 8.0),
+        2,
+    )
 
 
 def can_prepare_payroll(user):

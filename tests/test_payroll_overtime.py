@@ -6,6 +6,7 @@ from unittest.mock import patch
 from hris import (
     app,
     apply_overtime_details,
+    biometric_work_hours,
     build_payslip_breakdown,
     de_minimis_allowance_breakdown,
     holiday_multiplier,
@@ -352,6 +353,33 @@ def test_regular_day_pay_deducts_unpaid_lunch_and_prorates_half_day():
         hours=5,
         clock_in=datetime(2026, 9, 14, 8, 0),
         clock_out=datetime(2026, 9, 14, 13, 0),
+    )
+
+    with app.app_context(), patch("hris.Holiday.query") as holidays:
+        holidays.filter_by.return_value.first.return_value = None
+        pay = regular_day_pay(attendance, 600)
+
+    assert pay == 300
+
+
+def test_regular_hours_ignore_early_clock_in_and_unpaid_lunch_period():
+    early_clock_in = datetime(2026, 9, 14, 7, 34)
+    just_after_noon = datetime(2026, 9, 14, 12, 46)
+    after_lunch = datetime(2026, 9, 14, 13, 30)
+
+    assert biometric_work_hours(early_clock_in, just_after_noon) == 4.0
+    assert biometric_work_hours(
+        early_clock_in, datetime(2026, 9, 14, 13, 0)
+    ) == 4.0
+    assert biometric_work_hours(early_clock_in, after_lunch) == 4.5
+
+
+def test_regular_day_pay_applies_half_day_pay_when_early_punch_out_is_during_lunch():
+    attendance = SimpleNamespace(
+        date=date(2026, 9, 14),
+        hours=4.43,
+        clock_in=datetime(2026, 9, 14, 7, 34),
+        clock_out=datetime(2026, 9, 14, 12, 46),
     )
 
     with app.app_context(), patch("hris.Holiday.query") as holidays:
