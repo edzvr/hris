@@ -28,6 +28,38 @@
         </form>
     </main>
     <section class="section">
+        <h3>Monthly Employee Contribution Summary (Government Portal Guide)</h3>
+        <p>For each employee, this adds the saved contribution bases and employee/employer shares from finalized cutoffs whose start date falls in the selected month. SSS MSC, PhilHealth base, and Pag-IBIG fund salary show the applicable capped/rounded bases using the current system schedule. EE/ER amounts are sums actually calculated for those cutoffs. Older cutoffs with no saved salary basis are marked N/A. Verify against the latest agency portal schedule before payment.</p>
+        <table style="min-width:1450px">
+            <tr>
+                <th>Employee / Company</th><th>Cutoffs</th><th>Monthly Attendance-Adjusted Base</th>
+                <th>Gross Earnings (incl. OT)</th>
+                <th>SSS MSC</th><th>SSS EE</th><th>SSS ER + EC</th>
+                <th>PhilHealth Base</th><th>PhilHealth EE</th><th>PhilHealth ER</th>
+                <th>Pag-IBIG Fund Salary</th><th>Pag-IBIG EE</th><th>Pag-IBIG ER</th>
+            </tr>
+            {% for row in monthly_employee_rows %}
+            <tr>
+                <td>{{ row.employee.full_name() }} / {{ 'Trece-Uno Auto Supply' if row.employee.company and row.employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</td>
+                <td>{{ row.cutoff_count }}</td>
+                <td>{{ 'N/A (older cutoff missing basis)' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.contribution_salary_base) }}</td>
+                <td>PHP {{ '%.2f'|format(row.gross_income) }}</td>
+                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.sss_msc) }}</td>
+                <td>PHP {{ '%.2f'|format(row.sss) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_sss + row.employer_sss_ec) }}</td>
+                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.philhealth_base) }}</td>
+                <td>PHP {{ '%.2f'|format(row.philhealth) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_philhealth) }}</td>
+                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.pagibig_base) }}</td>
+                <td>PHP {{ '%.2f'|format(row.pagibig) }}</td>
+                <td>PHP {{ '%.2f'|format(row.employer_pagibig) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="13">No finalized payroll contributions for this month.</td></tr>
+            {% endfor %}
+        </table>
+    </section>
+    <section class="section">
         <h3>Employee Share (EE deductions from salary)</h3>
         <p>Cutoff Base is the attendance-adjusted statutory salary basis for that weekly cutoff. The monthly salary base totals those finalized cutoff bases for this report month. Older finalized cutoffs may show N/A if their basis was not saved; portal totals exclude unavailable employer shares for those rows.</p>
         <table>

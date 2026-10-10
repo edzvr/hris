@@ -1444,6 +1444,60 @@ def monthly_deductions():
         Payroll.is_paid.is_(True),
     ).order_by(Employee.company, Employee.last_name, Payroll.cutoff_start).all()
 
+    monthly_by_employee = {}
+    for record, employee in rows:
+        monthly_row = monthly_by_employee.setdefault(employee.id, {
+            'employee': employee,
+            'cutoff_count': 0,
+            'has_missing_contribution_basis': False,
+            'gross_income': 0.0,
+            'contribution_salary_base': 0.0,
+            'sss': 0.0,
+            'philhealth': 0.0,
+            'pagibig': 0.0,
+            'total_ee': 0.0,
+            'employer_sss': 0.0,
+            'employer_sss_ec': 0.0,
+            'employer_philhealth': 0.0,
+            'employer_pagibig': 0.0,
+        })
+        monthly_row['cutoff_count'] += 1
+        monthly_row['has_missing_contribution_basis'] |= (
+            record.contribution_salary_base is None
+        )
+        monthly_row['contribution_salary_base'] += float(
+            record.contribution_salary_base or 0
+        )
+        monthly_row['gross_income'] += float(record.gross_income or 0)
+        for key in (
+            'sss', 'philhealth', 'pagibig', 'employer_sss',
+            'employer_sss_ec', 'employer_philhealth', 'employer_pagibig',
+        ):
+            monthly_row[key] += float(getattr(record, key) or 0)
+        monthly_row['total_ee'] += sum(
+            float(getattr(record, key) or 0)
+            for key in ('sss', 'philhealth', 'pagibig')
+        )
+    for monthly_row in monthly_by_employee.values():
+        base = monthly_row['contribution_salary_base']
+        has_basis = not monthly_row['has_missing_contribution_basis'] and base > 0
+        monthly_row['sss_msc'] = (
+            min(max(int((base + 250) // 500) * 500, 5000), 35000)
+            if has_basis else 0.0
+        )
+        monthly_row['philhealth_base'] = (
+            min(max(base, 10000), 100000) if has_basis else 0.0
+        )
+        monthly_row['pagibig_base'] = min(base, 10000) if has_basis else 0.0
+    monthly_employee_rows = sorted(
+        monthly_by_employee.values(),
+        key=lambda row: (
+            row['employee'].company or '',
+            row['employee'].last_name or '',
+            row['employee'].first_name or '',
+        ),
+    )
+
     employer_rows = []
     for record, employee in rows:
         employer_rows.append({
@@ -1482,6 +1536,65 @@ def monthly_deductions():
         pdf = canvas.Canvas(buffer, pagesize=(792, 612))
         pdf.setFont('Helvetica-Bold', 15)
         pdf.drawString(40, 575, 'MONTHLY DEDUCTION REPORT')
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(40, 555, f'Employee contribution bases and deductions: {month_start.strftime("%B %Y")}')
+        pdf.setFont('Helvetica-Bold', 8)
+        employee_headers = (
+            (35, 'Employee / Company'),
+            (210, 'Gross incl OT'),
+            (300, 'Contrib. Base'),
+            (385, 'SSS MSC'),
+            (435, 'SSS EE'),
+            (485, 'PH Base'),
+            (535, 'PH EE'),
+            (590, 'HDMF Base'),
+            (640, 'HDMF EE'),
+            (690, 'ER Total'),
+        )
+        for x, header in employee_headers:
+            pdf.drawString(x, 530, header)
+        y = 512
+        pdf.setFont('Helvetica', 7)
+        for monthly_row in monthly_employee_rows:
+            if y < 65:
+                pdf.showPage()
+                y = 570
+                pdf.setFont('Helvetica-Bold', 8)
+                for x, header in employee_headers:
+                    pdf.drawString(x, y, header)
+                y -= 18
+                pdf.setFont('Helvetica', 7)
+            monthly_employee = monthly_row['employee']
+            pdf.drawString(
+                35,
+                y,
+                f'{monthly_employee.full_name()} / {payroll_company_name(monthly_employee)}'[:32],
+            )
+            pdf.drawRightString(275, y, f'{monthly_row["gross_income"]:,.2f}')
+            if monthly_row['has_missing_contribution_basis']:
+                base_values = ('N/A', 'N/A', 'N/A', 'N/A')
+            else:
+                base_values = (
+                    f'{monthly_row["contribution_salary_base"]:,.2f}',
+                    f'{monthly_row["sss_msc"]:,.0f}',
+                    f'{monthly_row["philhealth_base"]:,.2f}',
+                    f'{monthly_row["pagibig_base"]:,.2f}',
+                )
+            for x, value in zip((375, 425, 525, 630), base_values):
+                pdf.drawRightString(x, y, value)
+            for x, key in ((475, 'sss'), (575, 'philhealth'), (680, 'pagibig')):
+                pdf.drawRightString(x, y, f'{monthly_row[key]:,.2f}')
+            employer_total = sum(
+                monthly_row[key] for key in (
+                    'employer_sss', 'employer_sss_ec',
+                    'employer_philhealth', 'employer_pagibig',
+                )
+            )
+            pdf.drawRightString(750, y, f'{employer_total:,.2f}')
+            y -= 13
+        pdf.showPage()
+        pdf.setFont('Helvetica-Bold', 15)
+        pdf.drawString(40, 575, 'MONTHLY DEDUCTION CUTOFF DETAILS')
         pdf.setFont('Helvetica', 10)
         pdf.drawString(40, 555, f'Period: {month_start.strftime("%B %Y")} - finalized weekly cutoffs')
         y = 525
@@ -1560,7 +1673,14 @@ def monthly_deductions():
         pdf.save()
         buffer.seek(0)
         return send_file(buffer, as_attachment=True, download_name=f'monthly_deductions_{month_start:%Y_%m}.pdf', mimetype='application/pdf')
-    return render_template('monthly_deductions.html', rows=rows, employer_rows=employer_rows, totals=totals, month_start=month_start)
+    return render_template(
+        'monthly_deductions.html',
+        rows=rows,
+        employer_rows=employer_rows,
+        monthly_employee_rows=monthly_employee_rows,
+        totals=totals,
+        month_start=month_start,
+    )
 
 
 @app.route('/forgot_password', methods=['GET', 'POST'])
@@ -1828,20 +1948,21 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
                 "branch": "N/A",
             })
             continue
-        expected_end = time(12, 0) if (
+        is_trece_sunday = (
             log.date.weekday() == 6
             and str(employee.company or '').lower().startswith('trece')
-        ) else time(17, 0)
+        )
+        scheduled_hours = 4.0 if is_trece_sunday else 8.0
         hours_worked = (
-            (log.clock_out - log.clock_in).total_seconds() / 3600
-            if log.clock_in and log.clock_out else 0
+            biometric_work_hours(log.clock_in, log.clock_out)
+            if log.clock_in and log.clock_out else 0.0
         )
         attendance_status = (
             "No In / No Out" if not log.clock_in and not log.clock_out
             else "No In" if not log.clock_in
             else "No Out" if not log.clock_out
-            else f"{log.status} / Half-day" if log.status == "Late" and hours_worked < 4
-            else "Half-day" if hours_worked < 4
+            else f"{log.status} / Half-day" if log.status == "Late" and hours_worked <= 4
+            else "Half-day" if hours_worked <= 4
             else log.status
         )
         rows.append({
@@ -1850,10 +1971,9 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
             "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
             "status": attendance_status,
             "hours": hours_worked,
-            "undertime_hours": max(
-                (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
-                0,
-            ) if log.clock_out else 0,
+            "undertime_hours": round(
+                max(scheduled_hours - hours_worked, 0.0), 2
+            ) if log.clock_in and log.clock_out else 0,
             "ot": (
                 f"{log.ot_status} ({float(log.overtime_hours or 0):.2f} h)"
                 if float(log.overtime_hours or 0) > 0 else ""
@@ -2675,21 +2795,23 @@ def attendance(employee_id):
     total_absent = sum(record["status"] == "Absent" for record in dtr_records)
     total_days = sum(record["status"] != "Rest Day" for record in dtr_records)
 
-    total_hours = sum(((log.clock_out - log.clock_in).seconds / 3600)
-                      for log in history if log.clock_in and log.clock_out)
+    total_hours = sum(
+        biometric_work_hours(log.clock_in, log.clock_out)
+        for log in history if log.clock_in and log.clock_out
+    )
     valid_days = sum(1 for log in history if log.clock_in and log.clock_out)
     avg_hours = total_hours / valid_days if valid_days else 0
     total_undertime_hours = 0.0
     for log in history:
         if not log.clock_out:
             continue
-        expected_end = time(12, 0) if (
+        scheduled_hours = 4.0 if (
             log.date.weekday() == 6
             and str(emp.company or '').lower().startswith('trece')
-        ) else time(17, 0)
+        ) else 8.0
         total_undertime_hours += max(
-            (datetime.combine(log.date, expected_end) - log.clock_out).total_seconds() / 3600,
-            0,
+            scheduled_hours - biometric_work_hours(log.clock_in, log.clock_out),
+            0.0,
         )
 
     punctuality_score = (total_present / total_days) * 50 if total_days else 0
@@ -2740,7 +2862,10 @@ def attendance(employee_id):
         y -= 20
         pdf.setFont("Helvetica", 10)
         for log in history:
-            hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
+            hours_worked = (
+                biometric_work_hours(log.clock_in, log.clock_out)
+                if log.clock_in and log.clock_out else 0
+            )
             line = f"{log.date.strftime('%Y-%m-%d')} | {log.clock_in.strftime('%H:%M:%S') if log.clock_in else 'N/A'} | {log.clock_out.strftime('%H:%M:%S') if log.clock_out else 'N/A'} | {log.status} | {hours_worked:.2f} | {getattr(log, 'company', 'N/A')}"
             pdf.drawString(50, y, line)
             y -= 20
@@ -2791,7 +2916,10 @@ def attendance(employee_id):
         writer = csv.writer(output)
         writer.writerow(["Date","Clock In","Clock Out","Status","Hours","Branch"])
         for log in filtered:
-            hours_worked = (log.clock_out - log.clock_in).seconds / 3600 if log.clock_in and log.clock_out else 0
+            hours_worked = (
+                biometric_work_hours(log.clock_in, log.clock_out)
+                if log.clock_in and log.clock_out else 0
+            )
             writer.writerow([log.date, log.clock_in, log.clock_out, log.status, f"{hours_worked:.2f}", getattr(log, "company", "N/A")])
 
         response = make_response(output.getvalue())
@@ -3763,7 +3891,14 @@ def eligible_for_regular_holiday_pay(attendance):
 
 def regular_day_pay(attendance, daily_rate):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    regular_hours = min(max(float(attendance.hours or 0), 0.0), 8.0)
+    clock_in = getattr(attendance, 'clock_in', None)
+    clock_out = getattr(attendance, 'clock_out', None)
+    recorded_hours = (
+        biometric_work_hours(clock_in, clock_out)
+        if clock_in and clock_out
+        else float(attendance.hours or 0)
+    )
+    regular_hours = min(max(float(recorded_hours or 0), 0.0), 8.0)
     prorated_daily_rate = daily_rate * (regular_hours / 8.0) if regular_hours else 0.0
     is_restday = attendance.date.weekday() == 6
     if holiday and holiday.holiday_type == 'Regular Holiday':
@@ -5649,7 +5784,7 @@ def attendance_action(employee_id):
         ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
         if log:
             log.clock_out = event_now
-            log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+            log.hours = biometric_work_hours(log.clock_in, log.clock_out)
             apply_overtime_details(log)
             db.session.commit()
             notify_attendance_event(emp, "clockout", event_now)
@@ -5701,7 +5836,7 @@ def attendance_api(employee_id):
             ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
             if log:
                 log.clock_out = event_now
-                log.hours = round((log.clock_out - log.clock_in).total_seconds() / 3600, 2)
+                log.hours = biometric_work_hours(log.clock_in, log.clock_out)
                 apply_overtime_details(log)
                 db.session.commit()
                 notify_attendance_event(emp, "clockout", event_now)
@@ -5805,7 +5940,10 @@ def review_attendance_correction(correction_id, action):
         )
         attendance_record.status = attendance_status(attendance_record.clock_in)
         attendance_record.hours = (
-            round((attendance_record.clock_out - attendance_record.clock_in).total_seconds() / 3600, 2)
+            biometric_work_hours(
+                attendance_record.clock_in,
+                attendance_record.clock_out,
+            )
             if attendance_record.clock_out else None
         )
         correction.attendance = attendance_record

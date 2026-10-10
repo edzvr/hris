@@ -143,6 +143,36 @@ def test_trece_sunday_does_not_add_rest_day_to_basic_pay():
     assert pay == 0
 
 
+def test_regular_day_pay_deducts_unpaid_lunch_and_prorates_half_day():
+    attendance = SimpleNamespace(
+        date=date(2026, 9, 14),
+        hours=5,
+        clock_in=datetime(2026, 9, 14, 8, 0),
+        clock_out=datetime(2026, 9, 14, 13, 0),
+    )
+
+    with app.app_context(), patch("hris.Holiday.query") as holidays:
+        holidays.filter_by.return_value.first.return_value = None
+        pay = regular_day_pay(attendance, 600)
+
+    assert pay == 300
+
+
+def test_regular_day_pay_uses_clock_times_for_undertime():
+    attendance = SimpleNamespace(
+        date=date(2026, 9, 14),
+        hours=8,
+        clock_in=datetime(2026, 9, 14, 8, 0),
+        clock_out=datetime(2026, 9, 14, 16, 0),
+    )
+
+    with app.app_context(), patch("hris.Holiday.query") as holidays:
+        holidays.filter_by.return_value.first.return_value = None
+        pay = regular_day_pay(attendance, 600)
+
+    assert pay == 525
+
+
 def test_payroll_counts_only_one_completed_attendance_per_date():
     earlier_record = SimpleNamespace(id=1, date=date(2026, 9, 12))
     later_record = SimpleNamespace(id=2, date=date(2026, 9, 12))
