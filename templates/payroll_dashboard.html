@@ -173,6 +173,8 @@
                     <th>SSS</th>
                     <th>PhilHealth</th>
                     <th>Pag-IBIG</th>
+                    <th>SSS Loan</th>
+                    <th>Pag-IBIG Loan</th>
                     <th>Withholding Tax</th>
                     <th>Liability</th>
                     <th>Deductions</th>
@@ -185,7 +187,7 @@
             <tbody>
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label payroll-section"><td colspan="18">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <tr class="section-label payroll-section"><td colspan="20">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
                 {% endif %}
                 <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
                     <td>
@@ -228,6 +230,8 @@
                     <td>₱{{ p.sss|currency }}</td>
                     <td>₱{{ p.philhealth|currency }}</td>
                     <td>₱{{ p.pagibig|currency }}</td>
+                    <td>₱{{ p.sss_loan|currency }}</td>
+                    <td>₱{{ p.pagibig_loan|currency }}</td>
                     <td>₱{{ p.withholding_tax|currency }}</td>
                     <td>₱{{ p.liability_deduction|currency }}</td>
                     <td>₱{{ p.deductions|currency }}</td>

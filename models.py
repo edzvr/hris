@@ -384,6 +384,8 @@ class Payroll(db.Model):
     pagibig_override = db.Column(db.Float, nullable=True)
     withholding_tax = db.Column(db.Float, default=0.0)
     loan = db.Column(db.Float, default=0.0)
+    sss_loan = db.Column(db.Float, default=0.0)
+    pagibig_loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)
     liability_deduction = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

@@ -42,11 +42,48 @@
                     <option value="Approved" {% if filter_status == 'Approved' %}selected{% endif %}>Approved</option>
                     <option value="Rejected" {% if filter_status == 'Rejected' %}selected{% endif %}>Rejected</option>
                 </select>
+                <label for="employee-search">Employee:</label>
+                <input id="employee-search" type="search" name="employee_search"
+                       value="{{ employee_search }}" placeholder="Search employee name">
                 <button type="submit" class="btn">Load Cutoff</button>
             </form>
         </div>
 
         <div class="table-wrap">
+        <h3>Attendance Report by Cutoff</h3>
+        <p>Includes attendance records with missing clock-in or clock-out punches, as well as late, undertime, half-day, and overtime details.</p>
+        <table>
+            <tr>
+                <th>Employee</th><th>Date</th><th>Clock In</th><th>Clock Out</th>
+                <th>Late (mins)</th><th>Regular Hours</th><th>Undertime (hrs)</th>
+                <th>Half-day</th><th>OT Hours</th><th>OT Status</th><th>Punch Exceptions</th>
+            </tr>
+            {% for row in attendance_report_rows %}
+            {% set att = row.attendance %}
+            <tr>
+                <td>{{ att.employee.first_name }} {{ att.employee.last_name }}</td>
+                <td>{{ att.date }}</td>
+                <td>{{ att.clock_in.strftime('%H:%M') if att.clock_in else 'Missing' }}</td>
+                <td>{{ att.clock_out.strftime('%H:%M') if att.clock_out else 'Missing' }}</td>
+                <td>{{ row.late_minutes if row.late_minutes else '—' }}</td>
+                <td>{{ "%.2f"|format(row.regular_hours) }}</td>
+                <td>{{ "%.2f"|format(row.undertime_hours) }}</td>
+                <td>{{ 'Yes' if row.half_day else 'No' }}</td>
+                <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
+                <td>{{ att.ot_status or 'Pending' }}</td>
+                <td>
+                    {% if row.missing_clock_in %}No In{% endif %}
+                    {% if row.missing_clock_in and row.missing_clock_out %} / {% endif %}
+                    {% if row.missing_clock_out %}No Out{% endif %}
+                    {% if not row.missing_clock_in and not row.missing_clock_out %}—{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11">No attendance records found for this cutoff and employee search.</td></tr>
+            {% endfor %}
+        </table>
+        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, employee_search=employee_search, export='attendance_csv') }}" class="btn">Export Attendance Report CSV</a>
+
         <h3>Employee OT Applications</h3>
         <table>
             <tr><th>Employee</th><th>Date</th><th>Requested Time</th><th>Reason</th><th>Status</th><th>Action</th></tr>
@@ -139,7 +176,7 @@
         </div>
         <br>
         <!-- Export button -->
-        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, export='csv') }}" class="btn">⬇ Export CSV</a>
+        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, employee_search=employee_search, export='csv') }}" class="btn">⬇ Export OT CSV</a>
         <!-- Back to Admin Dashboard -->
         <div style="text-align:center;">
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>

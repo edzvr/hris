@@ -227,9 +227,9 @@
             <td>₱{{ "%.2f"|format(payslip.sss) }}</td>
         </tr>
         <tr>
-            <td>Adjustment</td>
+            <td>Other Earnings / Adjustment</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.adjustment) }}</td>
+            <td>₱{{ "%.2f"|format(payslip.payslip_adjustment) }}</td>
             <td>PhilHealth</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.philhealth) }}</td>
@@ -238,7 +238,7 @@
             <td>Night Differential</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.night_differential) }}</td>
-            <td>HDMF</td>
+            <td>Pag-IBIG</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.pagibig) }}</td>
         </tr>
@@ -251,8 +251,8 @@
             <td></td>
         </tr>
         <tr>
-            <td>Rest Day</td>
-            <td></td>
+            <td>Rest Day OT</td>
+            <td>{{ "%.2f"|format(payslip.rest_day_overtime_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.rest_day) }}</td>
             <td>Company Loan</td>
             <td></td>
@@ -273,6 +273,38 @@
             <td></td>
             <td></td>
             <td></td>
+            <td>SSS Loan</td>
+            <td></td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="sss_loan" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.sss_loan) }}"
+                       aria-label="SSS loan deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.sss_loan) }}
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>Pag-IBIG Loan</td>
+            <td></td>
+            <td>
+                {% if can_manage_payroll and loan_editable %}
+                <input type="number" name="pagibig_loan" min="0" step="0.01"
+                       value="{{ '%.2f'|format(payslip.pagibig_loan) }}"
+                       aria-label="Pag-IBIG loan deduction this cutoff">
+                {% else %}
+                ₱{{ "%.2f"|format(payslip.pagibig_loan) }}
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td></td>
+            <td></td>
+            <td></td>
             <td>Recoverable Receivable / Liability</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.liability_deduction) }}</td>
@@ -281,9 +313,9 @@
             <td>Special Holiday</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.special_holiday) }}</td>
-            <td>HDMF Loan</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.hdmf_loan) }}</td>
+            <td></td>
+            <td></td>
         </tr>
         <tr>
             <td>Special Holiday OT</td>
@@ -322,7 +354,7 @@
         {% if loan_editable %}
         <button type="submit" class="btn">Save & Recalculate Payroll</button>
         {% else %}
-        <p>Reopen this finalized payroll to edit and save the company loan deduction.</p>
+        <p>Reopen this finalized payroll to edit and save loan deductions.</p>
         {% endif %}
     </form>
     {% endif %}

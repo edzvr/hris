@@ -49,27 +49,24 @@
                 <td>
                     <p>Worked Days: {{ payslip.actual_worked_days }} ({{ "%.2f"|format(payslip.basic_hours) }} regular hours)</p>
                     <p>Basic Pay: ₱{{ payslip.basic_pay|currency }}</p>
-                    <p>Weekly Allowance: ₱{{ payslip.allowance|currency }}</p>
-                    <p>De Minimis Allowances: ₱{{ payslip.rice_allowance|currency }}</p>
-                    <p>De Minimis Exempt: ₱{{ payslip.rice_allowance_exempt|currency }}</p>
-                    <p>De Minimis Taxable Excess: ₱{{ payslip.rice_allowance_taxable|currency }}</p>
-                    <p>Incentives: ₱{{ payslip.incentives|currency }}</p>
+                    <p>De Minimis: ₱{{ payslip.rice_allowance|currency }}</p>
                     <p>Rest Day Pay: ₱{{ payslip.rest_day_pay|currency }}</p>
                     <p>Special Holiday Pay: ₱{{ payslip.special_holiday|currency }}</p>
                     <p>Regular Holiday Pay: ₱{{ payslip.regular_holiday|currency }}</p>
                     <p>Regular OT ({{ "%.2f"|format(payslip.regular_overtime_hours) }} hrs): ₱{{ payslip.regular_overtime|currency }}</p>
-                    <p>Sunday OT ({{ "%.2f"|format(payslip.sunday_overtime_hours) }} hrs): ₱{{ payslip.sunday_overtime|currency }}</p>
                     <p>Rest Day OT ({{ "%.2f"|format(payslip.rest_day_overtime_hours) }} hrs): ₱{{ payslip.rest_day|currency }}</p>
                     <p>Special Holiday OT ({{ "%.2f"|format(payslip.special_holiday_overtime_hours) }} hrs): ₱{{ payslip.special_holiday_ot|currency }}</p>
                     <p>Regular Holiday OT ({{ "%.2f"|format(payslip.regular_holiday_overtime_hours) }} hrs): ₱{{ payslip.regular_holiday_ot|currency }}</p>
                     <p>Night Differential: ₱{{ payslip.night_differential|currency }}</p>
-                    <p>Adjustment: ₱{{ payslip.adjustment|currency }}</p>
+                    <p>Other Earnings / Adjustment: ₱{{ payslip.payslip_adjustment|currency }}</p>
                     <p><strong>Gross Pay: ₱{{ payslip.gross_pay|currency }}</strong></p>
                 </td>
                 <td>
                     <p>SSS: ₱{{ payslip.sss|currency }}</p>
                     <p>PhilHealth: ₱{{ payslip.philhealth|currency }}</p>
                     <p>Pag-IBIG: ₱{{ payslip.pagibig|currency }}</p>
+                    <p>SSS Loan: ₱{{ payslip.sss_loan|currency }}</p>
+                    <p>Pag-IBIG Loan: ₱{{ payslip.pagibig_loan|currency }}</p>
                     <p>Withholding Tax: ₱{{ payslip.withholding_tax|currency }}</p>
                     <p>Company Loan: ₱{{ payslip.company_loan|currency }}</p>
                     <p>Recoverable Receivable / Liability Deduction: ₱{{ payslip.liability_deduction|currency }}</p>

@@ -84,26 +84,34 @@ def test_weekly_payslip_table_is_itemized():
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth", "pagibig",
-            "withholding_tax", "company_loan", "liability_deduction",
+            "withholding_tax", "company_loan", "sss_loan", "pagibig_loan",
+            "liability_deduction",
             "cash_advance", "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
-            "other_deductions", "total_deductions", "net_pay",
+            "other_deductions", "total_deductions", "net_pay", "payslip_adjustment",
             "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
             "rest_day_overtime_hours", "special_holiday_overtime_hours",
             "regular_holiday_overtime_hours",
         )
     }
-    payslip["actual_worked_days"] = 6
+    payslip.update({
+        "actual_worked_days": 6,
+        "rest_day": 316.88,
+        "rest_day_overtime_hours": 2.5,
+    })
 
     labels = {cell for row in weekly_payslip_table_data(payslip) for cell in row}
 
     assert {
-        "Basic Pay", "Weekly Allowance", "Rest Day Pay",
+        "Basic Pay", "Other Earnings / Adjustment", "Rest Day Pay",
         "Special Holiday Pay", "Regular Holiday Pay", "Regular OT",
-        "De Minimis (Exempt)", "De Minimis (Taxable)",
+        "De Minimis", "Rest Day OT",
         "Late/Undertime/Half-day", "SSS", "PhilHealth", "Pag-IBIG",
+        "SSS Loan", "Pag-IBIG Loan",
         "Withholding Tax", "Company Loan", "GROSS PAY", "NET PAY",
     } <= labels
+    assert not {"Weekly Allowance", "Incentives", "De Minimis (Taxable)", "Sunday OT"} & labels
+    assert ["Rest Day OT", "2.50", "316.88", "Company Loan", "", "0.00"] in weekly_payslip_table_data(payslip)
 
 
 def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
@@ -114,10 +122,11 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth",
-            "pagibig", "withholding_tax", "company_loan", "liability_deduction",
+            "pagibig", "withholding_tax", "company_loan", "sss_loan", "pagibig_loan",
+            "liability_deduction",
             "cash_advance", "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
-            "other_deductions", "total_deductions", "net_pay",
+            "other_deductions", "total_deductions", "net_pay", "payslip_adjustment",
             "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
             "rest_day_overtime_hours", "special_holiday_overtime_hours",
             "regular_holiday_overtime_hours",
@@ -145,10 +154,10 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
 
     assert any(row[:3] == ["Basic Pay", "6 / 44.43", "3,332.25"] for row in rows)
     assert any(row[:3] == ["Regular OT", "9.83", "921.56"] for row in rows)
-    assert ["De Minimis (Exempt)", "", "500.00", "", "", ""] in rows
-    assert ["De Minimis (Taxable)", "", "70.00", "", "", ""] in rows
-    assert ["Regular Holiday Pay", "", "0.00", "Company Loan", "", "500.00"] in rows
-    assert ["GROSS PAY", "", "4,823.81", "", "", ""] in rows
+    assert ["De Minimis", "", "570.00", "SSS", "", "0.00"] in rows
+    assert ["Regular Holiday Pay", "", "0.00", "SSS Loan", "", "0.00"] in rows
+    assert ["Rest Day OT", "0.00", "0.00", "Company Loan", "", "500.00"] in rows
+    assert ["GROSS PAY", "", "4,823.81", "TOTAL DEDUCTIONS", "", "0.00"] in rows
 
 
 def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
@@ -160,10 +169,11 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours",
             "sss", "philhealth", "pagibig", "withholding_tax",
-            "company_loan", "liability_deduction", "cash_advance",
+            "company_loan", "sss_loan", "pagibig_loan",
+            "liability_deduction", "cash_advance",
             "rice_allowance", "rice_allowance_per_day",
             "rice_allowance_exempt", "rice_allowance_taxable",
-            "other_deductions", "total_deductions", "net_pay",
+            "other_deductions", "total_deductions", "net_pay", "payslip_adjustment",
             "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
             "rest_day_overtime_hours", "special_holiday_overtime_hours",
             "regular_holiday_overtime_hours",
@@ -175,6 +185,7 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
         "basic_pay": 1200,
         "late_ut_hours": 4,
         "late_ut": 300,
+        "payslip_adjustment": -300,
         "rice_allowance": 190,
         "rice_allowance_per_day": 95,
         "rice_allowance_exempt": 190,
@@ -189,5 +200,8 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
         "Basic Pay", "2 / 12.00", "1,200.00",
         "Late/Undertime/Half-day", "4.00 hrs", "300.00",
     ] in rows
-    assert ["De Minimis (Exempt)", "", "190.00", "", "", ""] in rows
-    assert ["De Minimis (Taxable)", "", "0.00", "", "", ""] in rows
+    assert [
+        "Other Earnings / Adjustment", "", "-300.00",
+        "Other Deductions", "", "0.00",
+    ] in rows
+    assert ["De Minimis", "", "190.00", "SSS", "", "0.00"] in rows

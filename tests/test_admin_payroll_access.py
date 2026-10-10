@@ -1,8 +1,8 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import hris
 from hris import app, ensure_employee_hr_columns
-from models import Employee, Payroll, db
+from models import Attendance, Employee, Payroll, db
 
 
 def log_in(client, employee):
@@ -120,6 +120,8 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             log_in(client, db.session.get(Employee, admin_id))
         response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
         assert response.status_code == 200
+        assert b'SSS Loan' in response.data
+        assert b'Pag-IBIG Loan' in response.data
         assert b'Karl Ronquillo' in response.data
         assert b'Keira Ronquillo' in response.data
         assert b'Finalize Payroll' in response.data
@@ -172,6 +174,8 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         response = client.get(payroll_url)
         assert response.status_code == 200
         assert b'name="loan_deduction"' in response.data
+        assert b'name="sss_loan"' in response.data
+        assert b'name="pagibig_loan"' in response.data
         assert b'Save & Recalculate Payroll' in response.data
 
         response = client.post(
@@ -180,6 +184,8 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
                 'cutoff_start': cutoff_start.isoformat(),
                 'save_payroll': '1',
                 'loan_deduction': '300',
+                'sss_loan': '25',
+                'pagibig_loan': '20',
             },
             follow_redirects=True,
         )
@@ -187,8 +193,10 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         with app.app_context():
             payroll = db.session.get(Payroll, payroll_id)
             assert payroll.loan == 300
-            assert payroll.total_deductions == 300
-            assert payroll.net_pay == -300
+            assert payroll.sss_loan == 25
+            assert payroll.pagibig_loan == 20
+            assert payroll.total_deductions == 345
+            assert payroll.net_pay == -345
             assert payroll.is_paid is False
 
         response = client.get(
@@ -196,6 +204,8 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         )
         assert response.status_code == 200
         assert b'name="loan_deduction"' not in response.data
+        assert b'name="sss_loan"' not in response.data
+        assert b'name="pagibig_loan"' not in response.data
         assert b'Reopen this finalized payroll to edit and save' in response.data
 
         monkeypatch.setattr(
@@ -221,8 +231,10 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         with app.app_context():
             payroll = db.session.get(Payroll, payroll_id)
             assert payroll.loan == 450
-            assert payroll.total_deductions == 450
-            assert payroll.net_pay == -450
+            assert payroll.sss_loan == 25
+            assert payroll.pagibig_loan == 20
+            assert payroll.total_deductions == 495
+            assert payroll.net_pay == -495
             assert payroll.is_paid is False
     finally:
         with app.app_context():
@@ -233,6 +245,71 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
             if payroll:
                 db.session.delete(payroll)
             if staff:
+                db.session.delete(staff)
+            if admin:
+                db.session.delete(admin)
+            db.session.commit()
+
+
+def test_attendance_cutoff_report_searches_employee_and_includes_missing_punches():
+    cutoff_start = date(2026, 10, 3)
+    with app.app_context():
+        admin = Employee(first_name='Attendance', last_name='Admin', role='admin')
+        staff = Employee(
+            first_name='Attendance',
+            last_name='Report Staff',
+            role='staff',
+            company='Trece-Uno',
+        )
+        complete = Attendance(
+            employee=staff,
+            date=cutoff_start,
+            clock_in=datetime(2026, 10, 3, 8, 25),
+            clock_out=datetime(2026, 10, 3, 12, 0),
+            status='Late',
+            hours=3.58,
+        )
+        missing_punch = Attendance(
+            employee=staff,
+            date=cutoff_start + timedelta(days=1),
+            clock_in=None,
+            clock_out=None,
+            status='No In / No Out',
+            hours=0,
+        )
+        db.session.add_all([admin, staff, complete, missing_punch])
+        db.session.commit()
+        admin_id, staff_id = admin.id, staff.id
+
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+        response = client.get(
+            '/holiday_overtime?cutoff_start=2026-10-03&employee_search=Report'
+        )
+        assert response.status_code == 200
+        assert b'Attendance Report by Cutoff' in response.data
+        assert b'Attendance Report Staff' in response.data
+        assert b'15' in response.data
+        assert b'No In / No Out' not in response.data
+        assert b'No In' in response.data
+        assert b'No Out' in response.data
+
+        csv_response = client.get(
+            '/holiday_overtime?cutoff_start=2026-10-03'
+            '&employee_search=Report&export=attendance_csv'
+        )
+        assert csv_response.status_code == 200
+        assert b'Missing Clock In' in csv_response.data
+        assert b'Attendance Report Staff' in csv_response.data
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            staff = db.session.get(Employee, staff_id)
+            admin = db.session.get(Employee, admin_id)
+            if staff:
+                Attendance.query.filter_by(employee_id=staff_id).delete()
                 db.session.delete(staff)
             if admin:
                 db.session.delete(admin)

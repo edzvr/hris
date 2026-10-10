@@ -743,6 +743,10 @@ def ensure_payroll_columns():
         statements.append("ALTER TABLE payrolls ADD COLUMN loan_deduction_applied BOOLEAN NOT NULL DEFAULT FALSE")
     if "liability_deduction" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN liability_deduction FLOAT DEFAULT 0")
+    if "sss_loan" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN sss_loan FLOAT DEFAULT 0")
+    if "pagibig_loan" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN pagibig_loan FLOAT DEFAULT 0")
     if "sss_override" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN sss_override FLOAT")
     if "philhealth_override" not in payroll_columns:
@@ -4606,13 +4610,21 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             cutoff_end=cutoff_end - timedelta(days=1)
         ).first()
         loan = float(payroll_record.loan or 0) if payroll_record else 0.0
+        sss_loan = float(payroll_record.sss_loan or 0) if payroll_record else 0.0
+        pagibig_loan = (
+            float(payroll_record.pagibig_loan or 0) if payroll_record else 0.0
+        )
         liability_deduction = liability_cutoff_deduction(emp.id)
         monthly_taxable_income = (gross_income * weeks_in_month) - (
             (deductions['sss'] + deductions['philhealth'] + deductions['pagibig'])
             * weeks_in_month
         )
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
-        total_deductions = deductions['sss'] + deductions['philhealth'] + deductions['pagibig'] + loan + liability_deduction + withholding_tax
+        total_deductions = (
+            deductions['sss'] + deductions['philhealth'] + deductions['pagibig']
+            + sss_loan + pagibig_loan + loan + liability_deduction
+            + withholding_tax
+        )
         rows.append({
             'employee': emp,
             'is_admin': 'admin' in str(emp.role or '').lower(),
@@ -4621,6 +4633,8 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             'sss': deductions['sss'],
             'philhealth': deductions['philhealth'],
             'pagibig': deductions['pagibig'],
+            'sss_loan': sss_loan,
+            'pagibig_loan': pagibig_loan,
             'contribution_salary_base': contribution_salary,
             'employer_sss': employer_deductions['sss'],
             'employer_sss_ec': employer_deductions['sss_ec'],
@@ -6194,8 +6208,9 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     pagibig = float(payroll_record.pagibig or 0)
     withholding_tax = float(payroll_record.withholding_tax or 0)
     company_loan = float(payroll_record.loan or 0)
+    sss_loan = float(getattr(payroll_record, "sss_loan", 0) or 0)
+    pagibig_loan = float(getattr(payroll_record, "pagibig_loan", 0) or 0)
     liability_deduction = float(payroll_record.liability_deduction or 0)
-    hdmf_loan = 0.0
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
     allowance = float(emp.allowance or 0)
@@ -6227,8 +6242,8 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     gross_pay = round(gross_income + rice_exempt, 2)
     adjustment = round(gross_pay - (itemized_earnings - late_ut), 2)
     known_deductions = (
-        late_ut + sss + philhealth + pagibig + company_loan
-        + liability_deduction + hdmf_loan + cash_advance + withholding_tax
+        late_ut + sss + philhealth + pagibig + company_loan + sss_loan
+        + pagibig_loan + liability_deduction + cash_advance + withholding_tax
     )
     total_deductions = float(
         payroll_record.total_deductions or max(known_deductions - late_ut, 0.0)
@@ -6250,6 +6265,9 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "rice_allowance_taxable": rice_taxable,
         "incentives": incentives,
         "adjustment": adjustment,
+        "payslip_adjustment": round(
+            adjustment + allowance + incentives + sunday_overtime - late_ut, 2
+        ),
         "night_differential": night_differential,
         "regular_overtime": regular_overtime,
         "sunday_overtime": sunday_overtime,
@@ -6265,8 +6283,9 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "pagibig": pagibig,
         "withholding_tax": withholding_tax,
         "company_loan": company_loan,
+        "sss_loan": sss_loan,
+        "pagibig_loan": pagibig_loan,
         "liability_deduction": liability_deduction,
-        "hdmf_loan": hdmf_loan,
         "cash_advance": cash_advance,
         "other_deductions": other_deductions,
         "gross_income": gross_income,
@@ -6287,21 +6306,18 @@ def weekly_payslip_table_data(payslip):
     return [
         ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
         ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Late/Undertime/Half-day", f'{payslip["late_ut_hours"]:.2f} hrs', amount("late_ut")],
-        ["Weekly Allowance", "", amount("allowance"), "SSS", "", amount("sss")],
-        ["Incentives", "", amount("incentives"), "PhilHealth", "", amount("philhealth")],
-        ["De Minimis (Exempt)", "", amount("rice_allowance_exempt"), "", "", ""],
-        ["De Minimis (Taxable)", "", amount("rice_allowance_taxable"), "", "", ""],
-        ["Rest Day Pay", "", amount("rest_day_pay"), "Pag-IBIG", "", amount("pagibig")],
-        ["Special Holiday Pay", "", amount("special_holiday"), "Withholding Tax", "", amount("withholding_tax")],
-        ["Regular Holiday Pay", "", amount("regular_holiday"), "Company Loan", "", amount("company_loan")],
-        ["Regular OT", f'{payslip["regular_overtime_hours"]:.2f}', amount("regular_overtime"), "Liability Deduction", "", amount("liability_deduction")],
-        ["Sunday OT", f'{payslip["sunday_overtime_hours"]:.2f}', amount("sunday_overtime"), "Cash Advance", "", amount("cash_advance")],
-        ["Rest Day OT", f'{payslip["rest_day_overtime_hours"]:.2f}', amount("rest_day"), "Other Deductions", "", amount("other_deductions")],
-        ["Special Holiday OT", f'{payslip["special_holiday_overtime_hours"]:.2f}', amount("special_holiday_ot"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
-        ["Regular Holiday OT", f'{payslip["regular_holiday_overtime_hours"]:.2f}', amount("regular_holiday_ot"), "NET PAY", "", amount("net_pay")],
-        ["Night Differential", "", amount("night_differential"), "", "", ""],
-        ["Adjustment", "", amount("adjustment"), "", "", ""],
-        ["GROSS PAY", "", amount("gross_pay"), "", "", ""],
+        ["De Minimis", "", amount("rice_allowance"), "SSS", "", amount("sss")],
+        ["Rest Day Pay", "", amount("rest_day_pay"), "PhilHealth", "", amount("philhealth")],
+        ["Special Holiday Pay", "", amount("special_holiday"), "Pag-IBIG", "", amount("pagibig")],
+        ["Regular Holiday Pay", "", amount("regular_holiday"), "SSS Loan", "", amount("sss_loan")],
+        ["Regular OT", f'{payslip["regular_overtime_hours"]:.2f}', amount("regular_overtime"), "Pag-IBIG Loan", "", amount("pagibig_loan")],
+        ["Rest Day OT", f'{payslip["rest_day_overtime_hours"]:.2f}', amount("rest_day"), "Company Loan", "", amount("company_loan")],
+        ["Special Holiday OT", f'{payslip["special_holiday_overtime_hours"]:.2f}', amount("special_holiday_ot"), "Liability Deduction", "", amount("liability_deduction")],
+        ["Regular Holiday OT", f'{payslip["regular_holiday_overtime_hours"]:.2f}', amount("regular_holiday_ot"), "Cash Advance", "", amount("cash_advance")],
+        ["Night Differential", "", amount("night_differential"), "Withholding Tax", "", amount("withholding_tax")],
+        ["Other Earnings / Adjustment", "", amount("payslip_adjustment"), "Other Deductions", "", amount("other_deductions")],
+        ["GROSS PAY", "", amount("gross_pay"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
+        ["", "", "", "NET PAY", "", amount("net_pay")],
     ]
 
 
@@ -6364,39 +6380,52 @@ def payroll(employee_id):
         if loan_input is not None and loan_input.strip() != "":
             emp.loan_balance = float(loan_input)
 
-        loan_deduction_input = request.form.get('loan_deduction')
-        if loan_deduction_input is not None and loan_deduction_input.strip() != "":
+        loan_inputs = {
+            "loan": request.form.get('loan_deduction'),
+            "sss_loan": request.form.get('sss_loan'),
+            "pagibig_loan": request.form.get('pagibig_loan'),
+        }
+        provided_loan_inputs = {
+            key: value
+            for key, value in loan_inputs.items()
+            if value is not None and value.strip() != ""
+        }
+        save_payroll = request.form.get('save_payroll') == '1'
+        if provided_loan_inputs:
             payroll_record = Payroll.query.filter_by(
                 employee_id=emp.id,
                 cutoff_start=start_cutoff.date(),
                 cutoff_end=(end_cutoff - timedelta(days=1)).date()
             ).first()
-            try:
-                requested_deduction = float(loan_deduction_input)
-            except ValueError:
-                db.session.rollback()
-                flash("Enter a valid company loan deduction.", "danger")
-                return redirect(url_for(
-                    'payroll',
-                    employee_id=employee_id,
-                    cutoff_start=cutoff_start.isoformat(),
-                ))
-            if requested_deduction < 0:
-                db.session.rollback()
-                flash("Company loan deduction cannot be negative.", "danger")
-                return redirect(url_for(
-                    'payroll',
-                    employee_id=employee_id,
-                    cutoff_start=cutoff_start.isoformat(),
-                ))
             if payroll_record and (
                 payroll_record.is_paid or payroll_record.loan_deduction_applied
             ):
                 db.session.rollback()
                 flash(
-                    "Reopen this payroll before changing its company loan deduction.",
+                    "Reopen this payroll before changing loan deductions.",
                     "warning",
                 )
+                return redirect(url_for(
+                    'payroll',
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
+            try:
+                parsed_loan_inputs = {
+                    key: float(value)
+                    for key, value in provided_loan_inputs.items()
+                }
+            except ValueError:
+                db.session.rollback()
+                flash("Enter valid loan deduction amounts.", "danger")
+                return redirect(url_for(
+                    'payroll',
+                    employee_id=employee_id,
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
+            if any(value < 0 for value in parsed_loan_inputs.values()):
+                db.session.rollback()
+                flash("Loan deductions cannot be negative.", "danger")
                 return redirect(url_for(
                     'payroll',
                     employee_id=employee_id,
@@ -6409,12 +6438,10 @@ def payroll(employee_id):
                     cutoff_end=(end_cutoff - timedelta(days=1)).date()
                 )
                 db.session.add(payroll_record)
-            payroll_record.loan = loan_cutoff_deduction(
-                emp.loan_balance, requested_deduction
-            )
-            save_payroll = request.form.get('save_payroll') == '1'
-        else:
-            save_payroll = False
+            for key, value in parsed_loan_inputs.items():
+                if key == "loan":
+                    value = loan_cutoff_deduction(emp.loan_balance, value)
+                setattr(payroll_record, key, value)
 
         sil_eligible_input = request.form.get('sil_eligible')
         if sil_eligible_input is not None:
@@ -6494,6 +6521,8 @@ def payroll(employee_id):
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
     loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
+    sss_loan = float(payroll_record.sss_loan or 0) if payroll_record else 0.0
+    pagibig_loan = float(payroll_record.pagibig_loan or 0) if payroll_record else 0.0
     liability_deduction = liability_cutoff_deduction(emp.id)
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + rice_taxable + approved_overtime_pay
@@ -6501,7 +6530,10 @@ def payroll(employee_id):
         (sss + philhealth + pagibig) * weeks_in_month
     )
     withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
-    total_deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
+    total_deductions = (
+        sss + philhealth + pagibig + sss_loan + pagibig_loan + loan
+        + liability_deduction + withholding_tax
+    )
     net_pay = gross_income + rice_exempt - total_deductions
 
     if payroll_record is None:
@@ -6523,19 +6555,21 @@ def payroll(employee_id):
     payroll_record.employer_pagibig = employer_deductions["pagibig"]
     payroll_record.withholding_tax = withholding_tax
     payroll_record.loan = loan
+    payroll_record.sss_loan = sss_loan
+    payroll_record.pagibig_loan = pagibig_loan
     payroll_record.liability_deduction = liability_deduction
     payroll_record.cash_advance = 0.0
     if request.args.get('save') == 'true':
         if payroll_record.is_paid or payroll_record.loan_deduction_applied:
             flash(
-                "Reopen this payroll before saving changes to the company loan.",
+                "Reopen this payroll before saving changes to loan deductions.",
                 "warning",
             )
         else:
             if payroll_record.id is None:
                 db.session.add(payroll_record)
             db.session.commit()
-            flash("Company loan and payroll totals were saved.", "success")
+            flash("Loan deductions and payroll totals were saved.", "success")
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
             db.session.add(payroll_record)
@@ -7144,6 +7178,16 @@ def payroll_dashboard():
             if payroll_record is not None
             else 0.0
         )
+        sss_loan = (
+            float(payroll_record.sss_loan or 0)
+            if payroll_record is not None
+            else 0.0
+        )
+        pagibig_loan = (
+            float(payroll_record.pagibig_loan or 0)
+            if payroll_record is not None
+            else 0.0
+        )
         liability_deduction = liability_cutoff_deduction(emp.id)
 
         deduction_values = payroll_statutory_deductions(payroll_record, deduction_values)
@@ -7155,7 +7199,10 @@ def payroll_dashboard():
             (sss + philhealth + pagibig) * weeks_in_month
         )
         withholding_tax = round(compute_withholding_tax(monthly_taxable_income) / weeks_in_month, 2)
-        deductions = sss + philhealth + pagibig + loan + liability_deduction + withholding_tax
+        deductions = (
+            sss + philhealth + pagibig + sss_loan + pagibig_loan + loan
+            + liability_deduction + withholding_tax
+        )
         net_pay = gross_income + rice_exempt - deductions
         is_admin = 'admin' in str(emp.role or '').lower()
         review_reasons = []
@@ -7184,6 +7231,8 @@ def payroll_dashboard():
             "sss": sss,
             "philhealth": philhealth,
             "pagibig": pagibig,
+            "sss_loan": sss_loan,
+            "pagibig_loan": pagibig_loan,
             "loan_deduction": loan,
             "liability_deduction": liability_deduction,
             "withholding_tax": withholding_tax,
@@ -7291,8 +7340,89 @@ def holiday_ot_dashboard():
     # --- Holidays dictionary ---
     holidays = {h.date: h.description for h in Holiday.query.all()}
 
+    employee_search = request.args.get("employee_search", "").strip()
+    attendance_report = Attendance.query.filter(
+        Attendance.date >= cutoff_start,
+        Attendance.date < cutoff_end,
+    ).order_by(Attendance.date.desc()).all()
+    if employee_search:
+        search_value = employee_search.casefold()
+        attendance_report = [
+            attendance for attendance in attendance_report
+            if attendance.employee
+            and search_value in (
+                f"{attendance.employee.first_name} "
+                f"{attendance.employee.last_name}"
+            ).casefold()
+        ]
+    attendance_report_rows = []
+    for attendance in attendance_report:
+        clock_in = attendance.clock_in
+        clock_out = attendance.clock_out
+        complete_punches = bool(clock_in and clock_out)
+        regular_hours = (
+            regular_attendance_hours(attendance) if complete_punches else 0.0
+        )
+        late_minutes = 0
+        if clock_in and attendance_status(clock_in) == "Late":
+            late_minutes = max(
+                int(
+                    (
+                        clock_in
+                        - datetime.combine(attendance.date, time(8, 10))
+                    ).total_seconds()
+                    // 60
+                ),
+                0,
+            )
+        attendance_report_rows.append({
+            "attendance": attendance,
+            "regular_hours": regular_hours,
+            "late_minutes": late_minutes,
+            "undertime_hours": (
+                max(8.0 - regular_hours, 0.0) if complete_punches else 0.0
+            ),
+            "half_day": complete_punches and regular_hours <= 4.0,
+            "overtime_hours": payroll_overtime_hours(attendance),
+            "missing_clock_in": clock_in is None,
+            "missing_clock_out": clock_out is None,
+        })
+
     # --- Export CSV ---
     export_type = request.args.get("export")
+    if export_type == "attendance_csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Employee", "Date", "Clock In", "Clock Out", "Late Minutes",
+            "Regular Hours", "Undertime Hours", "Half-day", "OT Hours",
+            "OT Status", "Missing Clock In", "Missing Clock Out",
+        ])
+        for row in attendance_report_rows:
+            attendance = row["attendance"]
+            writer.writerow([
+                attendance.employee.full_name(),
+                attendance.date,
+                attendance.clock_in or "",
+                attendance.clock_out or "",
+                row["late_minutes"],
+                f'{row["regular_hours"]:.2f}',
+                f'{row["undertime_hours"]:.2f}',
+                "Yes" if row["half_day"] else "No",
+                f'{row["overtime_hours"]:.2f}',
+                attendance.ot_status or "Pending",
+                "Yes" if row["missing_clock_in"] else "No",
+                "Yes" if row["missing_clock_out"] else "No",
+            ])
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition":
+                    "attachment;filename=attendance_cutoff_report.csv"
+            },
+        )
+
     if export_type == "csv":
         def generate():
             data = [['Attendance ID','Employee','Date','Holiday Name','Status','Clock Out','OT Hours','OT Type','OT Status']]
@@ -7323,6 +7453,8 @@ def holiday_ot_dashboard():
                                for attendance in records
                            },
                            applications=applications,
+                           attendance_report_rows=attendance_report_rows,
+                           employee_search=employee_search,
                            holidays=holidays,
                            filter_status=filter_status,
                            cutoff_start=cutoff_start,
