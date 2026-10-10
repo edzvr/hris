@@ -3935,9 +3935,13 @@ def regular_attendance_hours(attendance):
     return min(max(float(recorded_hours or 0), 0.0), 8.0)
 
 
-def regular_day_pay(attendance, daily_rate):
+def regular_day_pay(attendance, daily_rate, hours_override=None):
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    regular_hours = regular_attendance_hours(attendance)
+    regular_hours = (
+        regular_attendance_hours(attendance)
+        if hours_override is None
+        else min(max(float(hours_override or 0), 0.0), 8.0)
+    )
     prorated_daily_rate = daily_rate * (regular_hours / 8.0) if regular_hours else 0.0
     is_restday = attendance.date.weekday() == 6
     if holiday and holiday.holiday_type == 'Regular Holiday':
@@ -6071,6 +6075,8 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     daily_rate = float(emp.daily_rate or 0)
     basic_pay = 0.0
     basic_hours = 0.0
+    late_ut = 0.0
+    late_ut_hours = 0.0
     rest_day_pay = 0.0
     special_holiday = 0.0
     regular_holiday = 0.0
@@ -6085,17 +6091,29 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     for attendance in attendance_records:
         holiday = Holiday.query.filter_by(date=attendance.date).first()
         day_pay = regular_day_pay(attendance, daily_rate)
+        attendance_hours = regular_attendance_hours(attendance)
+        full_day_pay = regular_day_pay(attendance, daily_rate, hours_override=8)
+        daily_shortfall = max(full_day_pay - day_pay, 0.0)
+        shortfall_hours = max(8.0 - attendance_hours, 0.0)
         trece_sunday = is_trece_sunday(emp, attendance.date)
         if holiday and holiday.holiday_type == "Regular Holiday":
-            regular_holiday += day_pay
+            regular_holiday += full_day_pay
+            late_ut += daily_shortfall
+            late_ut_hours += shortfall_hours
         elif holiday:
-            special_holiday += day_pay
+            special_holiday += full_day_pay
+            late_ut += daily_shortfall
+            late_ut_hours += shortfall_hours
         elif attendance.date.weekday() == 6 and not trece_sunday:
-            rest_day_pay += day_pay
+            rest_day_pay += full_day_pay
+            late_ut += daily_shortfall
+            late_ut_hours += shortfall_hours
         else:
-            basic_pay += day_pay
+            basic_pay += full_day_pay
             if not trece_sunday:
-                basic_hours += regular_attendance_hours(attendance)
+                basic_hours += attendance_hours
+                late_ut += daily_shortfall
+                late_ut_hours += shortfall_hours
 
         if attendance.ot_status != "Approved":
             continue
@@ -6126,7 +6144,6 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         calculated_overtime_pay = float(overtime_pay)
 
     gross_income = float(payroll_record.gross_income or 0)
-    late_ut = 0.0
     sss = float(payroll_record.sss or 0)
     philhealth = float(payroll_record.philhealth or 0)
     pagibig = float(payroll_record.pagibig or 0)
@@ -6137,6 +6154,10 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
     allowance = float(emp.allowance or 0)
+    rice_allowance_per_day = max(
+        float(getattr(emp, "rice_allowance_per_day", None) or RICE_SUBSIDY_PER_DAY),
+        0.0,
+    )
     rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
         emp,
         worked_days_count,
@@ -6155,22 +6176,26 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         + night_differential
     )
     gross_pay = round(gross_income + rice_exempt, 2)
-    adjustment = round(gross_pay - itemized_earnings, 2)
+    adjustment = round(gross_pay - (itemized_earnings - late_ut), 2)
     known_deductions = (
         late_ut + sss + philhealth + pagibig + sss_loan
         + liability_deduction + hdmf_loan + cash_advance + withholding_tax
     )
-    total_deductions = float(payroll_record.total_deductions or known_deductions)
+    total_deductions = float(
+        payroll_record.total_deductions or max(known_deductions - late_ut, 0.0)
+    )
     other_deductions = max(round(total_deductions - known_deductions, 2), 0.0)
-    net_pay = float(payroll_record.net_pay or (gross_income - total_deductions))
+    net_pay = float(payroll_record.net_pay or (gross_pay - total_deductions))
 
     return {
         "employee": emp,
         "actual_worked_days": worked_days_count,
         "basic_hours": basic_hours,
         "basic_pay": basic_pay,
+        "late_ut_hours": late_ut_hours,
         "allowance": allowance,
         "rice_allowance": rice_taxable + rice_exempt,
+        "rice_allowance_per_day": rice_allowance_per_day,
         "rice_allowance_exempt": rice_exempt,
         "rice_allowance_taxable": rice_taxable,
         "incentives": incentives,
@@ -6211,7 +6236,7 @@ def weekly_payslip_table_data(payslip):
     amount = lambda key: f"{payslip[key]:,.2f}"
     return [
         ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
-        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Tardiness/Absence", "", amount("late_ut")],
+        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Late/Undertime/Half-day", f'{payslip["late_ut_hours"]:.2f} hrs', amount("late_ut")],
         ["Weekly Allowance", "", amount("allowance"), "SSS", "", amount("sss")],
         ["Incentives", "", amount("incentives"), "PhilHealth", "", amount("philhealth")],
         ["De Minimis (Exempt)", "", amount("rice_allowance_exempt"), "", "", ""],

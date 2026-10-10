@@ -199,6 +199,82 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
     assert payslip["adjustment"] == 0
 
 
+def test_payslip_shows_halfday_as_separate_deduction_and_includes_rice_subsidy():
+    employee = SimpleNamespace(
+        id=5,
+        company="Trece-Uno",
+        daily_rate=600,
+        allowance=0,
+        incentives=0,
+        rice_allowance_per_day=95,
+    )
+    attendance_records = [
+        SimpleNamespace(
+            id=1,
+            employee_id=employee.id,
+            employee=employee,
+            date=date(2026, 10, 6),
+            hours=4,
+            clock_in=datetime(2026, 10, 6, 8, 0),
+            clock_out=datetime(2026, 10, 6, 13, 0),
+            overtime_hours=0,
+            ot_status=None,
+            is_restday_ot=False,
+            is_holiday_ot=False,
+            is_weekday_ot=False,
+        ),
+        SimpleNamespace(
+            id=2,
+            employee_id=employee.id,
+            employee=employee,
+            date=date(2026, 10, 7),
+            hours=8,
+            clock_in=datetime(2026, 10, 7, 8, 0),
+            clock_out=datetime(2026, 10, 7, 17, 0),
+            overtime_hours=0,
+            ot_status=None,
+            is_restday_ot=False,
+            is_holiday_ot=False,
+            is_weekday_ot=False,
+        ),
+    ]
+    payroll_record = SimpleNamespace(
+        cutoff_start=date(2026, 10, 3),
+        cutoff_end=date(2026, 10, 9),
+        gross_income=900,
+        total_deductions=0,
+        net_pay=1090,
+        sss=0,
+        philhealth=0,
+        pagibig=0,
+        withholding_tax=0,
+        loan=0,
+        liability_deduction=0,
+        cash_advance=0,
+    )
+
+    with (
+        app.app_context(),
+        patch("hris.Attendance.query") as attendance_query,
+        patch("hris.Holiday.query") as holidays,
+    ):
+        attendance_query.filter.return_value.all.return_value = attendance_records
+        holidays.filter_by.return_value.first.return_value = None
+        payslip = build_payslip_breakdown(employee, payroll_record)
+
+    assert payslip["actual_worked_days"] == 2
+    assert payslip["basic_hours"] == 12
+    assert payslip["basic_pay"] == 1200
+    assert payslip["late_ut_hours"] == 4
+    assert payslip["late_ut"] == 300
+    assert payslip["rice_allowance_per_day"] == 95
+    assert payslip["rice_allowance"] == 190
+    assert payslip["gross_pay"] == 1090
+    assert payslip["total_deductions"] == 0
+    assert payslip["net_pay"] == 1090
+    assert payslip["adjustment"] == 0
+
+
 def test_admin_can_approve_attendance_overtime_without_application():
     attendance = SimpleNamespace(
         employee_id=1,

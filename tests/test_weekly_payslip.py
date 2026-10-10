@@ -83,9 +83,10 @@ def test_weekly_payslip_table_is_itemized():
             "special_holiday", "regular_holiday", "regular_overtime",
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
-            "gross_income", "gross_pay", "late_ut", "sss", "philhealth", "pagibig",
+            "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth", "pagibig",
             "withholding_tax", "sss_loan", "liability_deduction",
-            "cash_advance", "rice_allowance_exempt", "rice_allowance_taxable",
+            "cash_advance", "rice_allowance", "rice_allowance_per_day",
+            "rice_allowance_exempt", "rice_allowance_taxable",
             "other_deductions", "total_deductions", "net_pay",
             "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
             "rest_day_overtime_hours", "special_holiday_overtime_hours",
@@ -100,7 +101,7 @@ def test_weekly_payslip_table_is_itemized():
         "Basic Pay", "Weekly Allowance", "Rest Day Pay",
         "Special Holiday Pay", "Regular Holiday Pay", "Regular OT",
         "De Minimis (Exempt)", "De Minimis (Taxable)",
-        "Tardiness/Absence", "SSS", "PhilHealth", "Pag-IBIG",
+        "Late/Undertime/Half-day", "SSS", "PhilHealth", "Pag-IBIG",
         "Withholding Tax", "Loan Deduction", "GROSS PAY", "NET PAY",
     } <= labels
 
@@ -112,9 +113,10 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
             "special_holiday", "regular_holiday", "regular_overtime",
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
-            "gross_income", "gross_pay", "late_ut", "sss", "philhealth",
+            "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth",
             "pagibig", "withholding_tax", "sss_loan", "liability_deduction",
-            "cash_advance", "rice_allowance_exempt", "rice_allowance_taxable",
+            "cash_advance", "rice_allowance", "rice_allowance_per_day",
+            "rice_allowance_exempt", "rice_allowance_taxable",
             "other_deductions", "total_deductions", "net_pay",
             "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
             "rest_day_overtime_hours", "special_holiday_overtime_hours",
@@ -129,6 +131,10 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
         "regular_overtime": 921.56,
         "rice_allowance_exempt": 500,
         "rice_allowance_taxable": 70,
+        "rice_allowance": 570,
+        "rice_allowance_per_day": 95,
+        "late_ut": 0,
+        "late_ut_hours": 0,
         "gross_income": 4323.81,
         "gross_pay": 4823.81,
         "adjustment": 0,
@@ -141,3 +147,45 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
     assert ["De Minimis (Exempt)", "", "500.00", "", "", ""] in rows
     assert ["De Minimis (Taxable)", "", "70.00", "", "", ""] in rows
     assert ["GROSS PAY", "", "4,823.81", "", "", ""] in rows
+
+
+def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
+    payslip = {
+        key: 0.0 for key in (
+            "basic_pay", "allowance", "incentives", "rest_day_pay",
+            "special_holiday", "regular_holiday", "regular_overtime",
+            "sunday_overtime", "rest_day", "special_holiday_ot",
+            "regular_holiday_ot", "night_differential", "adjustment",
+            "gross_income", "gross_pay", "late_ut", "late_ut_hours",
+            "sss", "philhealth", "pagibig", "withholding_tax",
+            "sss_loan", "liability_deduction", "cash_advance",
+            "rice_allowance", "rice_allowance_per_day",
+            "rice_allowance_exempt", "rice_allowance_taxable",
+            "other_deductions", "total_deductions", "net_pay",
+            "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
+            "rest_day_overtime_hours", "special_holiday_overtime_hours",
+            "regular_holiday_overtime_hours",
+        )
+    }
+    payslip.update({
+        "actual_worked_days": 2,
+        "basic_hours": 12,
+        "basic_pay": 1200,
+        "late_ut_hours": 4,
+        "late_ut": 300,
+        "rice_allowance": 190,
+        "rice_allowance_per_day": 95,
+        "rice_allowance_exempt": 190,
+        "gross_pay": 1090,
+        "total_deductions": 0,
+        "net_pay": 1090,
+    })
+
+    rows = weekly_payslip_table_data(payslip)
+
+    assert [
+        "Basic Pay", "2 / 12.00", "1,200.00",
+        "Late/Undertime/Half-day", "4.00 hrs", "300.00",
+    ] in rows
+    assert ["De Minimis (Exempt)", "", "190.00", "", "", ""] in rows
+    assert ["De Minimis (Taxable)", "", "0.00", "", "", ""] in rows

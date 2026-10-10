@@ -210,33 +210,45 @@
             <td>Basic Pay</td>
             <td>{{ payslip.actual_worked_days }} days / {{ "%.2f"|format(payslip.basic_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.basic_pay) }}</td>
-            <td>Late/UT</td>
-            <td></td>
+            <td>Late / Undertime / Half-day</td>
+            <td>{{ "%.2f"|format(payslip.late_ut_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.late_ut) }}</td>
         </tr>
         <tr>
-            <td>Adjustment</td>
-            <td></td>
-            <td>₱{{ "%.2f"|format(payslip.adjustment) }}</td>
+            <td>
+                Rice De Minimis
+                <small>(Exempt ₱{{ "%.2f"|format(payslip.rice_allowance_exempt) }};
+                    taxable ₱{{ "%.2f"|format(payslip.rice_allowance_taxable) }})</small>
+            </td>
+            <td>₱{{ "%.2f"|format(payslip.rice_allowance_per_day) }} × {{ payslip.actual_worked_days }} days</td>
+            <td>₱{{ "%.2f"|format(payslip.rice_allowance) }}</td>
             <td>SSS</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.sss) }}</td>
         </tr>
         <tr>
-            <td>Night Differential</td>
+            <td>Adjustment</td>
             <td></td>
-            <td>₱{{ "%.2f"|format(payslip.night_differential) }}</td>
+            <td>₱{{ "%.2f"|format(payslip.adjustment) }}</td>
             <td>PhilHealth</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.philhealth) }}</td>
         </tr>
         <tr>
-            <td>Regular Overtime</td>
-            <td>{{ "%.2f"|format(payslip.regular_overtime_hours) }} hrs</td>
-            <td>₱{{ "%.2f"|format(payslip.regular_overtime) }}</td>
+            <td>Night Differential</td>
+            <td></td>
+            <td>₱{{ "%.2f"|format(payslip.night_differential) }}</td>
             <td>HDMF</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.pagibig) }}</td>
+        </tr>
+        <tr>
+            <td>Regular Overtime</td>
+            <td>{{ "%.2f"|format(payslip.regular_overtime_hours) }} hrs</td>
+            <td>₱{{ "%.2f"|format(payslip.regular_overtime) }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
         </tr>
         <tr>
             <td>Rest Day</td>
