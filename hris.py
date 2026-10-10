@@ -4957,7 +4957,7 @@ def thirteenth_month():
     )
 
 
-def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
+def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape(letter))
     pdf.setFont('Helvetica-Bold', 15)
@@ -5002,7 +5002,7 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows):
     pdf.drawRightString(760, y - 22, f"PHP {sum(row['net_pay'] for row in rows):,.2f}")
     verification = build_document_verification(
         'payroll_summary',
-        0,
+        employee_id,
         f'{company}-{cutoff_start}',
         cutoff_start=cutoff_start,
         cutoff_end=cutoff_end - timedelta(days=1),
@@ -5777,7 +5777,9 @@ def payroll_summary():
             cutoff_end=cutoff_end - timedelta(days=1),
             cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
         )
-    pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
+    pdf_data = payroll_summary_pdf(
+        company, cutoff_start, cutoff_end, rows, current_user.id
+    )
     return send_file(
         io.BytesIO(pdf_data), as_attachment=True,
         download_name=f'Payroll_Summary_{company}_{cutoff_start}.pdf',
@@ -5799,7 +5801,9 @@ def email_payroll_summary():
     rows = build_company_payroll_summary(
         company, cutoff_start, cutoff_end, include_admins=True
     )
-    pdf_data = payroll_summary_pdf(company, cutoff_start, cutoff_end, rows)
+    pdf_data = payroll_summary_pdf(
+        company, cutoff_start, cutoff_end, rows, current_user.id
+    )
     sent = send_notification_email(
         [recipient], f'{company} Payroll Summary - {cutoff_start}',
         f'Attached is the payroll summary for {company}, cutoff {cutoff_start} to {cutoff_end - timedelta(days=1)}.',

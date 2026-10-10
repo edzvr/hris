@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 
 import hris
 from hris import app, ensure_employee_hr_columns
-from models import Attendance, Employee, OTApplication, Payroll, db
+from models import Attendance, Employee, OTApplication, Payroll, PayslipVerification, db
 
 
 def log_in(client, employee):
@@ -58,6 +58,18 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
         assert client.get(
             '/payroll/summary?company=Trece-Uno&view=true&cutoff_start=2026-10-03'
         ).status_code == 200
+        summary_pdf = client.get(
+            '/payroll/summary?company=Trece-Uno&cutoff_start=2026-10-03'
+        )
+        assert summary_pdf.status_code == 200
+        assert summary_pdf.mimetype == 'application/pdf'
+        assert summary_pdf.data.startswith(b'%PDF-')
+        with app.app_context():
+            verification = PayslipVerification.query.filter_by(
+                document_type='payroll_summary',
+                employee_id=staff_id,
+            ).one()
+            assert verification.document_label == 'Trece-Uno-2026-10-03'
         dashboard = client.get('/dashboard_staff').data
         assert b'Review Loan Deductions' in dashboard
         assert b'Cash Payroll Summary' in dashboard
@@ -69,6 +81,7 @@ def test_admin_can_grant_staff_admin_payroll_access_from_profile():
     finally:
         with app.app_context():
             db.session.rollback()
+            PayslipVerification.query.filter_by(employee_id=staff_id).delete()
             db.session.delete(db.session.get(Employee, staff_id))
             db.session.delete(db.session.get(Employee, admin_id))
             db.session.commit()
