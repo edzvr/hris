@@ -767,3 +767,39 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
             db.session.delete(db.session.get(Employee, trece_admin_staff_id))
             db.session.delete(db.session.get(Employee, other_company_staff_id))
             db.session.commit()
+
+
+def test_loan_review_finalized_row_does_not_subtract_applied_deduction_twice():
+    with app.app_context():
+        reviewer = Employee(
+            first_name='Applied', last_name='Loanreview', role='staff',
+            company='Trece-Uno', admin_payroll_access=True, loan_balance=550,
+        )
+        db.session.add(reviewer)
+        db.session.flush()
+        payroll = Payroll(
+            employee_id=reviewer.id, cutoff_start=date(2026, 10, 3),
+            cutoff_end=date(2026, 10, 9), loan=450, loan_deduction_applied=True,
+            is_paid=True,
+        )
+        db.session.add(payroll)
+        db.session.commit()
+        reviewer_id, payroll_id = reviewer.id, payroll.id
+
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, reviewer_id))
+        html = client.get('/payroll-loan-review?cutoff_start=2026-10-03').get_data(as_text=True)
+        row = html[html.index('Applied Loanreview'):]
+        row = row[:row.index('</tr>')]
+        assert '1,000.00' in row
+        assert '450.00' in row
+        assert '550.00' in row
+        assert '100.00' not in row.replace('1,000.00', '')
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            db.session.delete(db.session.get(Payroll, payroll_id))
+            db.session.delete(db.session.get(Employee, reviewer_id))
+            db.session.commit()

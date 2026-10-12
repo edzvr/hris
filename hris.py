@@ -4453,30 +4453,29 @@ def payroll_loan_review():
             cutoff_end=cutoff_end - timedelta(days=1),
         ).all()
     }
-    loan_rows = [
-        {
+    loan_rows = []
+    for employee in employees:
+        record = payroll_records.get(employee.id)
+        balance = float(employee.loan_balance or 0)
+        deduction = float(record.loan or 0) if record else 0.0
+        if record and record.loan_deduction_applied and deduction > 0:
+            # The current balance already has this deduction removed, so rebuild the
+            # before/after values for this cutoff from the loan history.
+            after_deduction = loan_account_summary(employee)['remaining_after'].get(
+                record.id, balance,
+            )
+            balance = after_deduction + deduction
+        else:
+            after_deduction = max(balance - deduction, 0.0)
+        loan_rows.append({
             'employee': employee,
-            'balance': float(employee.loan_balance or 0),
-            'deduction': float(payroll_records[employee.id].loan or 0)
-            if employee.id in payroll_records else 0.0,
-            'after_deduction': max(
-                float(employee.loan_balance or 0)
-                - (
-                    float(payroll_records[employee.id].loan or 0)
-                    if employee.id in payroll_records else 0.0
-                ),
-                0.0,
-            ),
+            'balance': balance,
+            'deduction': deduction,
+            'after_deduction': after_deduction,
             'finalized': bool(
-                payroll_records.get(employee.id)
-                and (
-                    payroll_records[employee.id].is_paid
-                    or payroll_records[employee.id].loan_deduction_applied
-                )
+                record and (record.is_paid or record.loan_deduction_applied)
             ),
-        }
-        for employee in employees
-    ]
+        })
     return render_template(
         'payroll_loan_review.html',
         loan_rows=loan_rows,

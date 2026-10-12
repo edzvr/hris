@@ -76,7 +76,7 @@
                                 <input id="loan-deduction-{{ row.employee.id }}" type="number" min="0" step="0.01" max="{{ row.balance }}" name="loan_deduction_{{ row.employee.id }}" value="{{ '%.2f'|format(row.deduction) }}" required>
                                 {% endif %}
                             </td>
-                            <td>₱{{ row.after_deduction|currency }}</td>
+                            <td id="loan-after-{{ row.employee.id }}" data-loan-after="{{ row.employee.id }}"><strong>₱{{ row.after_deduction|currency }}</strong></td>
                         </tr>
                         {% else %}
                         <tr><td colspan="5">Walang staff loan records na ipapakita para sa cutoff na ito.</td></tr>
@@ -91,5 +91,22 @@
     </section>
     <p><a class="dashboard-back-link" href="{{ url_for('dashboard_staff') }}">Back to Dashboard</a></p>
 </main>
+<script>
+document.querySelectorAll('[data-loan-after]').forEach(function (cell) {
+    var id = cell.getAttribute('data-loan-after');
+    var balanceInput = document.getElementById('loan-balance-' + id);
+    var deductionInput = document.getElementById('loan-deduction-' + id);
+    if (!balanceInput || !deductionInput) { return; }
+    function refresh() {
+        var balance = Math.max(parseFloat(balanceInput.value) || 0, 0);
+        var deduction = Math.max(parseFloat(deductionInput.value) || 0, 0);
+        deductionInput.max = balance.toFixed(2);
+        var after = Math.max(balance - Math.min(deduction, balance), 0);
+        cell.innerHTML = '<strong>₱' + after.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong>';
+    }
+    balanceInput.addEventListener('input', refresh);
+    deductionInput.addEventListener('input', refresh);
+});
+</script>
 </body>
 </html>
