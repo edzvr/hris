@@ -160,16 +160,17 @@
 
     <h2>Payroll Deduction History</h2>
     <div class="table-wrap"><table>
-        <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Payroll Reference</th><th>Cutoff</th><th>Deducted</th><th>Status</th><th>Statement</th></tr>
+        <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Payroll Reference</th><th>Cutoff</th><th>Deducted</th><th title="Loan balance left right after this payroll deduction">Remaining Loan</th><th>Status</th><th>Statement</th></tr>
         {% for item in deduction_history %}
         <tr>
             {% if current_user.role.lower() == 'admin' %}<td>{{ item.employee.full_name() }}</td>{% endif %}
             <td>PAY-{{ "%06d"|format(item.payroll.id) }}</td>
             <td>{{ item.payroll.cutoff_start }} to {{ item.payroll.cutoff_end }}</td>
-            <td>₱{{ item.payroll.loan|currency }}</td><td>Applied</td>
+            <td>₱{{ item.payroll.loan|currency }}</td>
+            <td><strong>₱{{ item.remaining|currency }}</strong></td><td>Applied</td>
             <td><a class="btn" href="{{ url_for('download_loan_statement', employee_id=item.employee.id) }}">Download</a></td>
         </tr>
-        {% else %}<tr><td colspan="6">No finalized loan deductions yet.</td></tr>
+        {% else %}<tr><td colspan="7">No finalized loan deductions yet.</td></tr>
         {% endfor %}
     </table></div>
 

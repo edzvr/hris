@@ -137,3 +137,22 @@ def test_decline_pending_request_does_not_credit_balance(loan_account):
     with app.app_context():
         assert db.session.get(Employee, staff_id).loan_balance == 200
         assert db.session.get(Loan, loan_id).status == 'Rejected'
+def test_remaining_loan_after_each_deduction_accounts_for_new_loans():
+    from datetime import date, datetime
+    from types import SimpleNamespace
+    from hris import loan_remaining_after_deductions
+
+    def credited(amount, on):
+        return SimpleNamespace(
+            amount=amount, loan_type=None, decision_date=datetime.combine(on, datetime.min.time()),
+            date_filed=datetime.combine(on, datetime.min.time()), date_needed=on,
+        )
+
+    loans = [credited(3000, date(2026, 9, 1)), credited(1000, date(2026, 9, 28))]
+    deductions = [
+        SimpleNamespace(id=1, loan=500, cutoff_start=date(2026, 9, 19), cutoff_end=date(2026, 9, 25)),
+        SimpleNamespace(id=2, loan=500, cutoff_start=date(2026, 9, 26), cutoff_end=date(2026, 10, 2)),
+        SimpleNamespace(id=3, loan=500, cutoff_start=date(2026, 10, 3), cutoff_end=date(2026, 10, 9)),
+    ]
+
+    assert loan_remaining_after_deductions(2500, loans, deductions) == {1: 2500, 2: 3000, 3: 2500}

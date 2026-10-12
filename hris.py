@@ -8362,14 +8362,49 @@ def loan_account_summary(employee):
         balance_applied=True
     ).order_by(Loan.date_filed.desc()).all()
     deductions = loan_deduction_records(employee.id)
+    outstanding = float(employee.loan_balance or 0)
     return {
         "employee": employee,
-        "outstanding": float(employee.loan_balance or 0),
+        "outstanding": outstanding,
         "approved_loans": approved_loans,
         "deductions": deductions,
+        "remaining_after": loan_remaining_after_deductions(outstanding, approved_loans, deductions),
         "total_credited": sum(float(item.amount or 0) for item in approved_loans),
         "total_deducted": sum(float(item.loan or 0) for item in deductions),
     }
+
+
+def loan_credit_date(loan_record):
+    if loan_record.loan_type == 'Prior-System Balance' or loan_record.decision_date is None:
+        credited_at = loan_record.date_filed
+    else:
+        credited_at = loan_record.decision_date
+    return credited_at.date() if credited_at else loan_record.date_needed
+
+
+def loan_remaining_after_deductions(outstanding, approved_loans, deductions):
+    """Walk back from the current balance to show what was left after each payroll deduction."""
+    credits = [
+        (loan_credit_date(loan_record), float(loan_record.amount or 0))
+        for loan_record in approved_loans
+        if loan_credit_date(loan_record) is not None
+    ]
+    remaining_after = {}
+    for payroll_record in deductions:
+        order_key = (payroll_record.cutoff_start, payroll_record.id)
+        later_deductions = sum(
+            float(other.loan or 0)
+            for other in deductions
+            if (other.cutoff_start, other.id) > order_key
+        )
+        later_credits = sum(
+            amount for credited_on, amount in credits
+            if credited_on > payroll_record.cutoff_end
+        )
+        remaining_after[payroll_record.id] = max(
+            outstanding + later_deductions - later_credits, 0.0,
+        )
+    return remaining_after
 
 
 def review_loan_request(loan_id, decision):
@@ -8537,7 +8572,11 @@ def loan():
         ).all()
         loan_accounts = [loan_account_summary(employee) for employee in account_employees]
         deduction_history = [
-            {"employee": account["employee"], "payroll": payroll_record}
+            {
+                "employee": account["employee"],
+                "payroll": payroll_record,
+                "remaining": account["remaining_after"][payroll_record.id],
+            }
             for account in loan_accounts
             for payroll_record in account["deductions"]
         ]
@@ -8547,7 +8586,11 @@ def loan():
         account = loan_account_summary(current_user)
         loan_accounts = []
         deduction_history = [
-            {"employee": current_user, "payroll": payroll_record}
+            {
+                "employee": current_user,
+                "payroll": payroll_record,
+                "remaining": account["remaining_after"][payroll_record.id],
+            }
             for payroll_record in account["deductions"]
         ]
 
@@ -8688,10 +8731,9 @@ def download_loan_statement(employee_id):
     elements.append(Spacer(1, 10))
     elements.append(Paragraph('Payroll Deduction History', styles['Heading3']))
     deduction_rows = [['Payroll Reference', 'Cutoff Period', 'Total Deduction', 'Remaining Balance']]
-    running_balance = account['total_credited']
     for payroll_record in sorted(account['deductions'], key=lambda record: (record.cutoff_start, record.id)):
         deduction_amount = float(payroll_record.loan or 0)
-        running_balance = max(running_balance - deduction_amount, 0.0)
+        running_balance = account['remaining_after'][payroll_record.id]
         deduction_rows.append([
             f'PAY-{payroll_record.id:06d}',
             f'{payroll_record.cutoff_start} to {payroll_record.cutoff_end}',
