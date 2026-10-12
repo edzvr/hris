@@ -1,6 +1,9 @@
 # ------------------ HRIS MAIN APP ------------------
 import os, random, logging, re, hashlib, csv, base64
 import secrets
+import sqlite3
+import tempfile
+from decimal import Decimal
 import struct
 from math import isfinite
 from datetime import datetime, date, timedelta, time
@@ -1572,6 +1575,57 @@ def audit_logs():
         return 'Access denied', 403
     logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(500).all()
     return render_template('audit_logs.html', logs=logs)
+
+
+def backup_cell_value(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date, time)):
+        return str(value)
+    return value
+
+
+def build_database_backup_bytes():
+    with tempfile.TemporaryDirectory() as backup_dir:
+        backup_path = os.path.join(backup_dir, 'hris_backup.db')
+        backup_engine = create_engine(f'sqlite:///{backup_path}')
+        try:
+            db.metadata.create_all(backup_engine)
+        finally:
+            backup_engine.dispose()
+        backup_connection = sqlite3.connect(backup_path)
+        try:
+            for table in db.metadata.sorted_tables:
+                columns = [column.name for column in table.columns]
+                rows = db.session.execute(table.select()).all()
+                if not rows:
+                    continue
+                column_sql = ', '.join(f'"{name}"' for name in columns)
+                placeholders = ', '.join('?' for _ in columns)
+                backup_connection.executemany(
+                    f'INSERT INTO "{table.name}" ({column_sql}) VALUES ({placeholders})',
+                    [tuple(backup_cell_value(value) for value in row) for row in rows],
+                )
+            backup_connection.commit()
+        finally:
+            backup_connection.close()
+        with open(backup_path, 'rb') as backup_file:
+            return backup_file.read()
+
+
+@app.route('/admin/backup/download')
+@login_required
+def download_database_backup():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    backup_bytes = build_database_backup_bytes()
+    record_audit_action('Downloaded full database backup')
+    return send_file(
+        io.BytesIO(backup_bytes),
+        mimetype='application/x-sqlite3',
+        as_attachment=True,
+        download_name=f'hris_backup_{datetime.now(ZoneInfo("Asia/Manila")):%Y%m%d}.db',
+    )
 
 
 @app.route('/admin/monthly-deductions')
