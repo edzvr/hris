@@ -117,7 +117,9 @@ if load_dotenv:
 else:
     logger.warning("python-dotenv not installed; .env file values will not be loaded")
 
-app.secret_key = os.environ.get("HRIS_SECRET_KEY", "secret")
+WEAK_SECRET_KEYS = {"", "secret", "change-this-secret"}
+LEGACY_DOCUMENT_HASH_KEY = "secret"
+app.secret_key = os.environ.get("HRIS_SECRET_KEY", "")
 database_url = os.environ.get(
     'DATABASE_URL',
     f"sqlite:///{os.path.join(basedir, 'instance', 'hris.db')}"
@@ -1139,6 +1141,26 @@ def ensure_job_description_options():
     db.session.commit()
 
 
+def ensure_app_secret_key():
+    if app.secret_key not in WEAK_SECRET_KEYS:
+        return
+    db.session.execute(text(
+        "CREATE TABLE IF NOT EXISTS app_secrets "
+        "(name VARCHAR(64) PRIMARY KEY, value VARCHAR(128) NOT NULL)"
+    ))
+    db.session.execute(
+        text(
+            "INSERT INTO app_secrets (name, value) VALUES ('session_key', :value) "
+            "ON CONFLICT (name) DO NOTHING"
+        ),
+        {'value': secrets.token_hex(32)},
+    )
+    db.session.commit()
+    app.secret_key = db.session.execute(
+        text("SELECT value FROM app_secrets WHERE name = 'session_key'")
+    ).scalar_one()
+
+
 def normalize_employee_names():
     changed = False
     for employee in Employee.query.all():
@@ -1155,6 +1177,7 @@ def normalize_employee_names():
 
 with app.app_context():
     db.create_all()
+    ensure_app_secret_key()
     ensure_employee_resume_columns()
     remove_employee_registration_name_key_constraint()
     ensure_evaluation_tracking_columns()
@@ -4946,6 +4969,12 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             rows[-1].update(
                 calculate_payroll_snapshot(emp, snapshot_record, cutoff_start, cutoff_end)
             )
+        row = rows[-1]
+        row['other_deductions_total'] = max(
+            row['total_deductions'] - row['sss'] - row['philhealth'] - row['pagibig']
+            - row['withholding_tax'] - row['loan'],
+            0.0,
+        )
     rows.sort(key=lambda row: (not row['is_admin'], row['employee'].last_name or '', row['employee'].first_name or ''))
     return rows
 
@@ -5107,8 +5136,8 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
     pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
     pdf.drawString(550, 544, 'Address: Trece Martires Cavite, Philippines')
     pdf.drawString(550, 532, 'Prepared by: Admin')
-    headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Deductions', 'Net Pay', 'Status']
-    x_positions = [25, 175, 212, 270, 322, 382, 442, 492, 542, 620, 694]
+    headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Other Ded.', 'Deductions', 'Net Pay', 'Status']
+    x_positions = [25, 165, 195, 250, 297, 350, 400, 445, 495, 552, 622, 700]
     pdf.setFont('Helvetica-Bold', 8)
     for x, header in zip(x_positions, headers):
         pdf.drawString(x, 520, header)
@@ -5129,7 +5158,8 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
             row['employee'].full_name()[:28], str(row['worked_days']),
             f"{row['gross_income']:,.2f}", f"{row['sss']:,.2f}",
             f"{row['philhealth']:,.2f}", f"{row['pagibig']:,.2f}",
-            f"{row['withholding_tax']:,.2f}", f"{row['loan']:,.2f}", f"{row['total_deductions']:,.2f}",
+            f"{row['withholding_tax']:,.2f}", f"{row['loan']:,.2f}",
+            f"{row.get('other_deductions_total', 0):,.2f}", f"{row['total_deductions']:,.2f}",
             f"{row['net_pay']:,.2f}", 'PAID' if row['payroll_record'] and row['payroll_record'].is_paid else 'UNPAID'
         ]
         for x, value in zip(x_positions, values):
@@ -5843,9 +5873,12 @@ def verify_document(verification_id):
 
     employee = Employee.query.get(record.employee_id)
     payroll = Payroll.query.get(record.payroll_id) if record.payroll_id else None
-    payload = f"{record.document_type}|{record.employee_id}|{record.document_label}|{record.payroll_id or 'none'}|{record.cutoff_start or 'none'}|{record.cutoff_end or 'none'}|{float(record.net_pay or 0)}|{app.secret_key}"
-    expected_hash = hashlib.sha256(payload.encode()).hexdigest()
-    is_valid = employee is not None and record.verification_hash == expected_hash and (record.document_type != 'payslip' or payroll is not None)
+    payload_prefix = f"{record.document_type}|{record.employee_id}|{record.document_label}|{record.payroll_id or 'none'}|{record.cutoff_start or 'none'}|{record.cutoff_end or 'none'}|{float(record.net_pay or 0)}"
+    expected_hashes = {
+        hashlib.sha256(f"{payload_prefix}|{key}".encode()).hexdigest()
+        for key in (app.secret_key, LEGACY_DOCUMENT_HASH_KEY)
+    }
+    is_valid = employee is not None and record.verification_hash in expected_hashes and (record.document_type != 'payslip' or payroll is not None)
     company_name = payroll_company_name(employee) if employee else 'AUTO-EXPERT AUTO SUPPLY / TRECE-UNO AUTO SUPPLY'
     company_key = str(employee.company or '').lower() if employee else ''
     if company_key.startswith('trece'):

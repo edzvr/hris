@@ -48,6 +48,7 @@
                 <th>Pag-IBIG</th>
                 <th>Tax</th>
                 <th>Loan</th>
+                <th title="Liability, cash advance, SSS/Pag-IBIG loan at iba pang deductions">Other Ded.</th>
                 <th>Deductions</th>
                 <th>Net Pay</th>
                 <th>Payroll Status</th>
@@ -57,7 +58,7 @@
         <tbody>
             {% for row in rows %}
             {% if loop.first or row.is_admin != rows[loop.index0 - 1].is_admin %}
-            <tr><th colspan="12">{{ 'Admin Payroll' if row.is_admin else 'Staff Payroll' }}</th></tr>
+            <tr><th colspan="13">{{ 'Admin Payroll' if row.is_admin else 'Staff Payroll' }}</th></tr>
             {% endif %}
             <tr>
                 <td>{{ row.employee.full_name() }}</td>
@@ -68,6 +69,7 @@
                 <td>₱{{ row.pagibig|currency }}</td>
                 <td>₱{{ row.withholding_tax|currency }}</td>
                 <td>₱{{ row.loan|currency }}</td>
+                <td>₱{{ row.other_deductions_total|default(0)|currency }}</td>
                 <td>₱{{ row.total_deductions|currency }}</td>
                 <td>₱{{ row.net_pay|currency }}</td>
                 <td>{{ 'Finalized' if row.payroll_record and row.payroll_record.is_paid else 'Not finalized' }}</td>
