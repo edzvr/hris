@@ -156,3 +156,31 @@ def test_remaining_loan_after_each_deduction_accounts_for_new_loans():
     ]
 
     assert loan_remaining_after_deductions(2500, loans, deductions) == {1: 2500, 2: 3000, 3: 2500}
+
+
+def test_admin_can_delete_duplicate_approved_loan_and_balance_is_reversed(loan_account):
+    admin_id, staff_id, loan_id = loan_account
+    client = authenticated_client(admin_id)
+    with patch('hris.send_loan_email'):
+        client.post(f'/approve_loan/{loan_id}')
+    page = client.get('/loan').get_data(as_text=True)
+    assert 'loan-employee-search' in page
+    assert f'/loan/{loan_id}/delete' in page
+    assert authenticated_client(staff_id).post(f'/loan/{loan_id}/delete').status_code == 403
+    response = client.post(f'/loan/{loan_id}/delete')
+    assert response.location.endswith('/loan')
+    with app.app_context():
+        assert db.session.get(Loan, loan_id) is None
+        assert db.session.get(Employee, staff_id).loan_balance == 200
+        assert AuditLog.query.filter(
+            AuditLog.employee_id == admin_id,
+            AuditLog.action.like(f'Deleted LOAN-{loan_id:06d}%'),
+        ).count() == 1
+
+
+def test_deleting_pending_loan_keeps_balance(loan_account):
+    admin_id, staff_id, loan_id = loan_account
+    authenticated_client(admin_id).post(f'/loan/{loan_id}/delete')
+    with app.app_context():
+        assert db.session.get(Loan, loan_id) is None
+        assert db.session.get(Employee, staff_id).loan_balance == 200

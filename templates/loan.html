@@ -43,6 +43,14 @@
 
     {% if current_user.role.lower() == 'admin' %}
     <section class="no-print">
+        <label for="loan-employee-search"><strong>Search Employee</strong></label>
+        <input id="loan-employee-search" type="search" list="loan-employee-names" placeholder="Type employee name" autocomplete="off">
+        <datalist id="loan-employee-names">
+            {% for item in loan_accounts %}<option value="{{ item.employee.full_name() }}">{% endfor %}
+        </datalist>
+        <button type="button" class="btn" id="loan-employee-search-clear">Show All</button>
+    </section>
+    <section class="no-print">
         <h2>Record Prior-System Loan Balance</h2>
         <p>Use this once per existing loan that predates HRIS. The amount is added to the employee's current outstanding balance and audit history.</p>
         <form class="admin-form" method="POST" action="{{ url_for('add_opening_loan_balance') }}">
@@ -67,7 +75,7 @@
         <div class="table-wrap"><table>
             <tr><th>Employee</th><th>Company</th><th>Total Recorded Loans</th><th>Payroll Deductions</th><th>Current Outstanding</th><th>Statement</th></tr>
             {% for item in loan_accounts %}
-            <tr>
+            <tr data-employee-name="{{ item.employee.full_name()|lower }}">
                 <td>{{ item.employee.full_name() }}</td><td>{{ item.employee.company or 'N/A' }}</td>
                 <td>₱{{ item.total_credited|currency }}</td><td>₱{{ item.total_deducted|currency }}</td>
                 <td><strong>₱{{ item.outstanding|currency }}</strong>
@@ -126,7 +134,7 @@
             {% if current_user.role.lower() == 'admin' %}<th class="no-print">Action</th>{% endif %}
         </tr>
         {% for l in loans %}
-        <tr>
+        <tr{% if current_user.role.lower() == 'admin' %} data-employee-name="{{ l.employee.full_name()|lower }}"{% endif %}>
             {% if current_user.role.lower() == 'admin' %}<td>{{ l.employee.full_name() }}</td>{% endif %}
             <td>LOAN-{{ "%06d"|format(l.id) }}</td>
             <td>{{ l.loan_type or 'Employee Loan' }}</td>
@@ -151,6 +159,11 @@
                     <input type="text" name="reason" placeholder="Reason for decline" required>
                     <button type="submit" class="btn btn-danger">Decline</button>
                 </form>{% else %}{{ l.approver or 'Reviewed' }}{% endif %}
+                <form action="{{ url_for('delete_loan', loan_id=l.id) }}" method="POST" style="display:inline;"
+                      data-confirm="Delete LOAN-{{ '%06d'|format(l.id) }} ({{ l.employee.full_name() }}, ₱{{ l.amount|currency }})?{% if l.balance_applied %} ₱{{ l.amount|currency }} will be removed from the remaining loan.{% endif %}"
+                      onsubmit="return confirm(this.dataset.confirm);">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
             </td>
             {% endif %}
         </tr>
@@ -162,7 +175,7 @@
     <div class="table-wrap"><table>
         <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Payroll Reference</th><th>Cutoff</th><th>Deducted</th><th title="Loan balance left right after this payroll deduction">Remaining Loan</th><th>Status</th><th>Statement</th></tr>
         {% for item in deduction_history %}
-        <tr>
+        <tr{% if current_user.role.lower() == 'admin' %} data-employee-name="{{ item.employee.full_name()|lower }}"{% endif %}>
             {% if current_user.role.lower() == 'admin' %}<td>{{ item.employee.full_name() }}</td>{% endif %}
             <td>PAY-{{ "%06d"|format(item.payroll.id) }}</td>
             <td>{{ item.payroll.cutoff_start }} to {{ item.payroll.cutoff_end }}</td>
@@ -255,5 +268,22 @@
 
     <br class="no-print">
     <a class="dashboard-back-link no-print" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
+    <script>
+    (function () {
+        var search = document.getElementById('loan-employee-search');
+        if (!search) { return; }
+        function applyFilter() {
+            var term = search.value.trim().toLowerCase();
+            document.querySelectorAll('tr[data-employee-name]').forEach(function (row) {
+                row.hidden = term !== '' && row.dataset.employeeName.indexOf(term) === -1;
+            });
+        }
+        search.addEventListener('input', applyFilter);
+        document.getElementById('loan-employee-search-clear').addEventListener('click', function () {
+            search.value = '';
+            applyFilter();
+        });
+    })();
+    </script>
 </body>
 </html>

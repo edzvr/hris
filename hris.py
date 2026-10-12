@@ -8491,6 +8491,45 @@ def update_loan_balance(employee_id):
     return redirect(url_for('loan'))
 
 
+@app.route('/loan/<int:loan_id>/delete', methods=['POST'])
+@login_required
+def delete_loan(loan_id):
+    if current_user.role.lower() != 'admin':
+        return 'Access denied', 403
+    loan_record = Loan.query.filter_by(id=loan_id).with_for_update().first_or_404()
+    employee = Employee.query.filter_by(id=loan_record.employee_id).with_for_update().first()
+    amount = float(loan_record.amount or 0)
+    reference = f'LOAN-{loan_record.id:06d}'
+    balance_note = ''
+    if loan_record.balance_applied and employee is not None:
+        old_balance = float(employee.loan_balance or 0)
+        employee.loan_balance = max(old_balance - amount, 0.0)
+        balance_note = f'; balance PHP {old_balance:.2f} -> {employee.loan_balance:.2f}'
+    db.session.add(AuditLog(
+        employee_id=current_user.id,
+        employee_name=current_user.full_name(),
+        company=current_user.company,
+        action=(
+            f'Deleted {reference} ({loan_record.status}, PHP {amount:.2f}) '
+            f'for employee #{loan_record.employee_id}{balance_note}'
+        ),
+        path=request.path,
+        ip_address=request.remote_addr,
+        status_code=302,
+    ))
+    db.session.delete(loan_record)
+    db.session.commit()
+    if balance_note:
+        flash(
+            f'{reference} deleted. PHP {amount:,.2f} was removed from '
+            f'{employee.full_name()}\'s remaining loan.',
+            'success',
+        )
+    else:
+        flash(f'{reference} deleted.', 'success')
+    return redirect(url_for('loan'))
+
+
 @app.route('/loan', methods=['GET','POST'])
 @login_required
 def loan():
