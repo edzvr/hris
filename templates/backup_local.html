@@ -1,33 +1,31 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <title>Backup</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
   <div class="card">
     <h2>Backup Options</h2>
+    <p>I-download ang backup at itago sa ligtas na lugar (hal. USB o private Google Drive). Huwag i-share dahil may personal na data ng mga employee.</p>
 
-    <!-- Local Backup -->
-    {% if local_exists %}
-      <p>📂 Complete HRIS backup created: database and uploaded files.</p>
-      {% if backup_filename %}
-        <a class="btn btn-primary" href="{{ url_for('download_db', filename=backup_filename) }}">Download Complete Backup</a>
-      {% endif %}
-    {% else %}
-      <p>❌ No database file found at instance/hris.db.</p>
-    {% endif %}
+    <h3>Complete Backup (Recommended)</h3>
+    <p>Lahat ng HRIS records (employees, attendance, payroll, loan, leave, atbp.) kasama ang mga uploaded na photo at file. ZIP file.</p>
+    <a class="btn btn-primary" href="{{ url_for('download_db') }}">💾 Download Complete Backup</a>
+
+    <h3>Database Only</h3>
+    <p>Records lang, walang uploaded files. Mas maliit na file.</p>
+    <a class="btn" href="{{ url_for('download_database_backup') }}">Download Database Backup</a>
 
     <hr>
 
-    <!-- Backup status -->
     <h3>Backup Status</h3>
-    {% if backup_status == 'success' %}
-      <div class="alert-success">✅ Complete HRIS backup is ready for download.</div>
+    {% if last_backup %}
+      <p><strong>Last backup downloaded:</strong> {{ last_backup }}</p>
     {% else %}
-      <div class="alert-fail">❌ Backup could not be created.</div>
+      <p>Wala pang na-download na backup.</p>
     {% endif %}
-    <p><strong>Last backup:</strong> {{ last_backup }}</p>
 
     <br>
     <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">&#8592; Back to Admin Dashboard</a>

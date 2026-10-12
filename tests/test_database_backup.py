@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import sqlite3
 import tempfile
@@ -54,3 +54,28 @@ def test_staff_cannot_download_backup():
     response = client_for(staff.id).get('/admin/backup/download')
 
     assert response.status_code == 403
+
+
+def test_backup_page_offers_complete_zip_without_local_db_file():
+    import io, zipfile, sqlite3, tempfile, os
+    with app.app_context():
+        admin = Employee.query.filter(Employee.role.ilike('%admin%')).first()
+    client = client_for(admin.id)
+    page = client.get('/backup')
+    assert page.status_code == 200
+    assert b'No database file found' not in page.data
+    assert b'Download Complete Backup' in page.data
+    response = client.get('/download_db')
+    assert response.status_code == 200
+    archive = zipfile.ZipFile(io.BytesIO(response.data))
+    assert 'hris_database.db' in archive.namelist()
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, 'b.db')
+        with open(path, 'wb') as handle:
+            handle.write(archive.read('hris_database.db'))
+        connection = sqlite3.connect(path)
+        try:
+            assert connection.execute('select count(*) from employees').fetchone()[0] > 0
+        finally:
+            connection.close()
+    assert b'Last backup downloaded' in client.get('/backup').data

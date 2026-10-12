@@ -9932,48 +9932,52 @@ def bulletin():
     return render_template("bulletin.html", posts=posts)
 
 # ------------------BACK UP ------------------
+BACKUP_FILE_FOLDERS = ('static/uploads', 'static/files')
+
+
+def build_complete_backup_zip():
+    import zipfile
+    buffer = io.BytesIO()
+    file_count = 0
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('hris_database.db', build_database_backup_bytes())
+        for relative_root in BACKUP_FILE_FOLDERS:
+            source_root = os.path.join(basedir, relative_root)
+            if not os.path.isdir(source_root):
+                continue
+            for root, _, filenames in os.walk(source_root):
+                for filename in filenames:
+                    source_path = os.path.join(root, filename)
+                    archive_name = os.path.relpath(source_path, basedir).replace(os.sep, '/')
+                    archive.write(source_path, archive_name)
+                    file_count += 1
+        archive.writestr(
+            'BACKUP_CONTENTS.txt',
+            'hris_database.db: all HRIS records (employees, attendance, payroll, loans, leave, etc.)\n'
+            f'static/: {file_count} uploaded profile/company files\n',
+        )
+    return buffer.getvalue()
+
+
 @app.route('/backup')
 @login_required
 def backup():
     if "admin" not in current_user.role.lower():
-        flash("❌ Access denied. Admins only.", "danger")
+        flash("? Access denied. Admins only.", "danger")
         return redirect(url_for('dashboard_staff'))
-
-    database_path = os.path.join(basedir, "instance", "hris.db")
-    backup_dir = os.path.join(basedir, "instance", "backups")
-    os.makedirs(backup_dir, exist_ok=True)
-    local_exists = os.path.isfile(database_path)
-    backup_status = "failed"
-    last_backup = datetime.now().strftime("%B %d, %Y %I:%M %p")
-    backup_filename = None
-
-    if local_exists:
-        import zipfile
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_filename = f"hris_full_backup_{timestamp}.zip"
-        archive_path = os.path.join(backup_dir, backup_filename)
-        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
-            archive.write(database_path, 'instance/hris.db')
-            for relative_root in ('static/uploads', 'static/files'):
-                source_root = os.path.join(basedir, relative_root)
-                if not os.path.isdir(source_root):
-                    continue
-                for root, _, filenames in os.walk(source_root):
-                    for filename in filenames:
-                        source_path = os.path.join(root, filename)
-                        archive_name = os.path.relpath(source_path, basedir).replace(os.sep, '/')
-                        archive.write(source_path, archive_name)
-            archive.writestr(
-                'BACKUP_CONTENTS.txt',
-                'This archive contains the HRIS database and uploaded profile/company files.\n'
-            )
-        backup_status = "success"
-
-    return render_template("backup_local.html",
-                           local_exists=local_exists,
-                           backup_status=backup_status,
-                           last_backup=last_backup,
-                           backup_filename=backup_filename)
+    last_backup = AuditLog.query.filter(
+        AuditLog.action.in_([
+            'Downloaded full database backup',
+            'Downloaded complete backup with files',
+        ])
+    ).order_by(AuditLog.id.desc()).first()
+    last_backup_text = None
+    if last_backup:
+        last_backup_text = (
+            f"{(last_backup.created_at + timedelta(hours=8)):%B %d, %Y %I:%M %p} "
+            f"by {last_backup.employee_name}"
+        )
+    return render_template("backup_local.html", last_backup=last_backup_text)
 
 
 @app.route('/download_db')
@@ -9981,16 +9985,14 @@ def backup():
 def download_db():
     if "admin" not in current_user.role.lower():
         return "Access denied", 403
-
-    backup_dir = os.path.join(basedir, "instance", "backups")
-    backup_filename = request.args.get("filename", "")
-    if not backup_filename or os.path.basename(backup_filename) != backup_filename:
-        return "Backup not found", 404
-
-    backup_path = os.path.join(backup_dir, backup_filename)
-    if not os.path.isfile(backup_path):
-        return "Backup not found", 404
-    return send_file(backup_path, as_attachment=True, download_name=backup_filename)
+    backup_bytes = build_complete_backup_zip()
+    record_audit_action('Downloaded complete backup with files')
+    return send_file(
+        io.BytesIO(backup_bytes),
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'hris_full_backup_{datetime.now(ZoneInfo("Asia/Manila")):%Y%m%d_%H%M}.zip',
+    )
 
 # ------------------ LOG OUT ------------------
 @app.route('/logout')
