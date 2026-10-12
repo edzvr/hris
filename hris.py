@@ -4933,6 +4933,19 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             'net_pay': gross_income + rice_exempt - total_deductions,
             'payroll_record': payroll_record,
         })
+        snapshot_record = payroll_record or Payroll(employee_id=emp.id)
+        if payroll_record and payroll_record.is_paid:
+            for field in (
+                'gross_income', 'total_deductions', 'net_pay', 'sss', 'philhealth',
+                'pagibig', 'withholding_tax', 'liability_deduction',
+                'contribution_salary_base', 'employer_sss', 'employer_sss_ec',
+                'employer_philhealth', 'employer_pagibig',
+            ):
+                rows[-1][field] = float(getattr(payroll_record, field) or 0)
+        else:
+            rows[-1].update(
+                calculate_payroll_snapshot(emp, snapshot_record, cutoff_start, cutoff_end)
+            )
     rows.sort(key=lambda row: (not row['is_admin'], row['employee'].last_name or '', row['employee'].first_name or ''))
     return rows
 
@@ -5161,12 +5174,13 @@ def build_document_verification(document_type, employee_id, label, reference_id=
         except ValueError:
             cutoff_end = None
 
-    existing = PayslipVerification.query.filter_by(
-        employee_id=employee_id,
-        document_type=document_type,
-        document_label=label,
-        payroll_id=reference_id,
-    ).first()
+    verification_filters = {
+        'employee_id': employee_id, 'document_type': document_type,
+        'document_label': label, 'payroll_id': reference_id,
+    }
+    if document_type == 'payslip':
+        verification_filters['net_pay'] = float(net_pay or 0)
+    existing = PayslipVerification.query.filter_by(**verification_filters).first()
     if existing is not None:
         verification_id = existing.document_id
         verification_hash = existing.verification_hash
@@ -5967,26 +5981,9 @@ def mark_payroll_summary_paid():
             cutoff_start=cutoff_start,
             cutoff_end=cutoff_end - timedelta(days=1)
         )
-        record.gross_income = row['gross_income']
-        record.sss = row['sss']
-        record.philhealth = row['philhealth']
-        record.pagibig = row['pagibig']
-        record.contribution_salary_base = row['contribution_salary_base']
-        record.employer_sss = row['employer_sss']
-        record.employer_sss_ec = row['employer_sss_ec']
-        record.employer_philhealth = row['employer_philhealth']
-        record.employer_pagibig = row['employer_pagibig']
-        record.withholding_tax = row['withholding_tax']
-        record.loan = row['loan']
-        record.total_deductions = row['total_deductions']
-        record.net_pay = row['net_pay']
-        if not record.is_paid:
-            record.confirmation_status = 'Pending'
-            record.confirmation_note = None
-            record.confirmed_at = None
-        record.is_paid = True
         if record.id is None:
             db.session.add(record)
+        finalize_payroll_record(row['employee'], record, cutoff_start, cutoff_end)
     db.session.commit()
     flash(f'{company} payroll marked as paid.', 'success')
     return redirect(url_for('payroll_dashboard'))
@@ -6566,10 +6563,16 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         + pagibig_loan + liability_deduction + cash_advance + withholding_tax
     )
     total_deductions = float(
-        payroll_record.total_deductions or max(known_deductions - late_ut, 0.0)
+        payroll_record.total_deductions
+        if payroll_record.total_deductions is not None
+        else max(known_deductions - late_ut, 0.0)
     )
     other_deductions = max(round(total_deductions - known_deductions, 2), 0.0)
-    net_pay = float(payroll_record.net_pay or (gross_pay - total_deductions))
+    net_pay = float(
+        payroll_record.net_pay
+        if payroll_record.net_pay is not None
+        else gross_pay - total_deductions
+    )
 
     return {
         "employee": emp,
@@ -6874,24 +6877,14 @@ def payroll(employee_id):
             cutoff_start=start_cutoff.date(),
             cutoff_end=(end_cutoff - timedelta(days=1)).date()
         )
-    payroll_record.gross_income = gross_income
-    payroll_record.total_deductions = total_deductions
-    payroll_record.net_pay = net_pay
-    payroll_record.sss = sss
-    payroll_record.philhealth = philhealth
-    payroll_record.pagibig = pagibig
-    payroll_record.contribution_salary_base = contribution_salary
-    payroll_record.employer_sss = employer_deductions["sss"]
-    payroll_record.employer_sss_ec = employer_deductions["sss_ec"]
-    payroll_record.employer_philhealth = employer_deductions["philhealth"]
-    payroll_record.employer_pagibig = employer_deductions["pagibig"]
-    payroll_record.withholding_tax = withholding_tax
-    payroll_record.loan = loan
-    payroll_record.sss_loan = sss_loan
-    payroll_record.pagibig_loan = pagibig_loan
-    payroll_record.liability_deduction = liability_deduction
-    payroll_record.cash_advance = cash_advance
-    payroll_record.other_deductions = other_deductions
+    if not payroll_record.is_paid:
+        save_payroll_snapshot(
+            payroll_record,
+            calculate_payroll_snapshot(emp, payroll_record, cutoff_start, cutoff_end),
+        )
+    gross_income = payroll_record.gross_income
+    total_deductions = payroll_record.total_deductions
+    net_pay = payroll_record.net_pay
     if request.args.get('save') == 'true':
         if payroll_record.is_paid or payroll_record.loan_deduction_applied:
             flash(
@@ -6906,16 +6899,7 @@ def payroll(employee_id):
     if finalize and not payroll_record.is_paid:
         if payroll_record.id is None:
             db.session.add(payroll_record)
-        if not payroll_record.loan_deduction_applied:
-            emp.loan_balance = max(float(emp.loan_balance or 0) - loan, 0)
-            payroll_record.loan_deduction_applied = True
-        if not payroll_record.liability_deduction_applied:
-            apply_liability_deduction(emp.id, liability_deduction)
-            payroll_record.liability_deduction_applied = True
-        payroll_record.is_paid = True
-        payroll_record.confirmation_status = 'Pending'
-        payroll_record.confirmation_note = None
-        payroll_record.confirmed_at = None
+        finalize_payroll_record(emp, payroll_record, cutoff_start, cutoff_end)
         db.session.commit()
 
     # Verification QR codes require a stable payroll record reference.
@@ -7121,6 +7105,136 @@ def monthly_payroll(employee_id):
     return render_template('monthly_payslip.html', emp=emp, month_start=month_start, records=records, totals=totals)
 
 
+def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
+    attendance = payroll_attendance_records(employee, cutoff_start, cutoff_end)
+    daily_rate = float(employee.daily_rate or 0)
+    basic_pay = sum(regular_day_pay(item, daily_rate) for item in attendance)
+    overtime_pay = sum(
+        payroll_extra_pay(item, daily_rate)
+        for item in attendance if attendance_overtime_is_payable(item)
+    )
+    weeks = payroll_cutoffs_in_month(cutoff_start)
+    rice_days, rice_used = rice_allowance_month_context(
+        employee, cutoff_start, payroll_worked_days_count(employee, attendance)
+    )
+    rice_exempt, rice_taxable = de_minimis_allowance_breakdown(
+        employee, rice_days, weeks, rice_monthly_used=rice_used,
+    )
+    contribution_salary = basic_pay + rice_taxable
+    monthly_salary = contribution_salary * weeks
+    if employee.payroll_attendance_exempt:
+        statutory = manual_owner_contribution_deductions(employee, cutoff_start)
+        employer = {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+    else:
+        statutory = (
+            compute_weekly_deductions(monthly_salary, weeks=weeks)
+            if contribution_salary > 0
+            else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+        )
+        statutory = payroll_statutory_deductions(record, statutory)
+        employer = (
+            compute_weekly_employer_deductions(monthly_salary, weeks=weeks)
+            if contribution_salary > 0
+            else {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+        )
+    gross = (
+        basic_pay + float(employee.allowance or 0)
+        + float(employee.incentives or 0) + rice_taxable + overtime_pay
+    )
+    tax = weekly_withholding_tax(employee, (gross - sum(statutory.values())) * weeks, weeks)
+    if record.withholding_tax_override is not None:
+        tax = float(record.withholding_tax_override)
+    liability = (
+        float(record.liability_deduction_override)
+        if record.liability_deduction_override is not None
+        else float(record.liability_deduction or 0)
+        if record.liability_deduction_applied
+        else liability_cutoff_deduction(employee.id)
+    )
+    total = sum(statutory.values()) + tax + liability + sum(
+        float(getattr(record, field) or 0)
+        for field in ('loan', 'sss_loan', 'pagibig_loan', 'cash_advance', 'other_deductions')
+    )
+    snapshot = {
+        'gross_income': gross, 'total_deductions': total,
+        'net_pay': gross + rice_exempt - total,
+        'sss': statutory['sss'], 'philhealth': statutory['philhealth'],
+        'pagibig': statutory['pagibig'], 'withholding_tax': tax,
+        'liability_deduction': liability, 'contribution_salary_base': contribution_salary,
+        'employer_sss': employer['sss'], 'employer_sss_ec': employer['sss_ec'],
+        'employer_philhealth': employer['philhealth'], 'employer_pagibig': employer['pagibig'],
+    }
+    if any(not isfinite(float(value)) for value in snapshot.values()):
+        raise ValueError(f'Invalid payroll amounts for employee #{employee.id}.')
+    return snapshot
+
+
+def save_payroll_snapshot(record, snapshot):
+    for field, value in snapshot.items():
+        setattr(record, field, value)
+
+
+def finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
+    if record.is_paid:
+        return False
+    save_payroll_snapshot(
+        record, calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end)
+    )
+    if not record.loan_deduction_applied:
+        employee.loan_balance = max(
+            float(employee.loan_balance or 0) - float(record.loan or 0), 0,
+        )
+        record.loan_deduction_applied = True
+    if not record.liability_deduction_applied:
+        apply_liability_deduction(employee.id, record.liability_deduction)
+        record.liability_deduction_applied = True
+    record.is_paid = True
+    record.confirmation_status = 'Pending'
+    record.confirmation_note = None
+    record.confirmed_at = None
+    return True
+
+
+@app.route('/payroll/zero-review', methods=['GET', 'POST'])
+@login_required
+def review_zero_payroll():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    records = Payroll.query.filter(
+        Payroll.is_paid.is_(True),
+        db.or_(Payroll.gross_income == 0, Payroll.gross_income.is_(None)),
+        db.or_(Payroll.total_deductions == 0, Payroll.total_deductions.is_(None)),
+        db.or_(Payroll.net_pay == 0, Payroll.net_pay.is_(None)),
+    ).order_by(Payroll.cutoff_start.desc(), Payroll.employee_id).all()
+    rows = []
+    selected = set(request.form.getlist('payroll_ids')) if request.method == 'POST' else set()
+    for record in records:
+        employee = db.session.get(Employee, record.employee_id)
+        end = record.cutoff_end + timedelta(days=1)
+        snapshot = calculate_payroll_snapshot(employee, record, record.cutoff_start, end)
+        repairable = snapshot['gross_income'] > 0 or snapshot['net_pay'] > 0
+        rows.append({'record': record, 'employee': employee, 'snapshot': snapshot, 'repairable': repairable})
+        if str(record.id) in selected and repairable:
+            save_payroll_snapshot(record, snapshot)
+            record.confirmation_status = 'Pending'
+            record.confirmation_note = None
+            record.confirmed_at = None
+            db.session.add(AuditLog(
+                employee_id=current_user.id, employee_name=current_user.full_name(),
+                company=current_user.company, action=f'Repaired zero payroll #{record.id}',
+                path=request.path, ip_address=request.remote_addr, status_code=302,
+            ))
+    if request.method == 'POST':
+        repaired = sum(str(row['record'].id) in selected and row['repairable'] for row in rows)
+        db.session.commit()
+        flash(
+            f'{repaired} zero payroll records repaired. Loan and liability balances were not deducted again.',
+            'success' if repaired else 'warning',
+        )
+        return redirect(url_for('review_zero_payroll'))
+    return render_template('payroll_zero_review.html', rows=rows)
+
+
 @app.route('/payroll/<int:employee_id>/finalize', methods=['POST'])
 @login_required
 def finalize_payroll(employee_id):
@@ -7200,21 +7314,12 @@ def bulk_finalize_payroll():
             cutoff_end=cutoff_end - timedelta(days=1)
         ).first()
         if payroll_record is None:
-            continue
-        if not payroll_record.is_paid:
-            if not payroll_record.loan_deduction_applied:
-                employee.loan_balance = max(
-                    float(employee.loan_balance or 0) - float(payroll_record.loan or 0),
-                    0,
-                )
-                payroll_record.loan_deduction_applied = True
-            if not payroll_record.liability_deduction_applied:
-                apply_liability_deduction(int(employee_id), payroll_record.liability_deduction)
-                payroll_record.liability_deduction_applied = True
-            payroll_record.is_paid = True
-            payroll_record.confirmation_status = 'Pending'
-            payroll_record.confirmation_note = None
-            payroll_record.confirmed_at = None
+            payroll_record = Payroll(
+                employee_id=employee.id, cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1),
+            )
+            db.session.add(payroll_record)
+        if finalize_payroll_record(employee, payroll_record, cutoff_start, cutoff_end):
             finalized += 1
     db.session.commit()
     flash(f'{finalized} payroll records finalized for this cutoff.', 'success')
@@ -7648,8 +7753,19 @@ def payroll_dashboard():
             + liability_deduction + cash_advance + withholding_tax + other_deductions
         )
         net_pay = gross_income + rice_exempt - deductions
+        if payroll_record and payroll_record.is_paid:
+            gross_income = float(payroll_record.gross_income or 0)
+            deductions = float(payroll_record.total_deductions or 0)
+            net_pay = float(payroll_record.net_pay or 0)
+            sss = float(payroll_record.sss or 0)
+            philhealth = float(payroll_record.philhealth or 0)
+            pagibig = float(payroll_record.pagibig or 0)
+            withholding_tax = float(payroll_record.withholding_tax or 0)
+            liability_deduction = float(payroll_record.liability_deduction or 0)
         is_admin = 'admin' in str(emp.role or '').lower()
         review_reasons = []
+        if payroll_record and payroll_record.is_paid and gross_income == 0 and deductions == 0 and net_pay == 0:
+            review_reasons.append('Finalized zero totals - review / repair required')
         if daily_rate <= 0:
             review_reasons.append('Missing daily rate')
         if worked_days_count == 0 and not emp.payroll_attendance_exempt:
@@ -8138,7 +8254,7 @@ def apply_approved_loan_balance(loan_record):
     """Add an approved loan to the employee balance exactly once."""
     if loan_record.balance_applied:
         return False
-    employee = db.session.get(Employee, loan_record.employee_id)
+    employee = db.session.get(Employee, loan_record.employee_id, with_for_update=True)
     employee.loan_balance = float(employee.loan_balance or 0) + float(loan_record.amount or 0)
     loan_record.balance_applied = True
     return True
@@ -8169,21 +8285,47 @@ def loan_account_summary(employee):
     }
 
 
-@app.route('/approve_loan/<int:id>', methods=['GET','POST'])
+def review_loan_request(loan_id, decision):
+    loan_record = Loan.query.filter_by(id=loan_id).with_for_update().first_or_404()
+    if loan_record.status != 'Pending' or loan_record.balance_applied:
+        flash('This loan has already been reviewed. Its balance was not changed.', 'warning')
+        return redirect(url_for('loan'))
+    reason = request.form.get('reason', '').strip()
+    if decision == 'Rejected' and not reason:
+        flash('Enter a reason for declining this loan.', 'danger')
+        return redirect(url_for('loan'))
+    if not isfinite(float(loan_record.amount)) or loan_record.amount <= 0:
+        flash('This loan has an invalid amount. Correct the record before review.', 'danger')
+        return redirect(url_for('loan'))
+    loan_record.status = decision
+    loan_record.decision_date = datetime.utcnow()
+    loan_record.approver = current_user.full_name()
+    if decision == 'Approved':
+        apply_approved_loan_balance(loan_record)
+    else:
+        loan_record.remarks = reason
+    db.session.commit()
+    send_loan_email(
+        Employee.query.get_or_404(loan_record.employee_id),
+        loan_record, decision.lower(),
+    )
+    if decision == 'Approved':
+        flash(
+            f'Loan approved: PHP {loan_record.amount:,.2f} added to the employee remaining balance.',
+            'success',
+        )
+    else:
+        flash('Loan request declined. No amount was added to the employee balance.', 'success')
+    return redirect(url_for('loan'))
+
+
+@app.route('/approve_loan/<int:id>', methods=['POST'])
 @login_required
 def approve_loan(id):
     if current_user.role.lower() != 'admin':
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('loan'))
-    loan = Loan.query.get_or_404(id)
-    loan.status = "Approved"
-    loan.decision_date = datetime.utcnow()
-    loan.approver = f"{current_user.first_name} {current_user.last_name}"
-    apply_approved_loan_balance(loan)
-    db.session.commit()
-    send_loan_email(Employee.query.get_or_404(loan.employee_id), loan, 'approved')
-    flash("✅ Loan approved.", "success")
-    return redirect(url_for('dashboard_admin'))
+    return review_loan_request(id, 'Approved')
 
 
 @app.route('/reject_loan/<int:id>', methods=['POST'])
@@ -8192,16 +8334,40 @@ def reject_loan(id):
     if current_user.role.lower() != 'admin':
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('loan'))
-    reason = request.form.get('reason')
-    loan = Loan.query.get_or_404(id)
-    loan.status = "Rejected"
-    loan.remarks = reason
-    loan.decision_date = datetime.utcnow()
-    loan.approver = f"{current_user.first_name} {current_user.last_name}"
+    return review_loan_request(id, 'Rejected')
+
+
+@app.route('/loan/balance/<int:employee_id>', methods=['POST'])
+@login_required
+def update_loan_balance(employee_id):
+    if current_user.role.lower() != 'admin':
+        return 'Access denied', 403
+    employee = Employee.query.filter_by(id=employee_id).with_for_update().first_or_404()
+    try:
+        balance = float(request.form.get('balance', ''))
+        previous_balance = float(request.form.get('previous_balance', ''))
+        if not isfinite(balance) or not isfinite(previous_balance) or balance < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        flash('Enter a valid non-negative remaining loan balance.', 'danger')
+        return redirect(url_for('loan'))
+    old_balance = float(employee.loan_balance or 0)
+    if previous_balance != old_balance:
+        flash('The loan balance changed since this page opened. Reload and review before saving.', 'warning')
+        return redirect(url_for('loan'))
+    employee.loan_balance = balance
+    db.session.add(AuditLog(
+        employee_id=current_user.id,
+        employee_name=current_user.full_name(),
+        company=current_user.company,
+        action=f'Loan balance employee #{employee.id}: PHP {old_balance:.2f} -> {balance:.2f}',
+        path=request.path,
+        ip_address=request.remote_addr,
+        status_code=302,
+    ))
     db.session.commit()
-    send_loan_email(Employee.query.get_or_404(loan.employee_id), loan, 'rejected')
-    flash("❌ Loan request rejected.", "danger")
-    return redirect(url_for('dashboard_admin'))
+    flash(f'Remaining loan for {employee.full_name()} saved: PHP {balance:,.2f}.', 'success')
+    return redirect(url_for('loan'))
 
 
 @app.route('/loan', methods=['GET','POST'])
@@ -8215,20 +8381,16 @@ def loan():
         if current_user.role.lower() != "admin":
             flash("❌ Access denied!", "danger")
             return redirect(url_for('loan'))
-        loan = Loan.query.get_or_404(int(loan_id))
-        loan.status = "Approved" if action == "approve" else "Rejected"
-        loan.decision_date = datetime.utcnow()
-        loan.approver = f"{current_user.first_name} {current_user.last_name}"
-        if action == "approve":
-            apply_approved_loan_balance(loan)
-        db.session.commit()
-        send_loan_email(
-            Employee.query.get_or_404(loan.employee_id),
-            loan,
-            'approved' if action == 'approve' else 'rejected'
+        if request.method != 'POST':
+            flash('Use the Approve or Decline button to review a pending loan.', 'warning')
+            return redirect(url_for('loan'))
+        parsed_loan_id = request.args.get('loan_id', type=int)
+        if parsed_loan_id is None:
+            flash('Select a valid loan request.', 'danger')
+            return redirect(url_for('loan'))
+        return review_loan_request(
+            parsed_loan_id, 'Approved' if action == 'approve' else 'Rejected',
         )
-        flash(f"Loan {action}d successfully!", "success")
-        return redirect(url_for('loan'))
 
     # --- PDF-only print view ---
     if action == "print":

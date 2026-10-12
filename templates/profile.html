@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ emp.first_name }} {{ emp.last_name }} - Profile</title>
+    <title>{{ emp.full_name() }} - Profile</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 24px; color: #263238; }
@@ -43,6 +43,10 @@
 <body>
 <div class="profile-container">
     <a class="dashboard-back-link back-link" href="{{ url_for('dashboard_admin') if viewer.role.lower() == 'admin' else url_for('dashboard_staff') }}">&#8592; Back to Dashboard</a>
+    <header class="profile-identity" aria-label="Employee profile">
+        <h1>{{ emp.full_name() }} - Profile</h1>
+        <p>{{ emp.company or 'N/A' }} | {{ emp.job_description or emp.role or 'N/A' }}</p>
+    </header>
 
     <ul class="nav-tabs">
         <li><a class="nav-link active" data-tab="info" onclick="showTab('info')">Personal Info</a></li>
@@ -60,7 +64,7 @@
             {% if emp.profile_pic %}
                 <img src="{{ url_for('static', filename='uploads/' ~ emp.profile_pic) }}" class="profile-pic" alt="Profile picture">
             {% endif %}
-            <h2>{{ emp.first_name }} {{ emp.last_name }} - Profile</h2>
+            <h2>{{ emp.full_name() }} - Profile</h2>
             <p>{{ emp.job_description or 'N/A' }} - {{ emp.company or 'N/A' }}</p>
             {% if viewer.id == emp.id or viewer.role.lower() == 'admin' %}
             <button class="btn" type="button" onclick="showTab('resume')">Fill Up Resume / Bio Data</button>
@@ -237,11 +241,11 @@
     <div id="payroll" class="tab-content">
         <h2>Payroll History</h2>
         <div class="table-scroll"><table>
-            <thead><tr><th>Cut-off</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+            <thead><tr><th>Cut-off</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr></thead>
             <tbody>
             {% for record in emp.payrolls|sort(attribute='cutoff_start', reverse=true) %}
-                <tr><td>{{ record.cutoff_start }} - {{ record.cutoff_end }}</td><td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td><td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td><td>₱{{ '%.2f'|format(record.net_pay or 0) }}</td></tr>
-            {% else %}<tr><td colspan="4">No payroll records found.</td></tr>{% endfor %}
+                <tr><td>{{ record.cutoff_start }} - {{ record.cutoff_end }}</td><td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td><td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td><td>₱{{ '%.2f'|format(record.net_pay or 0) }}</td><td>{{ 'Finalized' if record.is_paid else 'Draft - not yet finalized' }}</td></tr>
+            {% else %}<tr><td colspan="5">No payroll records found.</td></tr>{% endfor %}
             </tbody>
         </table></div>
     </div>

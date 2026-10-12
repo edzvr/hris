@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Finalized Zero Payroll</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main>
+        <a href="{{ url_for('payroll_dashboard') }}">Back to Payroll</a>
+        <h1>Review Finalized Zero Payroll - All Employees</h1>
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+        <p role="status">{{ message }}</p>
+        {% endfor %}
+        <p>These finalized records have zero saved totals. Preview uses current rates, allowances, attendance and saved cutoff deductions. Review before repairing historical payroll. No loan or liability balance will be deducted again. Staff confirmation will be requested again.</p>
+        <form method="POST">
+            <table>
+                <thead><tr><th>Select</th><th>Employee</th><th>Cutoff</th><th>Recalculated Gross</th><th>Deductions</th><th>Net Pay</th><th>Review</th></tr></thead>
+                <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{% if row.repairable %}<input type="checkbox" name="payroll_ids" value="{{ row.record.id }}" aria-label="Repair {{ row.employee.full_name() }} {{ row.record.cutoff_start }}">{% endif %}</td>
+                        <td>{{ row.employee.full_name() }}</td>
+                        <td>{{ row.record.cutoff_start }} - {{ row.record.cutoff_end }}</td>
+                        <td>{{ '%.2f'|format(row.snapshot.gross_income) }}</td>
+                        <td>{{ '%.2f'|format(row.snapshot.total_deductions) }}</td>
+                        <td>{{ '%.2f'|format(row.snapshot.net_pay) }}</td>
+                        <td>{{ 'Available for repair' if row.repairable else 'Still zero - check attendance/rate; not automatically repaired' }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="7">No finalized zero-total records found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <button type="submit">Repair Selected Zero Records</button>
+        </form>
+    </main>
+</body>
+</html>

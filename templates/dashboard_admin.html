@@ -436,7 +436,9 @@
           <td>{{ loan.date_filed.strftime('%Y-%m-%d') }}</td>
           <td>{{ loan.status }}</td>
           <td>
-            <a href="{{ url_for('approve_loan', id=loan.id) }}" class="btn">Approve</a>
+            <form action="{{ url_for('approve_loan', id=loan.id) }}" method="POST" style="display:inline;">
+              <button type="submit" class="btn">Approve &amp; Add to Balance</button>
+            </form>
             <form action="{{ url_for('reject_loan', id=loan.id) }}" method="POST" style="display:inline;">
               <input type="text" name="reason" placeholder="Reason for decline" required>
               <button type="submit" class="btn btn-danger">Decline</button>

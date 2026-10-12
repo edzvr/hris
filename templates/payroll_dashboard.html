@@ -156,6 +156,7 @@
         <div style="margin: 10px 0 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <label><input type="checkbox" id="select-all-employees"> Select all</label>
             <button type="submit" formaction="{{ url_for('bulk_finalize_payroll') }}" formmethod="POST">✅ Finalize Selected</button>
+            <a href="{{ url_for('review_zero_payroll') }}">Review / Repair Finalized Zero Payroll (All Employees)</a>
             <input type="hidden" name="cutoff_start" value="{{ start_cutoff }}">
         </div>
         <div class="table-wrap">

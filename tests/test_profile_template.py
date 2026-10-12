@@ -27,6 +27,9 @@ def test_profile_template_renders_tabs(role):
                 ),
             )
         assert 'id="attendance"' in rendered
+        identity = rendered.split('<header class="profile-identity"', 1)[1].split('</header>', 1)[0]
+        assert 'Profile Test - Profile' in identity
+        assert rendered.index('class="profile-identity"') < rendered.index('class="nav-tabs"')
         assert 'id="payroll"' in rendered
         assert 'id="feed"' in rendered
         assert "showTab" in rendered

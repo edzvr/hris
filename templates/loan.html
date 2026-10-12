@@ -63,13 +63,23 @@
 
     <section>
         <h2>Employee Loan Accounts</h2>
+        <p>Current Outstanding is the remaining loan after finalized payroll deductions. Edit and save it per employee to correct a balance; this does not approve pending requests or change past payroll deductions.</p>
         <div class="table-wrap"><table>
             <tr><th>Employee</th><th>Company</th><th>Total Recorded Loans</th><th>Payroll Deductions</th><th>Current Outstanding</th><th>Statement</th></tr>
             {% for item in loan_accounts %}
             <tr>
                 <td>{{ item.employee.full_name() }}</td><td>{{ item.employee.company or 'N/A' }}</td>
                 <td>₱{{ item.total_credited|currency }}</td><td>₱{{ item.total_deducted|currency }}</td>
-                <td><strong>₱{{ item.outstanding|currency }}</strong></td>
+                <td><strong>₱{{ item.outstanding|currency }}</strong>
+                    <details class="no-print">
+                        <summary>Edit Remaining Loan</summary>
+                        <form method="POST" action="{{ url_for('update_loan_balance', employee_id=item.employee.id) }}">
+                            <input type="hidden" name="previous_balance" value="{{ item.outstanding }}">
+                            <label>Remaining Loan (PHP)<input type="number" name="balance" value="{{ '%.2f'|format(item.outstanding) }}" min="0" step="0.01" required></label>
+                            <button type="submit">Save Balance</button>
+                        </form>
+                    </details>
+                </td>
                 <td><a class="btn" href="{{ url_for('download_loan_statement', employee_id=item.employee.id) }}">Download</a></td>
             </tr>
             {% endfor %}
@@ -110,6 +120,7 @@
 
     <!-- Loan History Table -->
     <h2>Loan Details</h2>
+    <p>Pending requests are not yet included in the employee balance. Admin approval adds the requested amount once to Current Outstanding; payroll deductions reduce it when payroll is finalized.</p>
     <div class="table-wrap"><table>
         <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Reference</th><th>Type</th><th>Amount</th><th>Reason</th><th>Date Needed</th><th>Status</th>
             {% if current_user.role.lower() == 'admin' %}<th class="no-print">Action</th>{% endif %}
@@ -133,7 +144,9 @@
             </td>
             {% if current_user.role.lower() == 'admin' %}
             <td class="no-print">
-                {% if l.status == 'Pending' %}<a href="{{ url_for('approve_loan', id=l.id) }}" class="btn">Approve</a>
+                {% if l.status == 'Pending' %}<form action="{{ url_for('approve_loan', id=l.id) }}" method="POST" style="display:inline;">
+                    <button type="submit" class="btn">Approve &amp; Add to Balance</button>
+                </form>
                 <form action="{{ url_for('reject_loan', id=l.id) }}" method="POST" style="display:inline;">
                     <input type="text" name="reason" placeholder="Reason for decline" required>
                     <button type="submit" class="btn btn-danger">Decline</button>
