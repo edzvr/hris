@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import hris
 from hris import app, ensure_employee_hr_columns
@@ -406,10 +407,12 @@ def test_trece_sunday_ot_application_must_start_after_scheduled_4_hour_shift():
             last_name='Applicant',
             role='staff',
             company='Trece-Uno',
+            email='sunday.applicant@example.com',
         )
-        db.session.add(staff)
+        admin = Employee(first_name='Sunday', last_name='Admin', role='admin')
+        db.session.add_all([staff, admin])
         db.session.commit()
-        staff_id = staff.id
+        staff_id, admin_id = staff.id, admin.id
 
     try:
         client = app.test_client()
@@ -444,6 +447,16 @@ def test_trece_sunday_ot_application_must_start_after_scheduled_4_hour_shift():
             application = OTApplication.query.filter_by(employee_id=staff_id).first()
             assert application is not None
             assert application.start_time.strftime('%H:%M') == '12:00'
+            application_id = application.id
+            log_in(client, db.session.get(Employee, admin_id))
+        with patch('hris.send_notification_email') as send_email:
+            decision = client.post(
+                f'/admin/ot_applications/{application_id}/approve'
+            )
+        assert decision.status_code == 302
+        send_email.assert_called_once()
+        assert send_email.call_args.args[0] == ['sunday.applicant@example.com']
+        assert send_email.call_args.args[1] == 'OT application approved'
     finally:
         with app.app_context():
             db.session.rollback()
@@ -451,6 +464,9 @@ def test_trece_sunday_ot_application_must_start_after_scheduled_4_hour_shift():
             employee = db.session.get(Employee, staff_id)
             if employee:
                 db.session.delete(employee)
+            admin = db.session.get(Employee, admin_id)
+            if admin:
+                db.session.delete(admin)
             db.session.commit()
 
 

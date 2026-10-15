@@ -6204,6 +6204,18 @@ def decide_ot_application(application_id, action):
         if action == 'reject' and attendance.ot_status is None:
             attendance.ot_status = 'Rejected'
     db.session.commit()
+    employee = db.session.get(Employee, application.employee_id)
+    decision = application.status.lower()
+    send_notification_email(
+        [employee.email if employee else None],
+        f'OT application {decision}',
+        (
+            f'Your OT application for {application.ot_date}, '
+            f'{application.start_time.strftime("%I:%M %p")} to '
+            f'{application.end_time.strftime("%I:%M %p")}, was {decision}.'
+            + (f' Admin note: {application.decision_note}' if application.decision_note else '')
+        ),
+    )
     return redirect(url_for('holiday_ot_dashboard'))
 
 
@@ -6408,6 +6420,25 @@ def review_attendance_correction(correction_id, action):
     else:
         flash('Attendance correction rejected.', 'info')
     db.session.commit()
+    employee = db.session.get(Employee, correction.employee_id)
+    decision = correction.status.lower()
+    requested_times = ', '.join(
+        f'{label}: {value.strftime("%Y-%m-%d %I:%M %p")}'
+        for label, value in (
+            ('Clock in', correction.requested_clock_in),
+            ('Clock out', correction.requested_clock_out),
+        )
+        if value is not None
+    )
+    send_notification_email(
+        [employee.email if employee else None],
+        f'Attendance correction {decision}',
+        (
+            f'Your attendance correction request for {correction.correction_date} '
+            f'was {decision}. Requested times: {requested_times or "not specified"}.'
+            + (f' Admin note: {correction.admin_note}' if correction.admin_note else '')
+        ),
+    )
     return redirect(url_for('dashboard_admin'))
 
 

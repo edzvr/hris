@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 from hris import app
 from models import Attendance, AttendanceCorrection, Employee, db
@@ -70,6 +71,7 @@ def test_staff_can_correct_only_missing_clock_out_and_admin_approval_preserves_c
             last_name='Staff',
             role='staff',
             company='Trece-Uno',
+            email='punch.staff@example.com',
         )
         admin = Employee(first_name='Punch', last_name='Admin', role='admin')
         db.session.add_all([staff, admin])
@@ -115,10 +117,14 @@ def test_staff_can_correct_only_missing_clock_out_and_admin_approval_preserves_c
             correction_id = correction.id
             assert correction.requested_clock_in is None
             log_in(client, db.session.get(Employee, admin_id))
-        response = client.post(
-            f'/admin/attendance-correction/{correction_id}/approve'
-        )
+        with patch('hris.send_notification_email') as send_email:
+            response = client.post(
+                f'/admin/attendance-correction/{correction_id}/approve'
+            )
         assert response.status_code == 302
+        send_email.assert_called_once()
+        assert send_email.call_args.args[0] == ['punch.staff@example.com']
+        assert send_email.call_args.args[1] == 'Attendance correction approved'
 
         with app.app_context():
             attendance = db.session.get(Attendance, attendance_id)
