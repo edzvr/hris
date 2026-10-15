@@ -280,6 +280,7 @@ from models import (
     LeaveRequest,
     LeaveHistory,
     Loan,
+    LoanDeductionSkipRequest,
     LoanHistory,
     Evaluation,
     EvaluationQuestion,
@@ -4307,6 +4308,20 @@ def payroll_cutoff_from_request(value=None):
     return completed_cutoff()
 
 
+def current_payroll_cutoff(today=None):
+    today = today or datetime.now(ZoneInfo('Asia/Manila')).date()
+    cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    return cutoff_start, cutoff_start + timedelta(days=6)
+
+
+def approved_loan_deduction_skip(employee_id, cutoff_start):
+    return LoanDeductionSkipRequest.query.filter_by(
+        employee_id=employee_id,
+        cutoff_start=cutoff_start,
+        status='Approved',
+    ).first()
+
+
 def payroll_cutoffs_in_month(cutoff_start):
     """Count Saturday-to-Friday payroll cutoffs assigned to the start-date month."""
     month_start = cutoff_start.replace(day=1)
@@ -4382,6 +4397,18 @@ def payroll_loan_review():
     employees = employee_query.order_by(
         Employee.company, Employee.last_name, Employee.first_name
     ).all()
+    employee_ids = [employee.id for employee in employees]
+    skip_requests = LoanDeductionSkipRequest.query.filter(
+        LoanDeductionSkipRequest.cutoff_start == cutoff_start,
+        LoanDeductionSkipRequest.employee_id.in_(employee_ids),
+    ).order_by(LoanDeductionSkipRequest.created_at.desc()).all()
+    active_skip_by_employee = {
+        item.employee_id: item for item in skip_requests
+        if item.status in {'Pending', 'Approved'}
+    }
+    approved_skip_employee_ids = {
+        item.employee_id for item in skip_requests if item.status == 'Approved'
+    }
 
     if request.method == 'POST':
         try:
@@ -4426,8 +4453,12 @@ def payroll_loan_review():
         deduction_was_capped = False
         for employee, balance, requested_deduction, payroll_record in updates:
             employee.loan_balance = balance
-            cutoff_deduction = loan_cutoff_deduction(balance, requested_deduction)
-            deduction_was_capped = deduction_was_capped or cutoff_deduction < requested_deduction
+            cutoff_deduction = (
+                0.0 if employee.id in approved_skip_employee_ids
+                else loan_cutoff_deduction(balance, requested_deduction)
+            )
+            if employee.id not in approved_skip_employee_ids:
+                deduction_was_capped = deduction_was_capped or cutoff_deduction < requested_deduction
             if payroll_record is None and cutoff_deduction > 0:
                 payroll_record = Payroll(
                     employee_id=employee.id,
@@ -4457,7 +4488,11 @@ def payroll_loan_review():
     for employee in employees:
         record = payroll_records.get(employee.id)
         balance = float(employee.loan_balance or 0)
-        deduction = float(record.loan or 0) if record else 0.0
+        skip_request = active_skip_by_employee.get(employee.id)
+        deduction = (
+            0.0 if skip_request and skip_request.status == 'Approved'
+            else float(record.loan or 0) if record else 0.0
+        )
         if record and record.loan_deduction_applied and deduction > 0:
             # The current balance already has this deduction removed, so rebuild the
             # before/after values for this cutoff from the loan history.
@@ -4472,6 +4507,8 @@ def payroll_loan_review():
             'balance': balance,
             'deduction': deduction,
             'after_deduction': after_deduction,
+            'skip_request': skip_request,
+            'skip_approved': bool(skip_request and skip_request.status == 'Approved'),
             'finalized': bool(
                 record and (record.is_paid or record.loan_deduction_applied)
             ),
@@ -4479,6 +4516,7 @@ def payroll_loan_review():
     return render_template(
         'payroll_loan_review.html',
         loan_rows=loan_rows,
+        skip_requests=skip_requests,
         cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
         start_cutoff=cutoff_start,
         end_cutoff=cutoff_end - timedelta(days=1),
@@ -5326,6 +5364,7 @@ HR_DOCUMENT_TYPES = {
     'Suspension': 'Suspension Notice',
     'Return to Work': 'Return to Work Order',
     'Liability Agreement': 'Recoverable Deduction / Liability Agreement',
+    'Loan Deduction Agreement': 'Employee Loan Payroll Deduction Authorization',
     'COE': 'Certificate of Employment',
     'Policy Acknowledgment': 'Policy Acknowledgment',
 }
@@ -5341,6 +5380,24 @@ def default_hr_document_body(document_type, employee):
         'PIP': f'Performance Improvement Plan for {employee_name}\n\nReason / Evaluation Result:\n[State failed evaluation score, performance gap, attendance issue, or policy concern.]\n\nSupport and Coaching Provided:\n[State coaching, training, mentoring, reminders, tools, or schedule support given by the company.]\n\nImprovement Targets:\n1. [Target 1]\n2. [Target 2]\n3. [Target 3]\n\nReview Period and Check-ins:\n[State start date, review dates, and final review date.]\n\nExpected Outcome:\nThe employee is given an opportunity to improve and meet company standards. Progress will be reviewed fairly based on documented performance, attendance, behavior, and policy compliance.',
         'Contract': f'This agreement is entered into by the company and {employee_name}.\n\nTerms and Conditions:\n[Write agreed terms here.]\n\nBoth parties acknowledge and agree to the terms stated in this document.',
         'Liability Agreement': f'This recoverable deduction/liability agreement documents an employee accountability or uncollected company receivable involving {employee_name}.\n\nThe deduction shall follow the agreed schedule. If the customer or account pays the outstanding receivable, the corresponding deducted amount shall be refunded or released to the employee based on actual recovery and company records.',
+        'Loan Deduction Agreement': (
+            f'EMPLOYEE LOAN PAYROLL DEDUCTION AUTHORIZATION\n\n'
+            f'Employee: {employee_name}\n'
+            f'Company: {employee.company or "[Company Name]"}\n'
+            'Loan reference / approval date: [Enter approved loan reference and date]\n'
+            'Approved loan amount: PHP [Enter approved amount]\n'
+            'Agreed deduction per cutoff: PHP [Enter PHP 500.00 or more]\n'
+            'First deduction cutoff: [Enter cutoff]\n\n'
+            f'I, {employee_name}, voluntarily authorize {employee.company or "[Company Name]"} '
+            'to deduct the agreed amount from my salary for repayment of this approved employee loan. '
+            'The deduction will be at least PHP 500.00 per payroll cutoff, except for the final '
+            'deduction when the remaining loan balance is less than PHP 500.00. No deduction will '
+            'exceed the remaining loan balance. Deductions are subject to applicable law and '
+            'required limits on wage deductions.\n\n'
+            'I have reviewed the loan amount and deduction schedule above, understand the terms, '
+            'and authorize the deductions until the loan is fully paid. I may request an updated '
+            'loan balance and deduction record from the company.'
+        ),
     }
     return templates.get(document_type, 'Document details:\n[Write complete details here.]')
 
@@ -5464,6 +5521,13 @@ HR_DOCUMENT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 def hr_document_signature_statement(document_type):
+    if document_type == 'Loan Deduction Agreement':
+        return (
+            'I voluntarily authorize the stated salary deduction for my approved employee loan: '
+            'at least PHP 500.00 per payroll cutoff, except when the remaining balance is less '
+            'than PHP 500.00 for the final deduction. I understand deductions are subject to '
+            'applicable law and required limits on wage deductions.'
+        )
     if document_type == 'Liability Agreement':
         return (
             'I confirm that I received and reviewed this liability/deduction agreement. '
@@ -7390,8 +7454,9 @@ def finalize_payroll(employee_id):
                     cutoff_end=cutoff_end - timedelta(days=1)
                 )
                 db.session.add(payroll_record)
-            payroll_record.loan = loan_cutoff_deduction(
-                employee.loan_balance, float(loan_deduction)
+            payroll_record.loan = (
+                0.0 if approved_loan_deduction_skip(employee_id, cutoff_start)
+                else loan_cutoff_deduction(employee.loan_balance, float(loan_deduction))
             )
         update_manual_owner_contribution_settings(employee, request.form, cutoff_start)
         db.session.commit()
@@ -7712,8 +7777,9 @@ def payroll_dashboard():
                         db.session.add(payroll_record)
                     if loan_deduction is not None and loan_deduction.strip() != "":
                         requested_deduction = max(float(loan_deduction), 0)
-                        payroll_record.loan = loan_cutoff_deduction(
-                            emp.loan_balance, requested_deduction
+                        payroll_record.loan = (
+                            0.0 if approved_loan_deduction_skip(emp.id, cutoff_start)
+                            else loan_cutoff_deduction(emp.loan_balance, requested_deduction)
                         )
                     if sss_loan_deduction is not None and sss_loan_deduction.strip() != "":
                         payroll_record.sss_loan = max(float(sss_loan_deduction), 0)
@@ -8561,6 +8627,63 @@ def delete_loan(loan_id):
     return redirect(url_for('loan'))
 
 
+@app.route('/loan/deduction-skip/<int:request_id>/<action>', methods=['POST'])
+@login_required
+def review_loan_deduction_skip_request(request_id, action):
+    if not can_review_payroll_loans(current_user) or action not in {'approve', 'reject'}:
+        return 'Access denied', 403
+    skip_request = LoanDeductionSkipRequest.query.get_or_404(request_id)
+    if skip_request.status != 'Pending':
+        flash('This skip request was already reviewed.', 'warning')
+        return redirect(url_for(
+            'payroll_loan_review', cutoff_start=skip_request.cutoff_start.isoformat(),
+        ))
+    decision_note = request.form.get('decision_note', '').strip()
+    if action == 'reject' and not decision_note:
+        flash('Enter a reason for declining this skip request.', 'danger')
+        return redirect(url_for(
+            'payroll_loan_review', cutoff_start=skip_request.cutoff_start.isoformat(),
+        ))
+    payroll_record = Payroll.query.filter_by(
+        employee_id=skip_request.employee_id,
+        cutoff_start=skip_request.cutoff_start,
+        cutoff_end=skip_request.cutoff_end,
+    ).first()
+    if payroll_record and (payroll_record.is_paid or payroll_record.loan_deduction_applied):
+        flash('This payroll cutoff is finalized; its loan deduction cannot be changed.', 'warning')
+        return redirect(url_for(
+            'payroll_loan_review', cutoff_start=skip_request.cutoff_start.isoformat(),
+        ))
+
+    skip_request.status = 'Approved' if action == 'approve' else 'Rejected'
+    skip_request.decision_note = decision_note or None
+    skip_request.reviewed_by = current_user.id
+    skip_request.reviewed_at = datetime.utcnow()
+    if action == 'approve' and payroll_record:
+        payroll_record.loan = 0
+    db.session.commit()
+    employee = db.session.get(Employee, skip_request.employee_id)
+    decision = skip_request.status.lower()
+    if employee and employee.email:
+        send_notification_email(
+            [employee.email],
+            f'Loan deduction skip request {decision}',
+            (
+                f'Your request to skip the loan deduction for the payroll cutoff '
+                f'{skip_request.cutoff_start} to {skip_request.cutoff_end} was {decision}.'
+                + (f' Admin note: {decision_note}' if decision_note else '')
+            ),
+        )
+    flash(
+        'Loan deduction skipped for this cutoff only.' if action == 'approve'
+        else 'Loan deduction skip request declined.',
+        'success' if action == 'approve' else 'info',
+    )
+    return redirect(url_for(
+        'payroll_loan_review', cutoff_start=skip_request.cutoff_start.isoformat(),
+    ))
+
+
 @app.route('/loan', methods=['GET','POST'])
 @login_required
 def loan():
@@ -8591,8 +8714,53 @@ def loan():
     emp = Employee.query.get(current_user.id)
     loan_limit_info = loan_limit_breakdown(emp)
     remaining_limit = loan_limit_info['remaining_limit']
+    current_cutoff_start, current_cutoff_end = current_payroll_cutoff()
 
     if request.method == 'POST':
+        if request.form.get('action') == 'request_deduction_skip':
+            if 'admin' in str(current_user.role or '').lower():
+                return 'Access denied', 403
+            reason = request.form.get('skip_reason', '').strip()
+            if not reason:
+                flash('Tell us why you need to skip this cutoff\'s loan deduction.', 'danger')
+                return redirect(url_for('loan'))
+            if float(emp.loan_balance or 0) <= 0:
+                flash('You do not have an outstanding loan deduction to skip.', 'warning')
+                return redirect(url_for('loan'))
+            active_request = LoanDeductionSkipRequest.query.filter(
+                LoanDeductionSkipRequest.employee_id == current_user.id,
+                LoanDeductionSkipRequest.cutoff_start == current_cutoff_start,
+                LoanDeductionSkipRequest.status.in_(['Pending', 'Approved']),
+            ).first()
+            if active_request:
+                flash('A skip request already exists for this cutoff.', 'warning')
+                return redirect(url_for('loan'))
+            payroll_record = Payroll.query.filter_by(
+                employee_id=current_user.id,
+                cutoff_start=current_cutoff_start,
+                cutoff_end=current_cutoff_end,
+            ).first()
+            if payroll_record and (payroll_record.is_paid or payroll_record.loan_deduction_applied):
+                flash('This cutoff is already finalized; a skip request can no longer be submitted.', 'warning')
+                return redirect(url_for('loan'))
+            skip_request = LoanDeductionSkipRequest(
+                employee_id=current_user.id,
+                cutoff_start=current_cutoff_start,
+                cutoff_end=current_cutoff_end,
+                reason=reason,
+            )
+            db.session.add(skip_request)
+            db.session.commit()
+            notify_admins(
+                'Loan deduction skip request',
+                (
+                    f'{emp.full_name()} requested to skip the loan deduction for '
+                    f'{current_cutoff_start} to {current_cutoff_end}. Reason: {reason}'
+                ),
+            )
+            flash('Your request to skip this cutoff\'s loan deduction was sent for review.', 'success')
+            return redirect(url_for('loan'))
+
         amount = float(request.form.get('amount'))
         if amount > remaining_limit:
             flash(f"❌ Loan exceeds your current limit ₱{remaining_limit:.2f}", "danger")
@@ -8663,6 +8831,20 @@ def loan():
             for payroll_record in account["deductions"]
         ]
 
+    skip_request_query = LoanDeductionSkipRequest.query.order_by(
+        LoanDeductionSkipRequest.created_at.desc(),
+    )
+    if current_user.role.lower() != 'admin':
+        skip_request_query = skip_request_query.filter_by(employee_id=current_user.id)
+    deduction_skip_requests = skip_request_query.all()
+    current_cutoff_skip_request = next(
+        (
+            item for item in deduction_skip_requests
+            if item.cutoff_start == current_cutoff_start
+        ),
+        None,
+    )
+
     loan_trend_query = LoanHistory.query
     if current_user.role.lower() != 'admin':
         loan_trend_query = loan_trend_query.filter_by(employee_id=current_user.id)
@@ -8682,6 +8864,10 @@ def loan():
                            account=account,
                            loan_accounts=loan_accounts,
                            deduction_history=deduction_history,
+                           deduction_skip_requests=deduction_skip_requests,
+                           current_cutoff_skip_request=current_cutoff_skip_request,
+                           current_cutoff_start=current_cutoff_start,
+                           current_cutoff_end=current_cutoff_end,
                            now=datetime.now(),
                            print_mode=False)
 

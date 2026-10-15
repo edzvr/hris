@@ -263,6 +263,35 @@ class Loan(db.Model):
     loan_type = db.Column(db.String(30), nullable=False, default="Employee Loan")
     balance_applied = db.Column(db.Boolean, nullable=False, default=False)
 
+
+class LoanDeductionSkipRequest(db.Model):
+    __tablename__ = "loan_deduction_skip_requests"
+    __table_args__ = (
+        db.Index(
+            "ix_loan_deduction_skip_employee_cutoff",
+            "employee_id",
+            "cutoff_start",
+            "status",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    cutoff_start = db.Column(db.Date, nullable=False)
+    cutoff_end = db.Column(db.Date, nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="Pending")
+    decision_note = db.Column(db.String(500), nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+    employee = db.relationship(
+        "Employee", foreign_keys=[employee_id], backref="loan_deduction_skip_requests",
+    )
+    reviewer = db.relationship("Employee", foreign_keys=[reviewed_by])
+
+
 class LoanHistory(db.Model):
     __tablename__ = "loan_history"
 

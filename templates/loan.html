@@ -103,6 +103,39 @@
     {% endif %}
 
     {% if current_user.role.lower() != 'admin' %}
+    <section class="no-print">
+        <h2>Request to Skip Loan Deduction This Cutoff</h2>
+        <p>Cutoff: {{ current_cutoff_start }} to {{ current_cutoff_end }}. If approved, no company-loan payment will be deducted for this cutoff. Your outstanding balance stays the same, and deductions continue next cutoff.</p>
+        {% if current_cutoff_skip_request and current_cutoff_skip_request.status in ['Pending', 'Approved'] %}
+        <p><strong>Status:</strong> {{ current_cutoff_skip_request.status }}{% if current_cutoff_skip_request.decision_note %} — {{ current_cutoff_skip_request.decision_note }}{% endif %}</p>
+        {% elif account.outstanding > 0 %}
+        <form method="POST">
+            <input type="hidden" name="action" value="request_deduction_skip">
+            <label for="skip-reason"><strong>Reason</strong></label>
+            <textarea id="skip-reason" name="skip_reason" rows="3" maxlength="500" required></textarea>
+            <button type="submit">Send Request</button>
+        </form>
+        {% else %}
+        <p>No outstanding loan balance to skip.</p>
+        {% endif %}
+        {% if deduction_skip_requests %}
+        <details>
+            <summary>Previous skip requests</summary>
+            <div class="table-wrap"><table>
+                <tr><th>Cutoff</th><th>Reason</th><th>Status</th><th>Admin Note</th></tr>
+                {% for item in deduction_skip_requests %}
+                <tr>
+                    <td>{{ item.cutoff_start }} to {{ item.cutoff_end }}</td>
+                    <td>{{ item.reason }}</td>
+                    <td>{{ item.status }}</td>
+                    <td>{{ item.decision_note or '' }}</td>
+                </tr>
+                {% endfor %}
+            </table></div>
+        </details>
+        {% endif %}
+    </section>
+
     <!-- Apply Loan Form -->
     <div class="no-print">
         <h2>Apply for Loan</h2>

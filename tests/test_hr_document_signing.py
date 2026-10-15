@@ -3,7 +3,13 @@ import struct
 import zlib
 from io import BytesIO
 
-from hris import app, liability_cutoff_deduction
+from hris import (
+    HR_DOCUMENT_TYPES,
+    app,
+    default_hr_document_body,
+    hr_document_signature_statement,
+    liability_cutoff_deduction,
+)
 from models import Employee, EmployeeLiability, HRDocument, PayslipVerification, db
 
 
@@ -30,6 +36,24 @@ def tiny_signature_png():
         + chunk(b'IDAT', pixels)
         + chunk(b'IEND', b'')
     )
+
+
+def test_loan_deduction_agreement_sets_php_500_per_cutoff_minimum():
+    staff = Employee(
+        first_name='Loan',
+        last_name='Staff',
+        company='Trece-Uno',
+    )
+
+    body = default_hr_document_body('Loan Deduction Agreement', staff)
+    signature_statement = hr_document_signature_statement('Loan Deduction Agreement')
+
+    assert HR_DOCUMENT_TYPES['Loan Deduction Agreement']
+    assert 'at least PHP 500.00 per payroll cutoff' in body
+    assert 'final deduction' in body
+    assert 'subject to applicable law' in body
+    assert 'at least PHP 500.00 per payroll cutoff' in signature_statement
+    assert 'voluntarily authorize' in signature_statement
 
 
 def test_admin_issues_private_pdf_and_staff_can_typed_sign_once():

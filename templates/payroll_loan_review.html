@@ -24,6 +24,12 @@
 </head>
 <body>
 <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <section class="panel" role="status"><strong>{{ message }}</strong></section>
+    {% endfor %}
+    {% endwith %}
+
     <section class="panel">
         <h1>Payroll Loan Review</h1>
         <p class="notice">Ihambing ang natitirang loan at deduction sa inyong manual listahan. Loan balance at deduction lang ang maaaring i-edit dito. Ikaw pa rin ang magre-review at magfi-finalize ng payroll.</p>
@@ -39,6 +45,40 @@
             </select>
             <button class="btn" type="submit">Load Cutoff</button>
         </form>
+    </section>
+
+    <section class="panel">
+        <h2>Requests to Skip Loan Deduction</h2>
+        {% if skip_requests %}
+        <div class="table-wrap"><table>
+            <thead><tr><th>Employee</th><th>Reason</th><th>Status</th><th>Review</th></tr></thead>
+            <tbody>
+                {% for item in skip_requests %}
+                <tr>
+                    <td>{{ item.employee.full_name() }}</td>
+                    <td>{{ item.reason }}</td>
+                    <td>{{ item.status }}{% if item.decision_note %}<br><small>{{ item.decision_note }}</small>{% endif %}</td>
+                    <td>
+                        {% if item.status == 'Pending' %}
+                        <form method="POST" action="{{ url_for('review_loan_deduction_skip_request', request_id=item.id, action='approve') }}">
+                            <button class="btn" type="submit">Approve Skip</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('review_loan_deduction_skip_request', request_id=item.id, action='reject') }}">
+                            <label for="skip-note-{{ item.id }}">Reason for declining</label>
+                            <input id="skip-note-{{ item.id }}" type="text" name="decision_note" maxlength="500" required>
+                            <button class="btn" type="submit">Decline</button>
+                        </form>
+                        {% else %}
+                        {{ item.reviewer.full_name() if item.reviewer else '' }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table></div>
+        {% else %}
+        <p>Walang skip request para sa cutoff na ito.</p>
+        {% endif %}
     </section>
 
     <section class="panel">
@@ -71,9 +111,14 @@
                             <td>
                                 {% if row.finalized %}
                                 <span class="locked">₱{{ row.deduction|currency }} — Finalized</span>
+                                {% elif row.skip_approved %}
+                                <label class="sr-only" for="loan-deduction-{{ row.employee.id }}">Loan deduction skipped for {{ row.employee.full_name() }}</label>
+                                <input id="loan-deduction-{{ row.employee.id }}" type="number" name="loan_deduction_{{ row.employee.id }}" value="0.00" readonly>
+                                <span class="locked">Approved skip for this cutoff</span>
                                 {% else %}
                                 <label class="sr-only" for="loan-deduction-{{ row.employee.id }}">Cutoff deduction for {{ row.employee.full_name() }}</label>
                                 <input id="loan-deduction-{{ row.employee.id }}" type="number" min="0" step="0.01" max="{{ row.balance }}" name="loan_deduction_{{ row.employee.id }}" value="{{ '%.2f'|format(row.deduction) }}" required>
+                                {% if row.skip_request and row.skip_request.status == 'Pending' %}<small>Skip request pending review; deduction will apply unless approved.</small>{% endif %}
                                 {% endif %}
                             </td>
                             <td id="loan-after-{{ row.employee.id }}" data-loan-after="{{ row.employee.id }}"><strong>₱{{ row.after_deduction|currency }}</strong></td>
