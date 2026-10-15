@@ -5520,6 +5520,25 @@ def default_hr_document_body(document_type, employee):
     return templates.get(document_type, 'Document details:\n[Write complete details here.]')
 
 
+def hr_document_footer_note(document_type):
+    if document_type == 'Loan Deduction Agreement':
+        return (
+            'Loan deductions are limited to the amount and cutoff schedule authorized above, '
+            'subject to applicable law.'
+        )
+    if document_type == 'Liability Agreement':
+        return (
+            'Any deduction is limited to the amount and terms stated in the attached agreement, '
+            'subject to applicable law.'
+        )
+    if document_type in {'NTE', 'NDE', 'Warning', 'PIP', 'Suspension', 'Resolution'}:
+        return (
+            'Acknowledgment confirms receipt only and does not automatically mean admission of '
+            'fault unless expressly stated.'
+        )
+    return None
+
+
 def hr_document_pdf(document):
     employee = document.employee
     prepared_by = document.creator.full_name() if document.creator else 'Admin / HR'
@@ -5582,7 +5601,9 @@ def hr_document_pdf(document):
                 text_object.textLine(paragraph[start:start + 92])
     pdf.drawText(text_object)
     pdf.setFont('Helvetica', 8)
-    pdf.drawString(50, 112, 'Acknowledgment confirms receipt only and does not automatically mean admission of fault unless expressly stated.')
+    footer_note = hr_document_footer_note(document.document_type)
+    if footer_note:
+        pdf.drawString(50, 112, footer_note)
     pdf.line(45, 92, 205, 92)
     pdf.line(225, 92, 385, 92)
     pdf.line(405, 92, 555, 92)

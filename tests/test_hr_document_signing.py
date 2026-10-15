@@ -7,6 +7,7 @@ from hris import (
     HR_DOCUMENT_TYPES,
     app,
     default_hr_document_body,
+    hr_document_footer_note,
     hr_document_signature_statement,
     liability_cutoff_deduction,
 )
@@ -54,6 +55,11 @@ def test_loan_deduction_agreement_sets_php_500_per_cutoff_minimum():
     assert 'subject to applicable law' in body
     assert 'at least PHP 500.00 per payroll cutoff' in signature_statement
     assert 'voluntarily authorize' in signature_statement
+    footer_note = hr_document_footer_note('Loan Deduction Agreement')
+    assert 'Loan deductions are limited' in footer_note
+    assert 'admission of fault' not in footer_note
+    assert hr_document_footer_note('Contract') is None
+    assert 'Acknowledgment confirms receipt only' in hr_document_footer_note('NTE')
 
 
 def test_admin_issues_private_pdf_and_staff_can_typed_sign_once():
