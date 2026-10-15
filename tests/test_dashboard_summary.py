@@ -73,6 +73,10 @@ def test_empty_summary_and_authenticated_dashboard_links():
                 assert heading in html
             assert 'No finalized payroll yet.' in html
             if route == '/dashboard_staff':
+                assert html.index('class="monthly-action-reminder') < html.index('id="clock"')
+                assert 'Official quiz: <strong>Not completed</strong>' in html
+                assert 'Peer evaluation: <strong>Not completed</strong>' in html
+                assert 'Take quiz' in html and 'Evaluate a coworker' in html
                 assert html.index('id="attendanceForm"') < html.index('Summary &amp; Reports')
                 assert 'name="clockin"' in html and 'name="clockout"' in html
                 assert 'All staff tools' in html

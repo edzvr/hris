@@ -113,6 +113,22 @@
         .attendance-correction-reminder p { margin:6px 0; line-height:1.45; }
         .attendance-correction-reminder ul { margin:8px 0; padding-left:22px; }
         .attendance-correction-reminder a { font-weight:700; }
+        .monthly-action-reminder {
+          max-width:900px;
+          margin:0 auto 16px;
+          padding:14px 18px;
+          border:2px solid #b45309;
+          border-left-width:8px;
+          border-radius:8px;
+          background:#fff7e6;
+          color:#542d0a;
+          text-align:left;
+        }
+        .monthly-action-reminder.complete { border-color:#238b63; background:#edf8f2; color:#164c36; }
+        .monthly-action-reminder h2 { margin:0 0 4px; font-size:18px; }
+        .monthly-action-reminder p { margin:4px 0; line-height:1.4; }
+        .monthly-action-reminder ul { display:flex; flex-wrap:wrap; gap:8px 24px; margin:8px 0 0; padding-left:22px; }
+        .monthly-action-reminder a { margin-left:6px; font-weight:700; }
         .staff-dashboard-settings {
           display:grid;
           grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
@@ -193,6 +209,25 @@
 
     <!-- Clock In/Out Buttons + Real-time clock -->
     <div class="container card" style="text-align:center;">
+      <aside class="monthly-action-reminder {{ 'complete' if not monthly_reminder.quiz_pending and not monthly_reminder.peer_evaluation_pending else '' }}" role="status" aria-live="polite">
+        {% if monthly_reminder.quiz_pending or monthly_reminder.peer_evaluation_pending %}
+        <h2>Monthly reminders</h2>
+        <p>Please complete these before {{ monthly_reminder.month_end.strftime('%B %d') }}.</p>
+        {% else %}
+        <h2>Monthly requirements complete</h2>
+        <p>Your official quiz and peer evaluation are both recorded for this month.</p>
+        {% endif %}
+        <ul>
+          <li>
+            Official quiz: <strong>{{ 'Not completed' if monthly_reminder.quiz_pending else 'Completed' }}</strong>
+            {% if monthly_reminder.quiz_pending %}<a href="{{ url_for('quiz', employee_id=current_user.id) }}">Take quiz</a>{% endif %}
+          </li>
+          <li>
+            Peer evaluation: <strong>{{ 'Not completed' if monthly_reminder.peer_evaluation_pending else 'Completed' }}</strong>
+            {% if monthly_reminder.peer_evaluation_pending %}<a href="{{ url_for('peer_evaluation') }}">Evaluate a coworker</a>{% endif %}
+          </li>
+        </ul>
+      </aside>
       <div id="clock" class="clock">--</div>
       <div id="hoursWorked" class="hours">--</div>
       <div class="progress-container" style="max-width:560px; margin:10px auto;">
@@ -396,14 +431,6 @@
         <a href="{{ url_for('staff_help') }}" class="btn btn-primary">Open Help Center</a>
       </form>
     </div>
-
-    {% if peer_evaluation_pending %}
-    <div class="container card dashboard-section" style="border-left:4px solid #e5b85c;background:#fff7e3;">
-      <h2>Monthly Peer Evaluation Due</h2>
-      <p>Please evaluate a coworker this month. Your peer evaluation contributes to the employee's evaluation and Merit/Demerit record.</p>
-      <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">Evaluate a Coworker</a>
-    </div>
-    {% endif %}
 
     </details>
 <script>

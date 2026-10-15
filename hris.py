@@ -604,57 +604,165 @@ def generate_auto_quiz(category, num_questions=5):
     logger.info(f"Auto quiz generated for category: {category}")
 
 
-def generate_monthly_peer_eval_reminder():
-    """Create a bulletin and optionally email admins for employees
-    who still need peer evaluation for the current month."""
+def generate_monthly_peer_eval_reminder(today=None):
+    with app.app_context():
+        _generate_monthly_peer_eval_reminder(today)
+
+
+def _generate_monthly_peer_eval_reminder(today=None):
+    """Post a generic reminder and email employees who still owe peer evaluation."""
     try:
-        from datetime import datetime
-        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        today = today or datetime.now(ZoneInfo('Asia/Manila')).date()
+        month_start = today.replace(day=1)
+        month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        month_start_dt, next_month_dt = monthly_utc_window(month_start)
         due_staff = [
             employee for employee in Employee.query.filter(Employee.role.ilike('%staff%')).all()
-            if peer_evaluation_is_due(employee, month_start.date())
+            if peer_evaluation_is_due(employee, month_start)
         ]
         if not due_staff:
             logger.info("No pending peer evaluations this month.")
             return
 
-        title = f"Peer evaluations due: {len(due_staff)} staff"
-        content_lines = [f"{e.id}: {e.full_name()}" for e in due_staff]
-        content = "\n".join(content_lines)
-
-        post = Bulletin(title=title, content=content, author="System")
-        db.session.add(post)
+        title = "Monthly peer evaluation reminder"
+        existing_bulletin = Bulletin.query.filter_by(
+            title=title, author="System",
+        ).filter(
+            Bulletin.created_at >= month_start_dt,
+            Bulletin.created_at < next_month_dt,
+        ).first()
+        if existing_bulletin:
+            return
+        db.session.add(Bulletin(
+            title=title,
+            content=(
+                f"Please complete your monthly peer-to-peer evaluation by {month_end}. "
+                "Open Monthly Peer Evaluation from your staff dashboard."
+            ),
+            author="System",
+        ))
         db.session.commit()
 
-        # Try to email admins if mail configured
-        try:
-            if mail and due_staff and app.config.get('MAIL_SERVER'):
-                with app.app_context():
-                    for employee in due_staff:
-                        if not employee.email:
-                            continue
-                        msg = Message(subject="Peer evaluations due",
-                                      sender=app.config.get('MAIL_USERNAME'),
-                                      recipients=[employee.email])
-                        msg.body = (
-                            f"Hi {employee.first_name},\n\n"
-                            "Please complete your monthly peer-to-peer evaluation in the HRIS.\n"
-                            "Open Assessments or Peer Evaluation from your staff dashboard."
-                        )
-                        mail.send(msg)
-        except Exception:
-            logger.exception("Failed to send peer evaluation reminder emails")
+        for employee in due_staff:
+            if employee.email:
+                send_notification_email(
+                    [employee.email],
+                    title,
+                    (
+                        f"Hi {employee.first_name}, please complete your monthly peer-to-peer "
+                        f"evaluation by {month_end}. Open Monthly Peer Evaluation from your "
+                        "staff dashboard."
+                    ),
+                )
     except Exception:
+        db.session.rollback()
         logger.exception("Error running monthly peer-eval reminder job")
 
 
+def send_month_end_reminders(today=None):
+    with app.app_context():
+        try:
+            _send_month_end_reminders(today)
+        except Exception:
+            db.session.rollback()
+            logger.exception("Error running month-end quiz/evaluation reminder job")
+
+
+def _send_month_end_reminders(today=None):
+    """Email staff who still have a monthly quiz or peer evaluation due soon."""
+    today = today or datetime.now(ZoneInfo('Asia/Manila')).date()
+    month_start = today.replace(day=1)
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    days_until_end = (month_end - today).days
+    if days_until_end < 0 or days_until_end > 3:
+        return
+
+    month_start_dt, next_month_dt = monthly_utc_window(month_start)
+    title = f"Monthly reminders due by {month_end}"
+    existing_bulletin = Bulletin.query.filter_by(
+        title=title, author="System",
+    ).filter(
+        Bulletin.created_at >= month_start_dt,
+        Bulletin.created_at < next_month_dt,
+    ).first()
+    if existing_bulletin:
+        return
+
+    pending_staff = []
+    for employee in Employee.query.filter(Employee.role.ilike('%staff%')).all():
+        reminder_status = monthly_reminder_status(employee, month_start)
+        if reminder_status['quiz_pending'] or reminder_status['peer_evaluation_pending']:
+            pending_staff.append((employee, reminder_status))
+    if not pending_staff:
+        return
+
+    db.session.add(Bulletin(
+        title=title,
+        content=(
+            f"Monthly quiz and peer evaluation are due by {month_end}. "
+            "Check the reminder above the Clock In panel on your staff dashboard."
+        ),
+        author="System",
+    ))
+    db.session.commit()
+
+    for employee, reminder_status in pending_staff:
+        outstanding_items = []
+        if reminder_status['quiz_pending']:
+            outstanding_items.append("your official monthly quiz")
+        if reminder_status['peer_evaluation_pending']:
+            outstanding_items.append("your monthly peer evaluation")
+        if employee.email:
+            send_notification_email(
+                [employee.email],
+                title,
+                (
+                    f"Hi {employee.first_name}, please complete "
+                    f"{' and '.join(outstanding_items)} by {month_end}. "
+                    "Your staff dashboard shows the remaining items above Clock In."
+                ),
+            )
+
+
 def peer_evaluation_is_due(employee, month_start):
-    month_start_dt = datetime.combine(month_start, datetime.min.time())
+    month_start_dt, next_month_dt = monthly_utc_window(month_start)
     return not Evaluation.query.filter(
         Evaluation.evaluator_id == employee.id,
         Evaluation.date >= month_start_dt,
+        Evaluation.date < next_month_dt,
         Evaluation.category.like('peer_%'),
     ).first()
+
+
+def monthly_utc_window(month_start):
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    manila_timezone = ZoneInfo('Asia/Manila')
+    start_local = datetime.combine(month_start, time.min, tzinfo=manila_timezone)
+    end_local = datetime.combine(next_month, time.min, tzinfo=manila_timezone)
+    utc_timezone = ZoneInfo('UTC')
+    return (
+        start_local.astimezone(utc_timezone).replace(tzinfo=None),
+        end_local.astimezone(utc_timezone).replace(tzinfo=None),
+    )
+
+
+def monthly_reminder_status(employee, month_start):
+    month_start_dt, next_month_dt = monthly_utc_window(month_start)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    quiz_taken = QuizResult.query.filter_by(
+        employee_id=employee.id,
+        is_official=True,
+    ).filter(
+        QuizResult.date_taken >= month_start_dt,
+        QuizResult.date_taken < next_month_dt,
+    ).first() is not None
+    return {
+        'quiz_taken': quiz_taken,
+        'quiz_pending': not quiz_taken,
+        'peer_evaluation_pending': peer_evaluation_is_due(employee, month_start),
+        'month_start': month_start,
+        'month_end': next_month - timedelta(days=1),
+    }
 
 
 def send_lunch_reminder(phase):
@@ -1204,6 +1312,11 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
 # ------------------ APScheduler setup (optional) ------------------
+def run_scheduled_auto_quiz(category):
+    with app.app_context():
+        generate_auto_quiz(category)
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler()
@@ -1212,12 +1325,21 @@ try:
 
     for cat in categories:
         if scheduler:
-            scheduler.add_job(generate_auto_quiz, 'cron', day=1, hour=0, args=[cat])
+            scheduler.add_job(run_scheduled_auto_quiz, 'cron', day=1, hour=0, args=[cat])
 
     # Monthly peer evaluation reminder: post bulletin and email admins
     if scheduler:
         try:
             scheduler.add_job(generate_monthly_peer_eval_reminder, 'cron', day=1, hour=8)
+            scheduler.add_job(
+                send_month_end_reminders,
+                'cron',
+                hour=8,
+                minute=0,
+                timezone=ZoneInfo('Asia/Manila'),
+                id='month_end_quiz_peer_reminder',
+                replace_existing=True,
+            )
             scheduler.add_job(send_lunch_reminder, 'cron', hour=12, minute=0,
                               args=['start'], id='lunch_start_reminder', replace_existing=True)
             scheduler.add_job(send_lunch_reminder, 'cron', hour=13, minute=0,
@@ -3497,7 +3619,8 @@ def dashboard_staff():
     ]
     insights = generate_ai_insights(current_user)
     month_start = today.replace(day=1)
-    peer_evaluation_pending = peer_evaluation_is_due(current_user, month_start)
+    monthly_reminder = monthly_reminder_status(current_user, month_start)
+    peer_evaluation_pending = monthly_reminder['peer_evaluation_pending']
     latest_payslip = Payroll.query.filter_by(
         employee_id=current_user.id,
         is_paid=True
@@ -3516,6 +3639,7 @@ def dashboard_staff():
         worked_hours=worked_hours,
         insights=insights,
         peer_evaluation_pending=peer_evaluation_pending,
+        monthly_reminder=monthly_reminder,
         latest_payslip=latest_payslip,
         attendance_correction_alerts=attendance_correction_alerts,
         summary=dashboard_summary(current_user)
@@ -3633,21 +3757,15 @@ def staff_help():
 def monthly_reminders():
     if 'staff' not in current_user.role.lower():
         return redirect(url_for('dashboard_admin'))
-    month_start = datetime.today().date().replace(day=1)
-    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    quiz_taken = QuizResult.query.filter(
-        QuizResult.employee_id == current_user.id,
-        QuizResult.is_official.is_(True),
-        QuizResult.date_taken >= datetime.combine(month_start, datetime.min.time()),
-        QuizResult.date_taken < datetime.combine(next_month, datetime.min.time()),
-    ).first() is not None
-    peer_due = peer_evaluation_is_due(current_user, month_start)
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    month_start = today.replace(day=1)
+    monthly_reminder = monthly_reminder_status(current_user, month_start)
     return render_template(
         'monthly_reminders.html',
         month_start=month_start,
-        month_end=next_month - timedelta(days=1),
-        quiz_taken=quiz_taken,
-        peer_due=peer_due,
+        month_end=monthly_reminder['month_end'],
+        quiz_taken=monthly_reminder['quiz_taken'],
+        peer_due=monthly_reminder['peer_evaluation_pending'],
     )
 
 
@@ -9489,16 +9607,6 @@ def generate_auto_quiz(category, num_questions=5):
         db.session.add(q)
     db.session.commit()
 
-categories = ["Engine", "Transmission", "Electrical", "Suspension", 
-              "Cooling", "Car Brands", "Brakes", "Steering", "Exhaust"]
-
-if scheduler:
-    for cat in categories:
-        scheduler.add_job(generate_auto_quiz, 'cron', day=1, hour=0, args=[cat])
-else:
-    logger.warning("Scheduler not available; skipping auto-quiz job registration for categories.")
-
-
 # ------------------ QUIZ RESULT ------------------
 
 @app.route('/admin/quiz-upload', methods=['GET', 'POST'])
@@ -9574,10 +9682,14 @@ def quiz(employee_id):
         flash("❌ Questionnaire uploads are available to administrators only.", "danger")
         return redirect(url_for('quiz', employee_id=employee_id, category=category))
 
-    # Get current month quizzes by category
-    current_month = datetime.utcnow().month
+    # Keep quiz availability and official attempts within the Manila calendar month.
+    current_month_start = datetime.now(ZoneInfo('Asia/Manila')).date().replace(day=1)
+    current_month = current_month_start.month
+    current_year = current_month_start.year
+    quiz_window_start, quiz_window_end = monthly_utc_window(current_month_start)
     category_quizzes = Quiz.query.filter(
-        db.extract('month', Quiz.date_created) == current_month,
+        Quiz.date_created >= quiz_window_start,
+        Quiz.date_created < quiz_window_end,
         Quiz.category == category
     ).all()
 
@@ -9613,7 +9725,8 @@ def quiz(employee_id):
             existing_questions.add(question.strip().casefold())
         db.session.commit()
         category_quizzes = Quiz.query.filter(
-            db.extract('month', Quiz.date_created) == current_month,
+            Quiz.date_created >= quiz_window_start,
+            Quiz.date_created < quiz_window_end,
             Quiz.category == category
         ).all()
 
@@ -9621,7 +9734,8 @@ def quiz(employee_id):
     if not category_quizzes and mode == "auto":
         generate_auto_quiz(category)
         category_quizzes = Quiz.query.filter(
-            db.extract('month', Quiz.date_created) == current_month,
+            Quiz.date_created >= quiz_window_start,
+            Quiz.date_created < quiz_window_end,
             Quiz.category == category
         ).all()
 
@@ -9649,10 +9763,11 @@ def quiz(employee_id):
         available_quizzes = list({question.question.strip().casefold(): question for question in category_quizzes}.values())
         if len(available_quizzes) < 10:
             available_quizzes = Quiz.query.filter(
-                db.extract('month', Quiz.date_created) == current_month
+                Quiz.date_created >= quiz_window_start,
+                Quiz.date_created < quiz_window_end,
             ).all()
             available_quizzes = list({question.question.strip().casefold(): question for question in available_quizzes}.values())
-        month_seed = f'{employee_id}:{datetime.utcnow().year}:{current_month}:{category}'
+        month_seed = f'{employee_id}:{current_year}:{current_month}:{category}'
         question_selector = random.Random(month_seed)
         quizzes = question_selector.sample(available_quizzes, min(10, len(available_quizzes)))
         session[attempt_key] = {
@@ -9689,7 +9804,7 @@ def quiz(employee_id):
                 for question in available_quizzes
             }.values())
         if available_quizzes:
-            month_seed = f'{employee_id}:{datetime.utcnow().year}:{current_month}:{category}'
+            month_seed = f'{employee_id}:{current_year}:{current_month}:{category}'
             question_selector = random.Random(month_seed)
             quizzes = question_selector.sample(available_quizzes, min(10, len(available_quizzes)))
             attempt['quiz_ids'] = [question.id for question in quizzes]
@@ -9743,8 +9858,8 @@ def quiz(employee_id):
             employee_id=employee_id,
             is_official=True
         ).filter(
-            db.extract('month', QuizResult.date_taken) == datetime.utcnow().month,
-            db.extract('year', QuizResult.date_taken) == datetime.utcnow().year,
+            QuizResult.date_taken >= quiz_window_start,
+            QuizResult.date_taken < quiz_window_end,
         ).first()
 
         if existing:
