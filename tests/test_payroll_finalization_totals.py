@@ -71,6 +71,15 @@ def test_bulk_finalization_saves_totals_for_existing_and_new_staff(payroll_peopl
             assert record.is_paid
             assert record.gross_income == 600
             assert record.total_deductions > 0
+            itemized_deductions = sum(
+                float(getattr(record, field) or 0)
+                for field in (
+                    'sss', 'philhealth', 'pagibig', 'withholding_tax',
+                    'loan', 'sss_loan', 'pagibig_loan', 'liability_deduction',
+                    'cash_advance', 'other_deductions',
+                )
+            )
+            assert record.total_deductions == pytest.approx(itemized_deductions)
             assert record.net_pay == pytest.approx(695 - record.total_deductions)
             assert record.net_pay > 0
             assert record.contribution_salary_base == 600

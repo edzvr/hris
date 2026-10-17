@@ -7461,7 +7461,11 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         basic_pay + float(employee.allowance or 0)
         + float(employee.incentives or 0) + rice_taxable + overtime_pay
     )
-    tax = weekly_withholding_tax(employee, (gross - sum(statutory.values())) * weeks, weeks)
+    statutory_total = sum(
+        float(statutory.get(field, 0) or 0)
+        for field in ('sss', 'philhealth', 'pagibig')
+    )
+    tax = weekly_withholding_tax(employee, (gross - statutory_total) * weeks, weeks)
     if record.withholding_tax_override is not None:
         tax = float(record.withholding_tax_override)
     liability = (
@@ -7471,7 +7475,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         if record.liability_deduction_applied
         else liability_cutoff_deduction(employee.id)
     )
-    total = sum(statutory.values()) + tax + liability + sum(
+    total = statutory_total + tax + liability + sum(
         float(getattr(record, field) or 0)
         for field in ('loan', 'sss_loan', 'pagibig_loan', 'cash_advance', 'other_deductions')
     )
