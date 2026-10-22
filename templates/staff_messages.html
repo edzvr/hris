@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Messages</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        main { max-width:1000px; margin:24px auto; padding:0 16px; }
+        section { background:#fff; border:1px solid #d8e0dc; border-radius:8px; padding:18px; margin:18px 0; }
+        label { display:block; margin:12px 0 4px; font-weight:600; }
+        input, select, textarea { box-sizing:border-box; width:100%; padding:10px; font:inherit; }
+        textarea { min-height:140px; }
+        .recipient-list { min-height:120px; }
+        .message { padding:14px 0; border-bottom:1px solid #d8e0dc; }
+        .message:last-child { border-bottom:0; }
+        .muted { color:#60716a; }
+        .unread { font-weight:700; }
+        button { padding:10px 14px; margin-top:14px; cursor:pointer; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>{{ 'Staff Messages' if is_admin else 'My Messages' }}</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p role="status">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+    {% if is_admin %}
+    <section>
+        <h2>Send a message</h2>
+        <p>Messages appear in the HRIS inbox only; they do not send email.</p>
+        <form method="post">
+            <label for="message-type">Type</label>
+            <select id="message-type" name="message_type">
+                <option value="direct">Private message to one staff member</option>
+                <option value="announcement">Announcement to staff</option>
+            </select>
+            <label for="recipient-id">Staff member (private message)</label>
+            <select id="recipient-id" name="recipient_id">
+                <option value="">Select a staff member</option>
+                {% for staff in staff_members %}
+                <option value="{{ staff.id }}">{{ staff.full_name() }} — {{ staff.company or 'No company' }}</option>
+                {% endfor %}
+            </select>
+            <label for="recipient-ids">Recipients (announcement; select one or more, or use all staff)</label>
+            <select id="recipient-ids" class="recipient-list" name="recipient_ids" multiple>
+                {% for staff in staff_members %}
+                <option value="{{ staff.id }}">{{ staff.full_name() }} — {{ staff.company or 'No company' }}</option>
+                {% endfor %}
+            </select>
+            <label><input type="checkbox" name="send_to_all" value="1" style="width:auto"> Send announcement to all staff</label>
+            <label for="subject">Subject</label>
+            <input id="subject" name="subject" maxlength="180" required>
+            <label for="body">Message</label>
+            <textarea id="body" name="body" maxlength="10000" required></textarea>
+            <button type="submit">Send</button>
+        </form>
+    </section>
+    <section>
+        <h2>Sent messages</h2>
+        {% for message in sent_messages %}
+        <article class="message">
+            <strong>{{ message.subject }}</strong>
+            <p class="muted">{{ message.message_type|title }} · {{ message.created_at.strftime('%b %d, %Y %I:%M %p') }} · To {{ message.recipient.full_name() }}</p>
+            <p style="white-space:pre-wrap">{{ message.body }}</p>
+        </article>
+        {% else %}<p>No messages sent yet.</p>{% endfor %}
+    </section>
+    {% else %}
+    <section>
+        <h2>Inbox</h2>
+        {% for message in inbox %}
+        <article class="message{% if not message.read_at %} unread{% endif %}">
+            <strong>{{ message.subject }}</strong>
+            <p class="muted">{{ message.message_type|title }} · From {{ message.sender.full_name() }} · {{ message.created_at.strftime('%b %d, %Y %I:%M %p') }}</p>
+            <p style="white-space:pre-wrap">{{ message.body }}</p>
+        </article>
+        {% else %}<p>No messages yet.</p>{% endfor %}
+    </section>
+    {% endif %}
+</main>
+<script>
+  const typeSelect = document.getElementById('message-type');
+  if (typeSelect) {
+    const directSelect = document.getElementById('recipient-id');
+    const groupSelect = document.getElementById('recipient-ids');
+    const allStaff = document.querySelector('[name="send_to_all"]');
+    function updateRecipientControls() {
+      const direct = typeSelect.value === 'direct';
+      directSelect.disabled = !direct;
+      directSelect.required = direct;
+      groupSelect.disabled = direct || allStaff.checked;
+      allStaff.disabled = direct;
+      if (direct) allStaff.checked = false;
+    }
+    typeSelect.addEventListener('change', updateRecipientControls);
+    allStaff.addEventListener('change', updateRecipientControls);
+    updateRecipientControls();
+  }
+</script>
+</body>
+</html>

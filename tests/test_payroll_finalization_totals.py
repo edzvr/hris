@@ -65,6 +65,7 @@ def test_bulk_finalization_saves_totals_for_existing_and_new_staff(payroll_peopl
         'cutoff_start': '2026-10-03', 'selected_employee_ids': list(map(str, staff_ids)),
     })
     assert response.status_code == 302
+    assert response.location.endswith('/payroll_dashboard')
     with app.app_context():
         for staff_id in staff_ids:
             record = Payroll.query.filter_by(employee_id=staff_id).one()
