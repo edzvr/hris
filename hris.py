@@ -296,6 +296,7 @@ from models import (
     EmployeeDocument,
     HRDocument,
     StaffConcern,
+    StaffMessage,
     PasswordResetToken,
     OTApplication,
     AuditLog,
@@ -1566,6 +1567,7 @@ def inject_authenticated_sidebar(response):
             ('employee_liabilities', 'Liabilities'),
             ('hr_documents', 'My HR Documents'),
             ('staff_concerns', 'Suggestions / Hinaing'),
+            ('staff_messages', 'Messages'),
             ('bulletin', 'Company Bulletin'),
             ('company_files', 'Company Files'),
         ])
@@ -1583,6 +1585,7 @@ def inject_authenticated_sidebar(response):
             ('admin_incidents', 'Incident Reports'),
             ('hr_documents', 'HR Documents'),
             ('staff_concerns', 'Staff Concerns'),
+            ('staff_messages', 'Staff Messages'),
             ('monthly_deductions', 'Monthly Deductions'),
             ('employee_liabilities', 'Liabilities / Shortage'),
             ('tax_reports', 'Tax Reports'),
@@ -1604,7 +1607,7 @@ def inject_authenticated_sidebar(response):
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
             ('Documents & Updates', {'hr_documents', 'bulletin', 'company_files', 'monthly_reminders'}),
             ('Help & Concerns', {'staff_concerns', 'submit_incident', 'staff_help'}),
-            ('My Account', {'profile'}),
+            ('My Account', {'profile', 'staff_messages'}),
         ]
         sidebar = render_template(
             'partials/staff_navigation.html',
@@ -3705,6 +3708,12 @@ STAFF_HELP_TOPICS = [
         'answer': 'Use Company Bulletin for announcements and Company Files for documents shared with your company. Open the document first, then use its download action when available.',
         'endpoint': 'bulletin',
     },
+    {
+        'keywords': ('message', 'messages', 'inbox', 'admin message', 'hr message'),
+        'title': 'Messages from Admin/HR',
+        'answer': 'Open My Account > Messages in the sidebar to read private messages and announcements from Admin/HR. Messages are shown inside HRIS; they do not send email.',
+        'endpoint': 'staff_messages',
+    },
 ]
 
 
@@ -3722,7 +3731,7 @@ def answer_staff_help(question):
             return {'title': topic['title'], 'answer': topic['answer'], 'matched': True, 'topic': topic}
     return {
         'title': 'I need more information',
-        'answer': 'Hindi ko pa alam ang sagot sa tanong na iyan. Subukan ang keywords na settings, kulay, attendance, payslip, leave, loan, overtime, profile, bulletin, o download. Kung hindi pa rin malinaw, gamitin ang Staff Guide at mag-submit ng Attendance Correction o Incident Report kung iyon ang concern.',
+        'answer': 'Hindi ko pa alam ang sagot sa tanong na iyan. Subukan ang keywords na settings, kulay, attendance, payslip, leave, loan, overtime, profile, bulletin, messages, o download. Kung hindi pa rin malinaw, gamitin ang Staff Guide at mag-submit ng Attendance Correction o Incident Report kung iyon ang concern.',
         'matched': False,
         'topic': None,
     }
@@ -4417,13 +4426,14 @@ def completed_cutoff(today=None):
     return start, start + timedelta(days=7)
 
 def payroll_cutoff_from_request(value=None):
-    """Return a selected Saturday-to-Friday cutoff or the latest available one."""
+    """Return a selected Saturday-to-Friday cutoff or the active cutoff."""
     if value:
         selected_start = datetime.strptime(value, '%Y-%m-%d').date()
         if selected_start.weekday() != 5:
             raise ValueError('Cutoff start date must be a Saturday.')
         return selected_start, selected_start + timedelta(days=7)
-    return completed_cutoff()
+    current_start, _ = current_payroll_cutoff()
+    return current_start, current_start + timedelta(days=7)
 
 
 def current_payroll_cutoff(today=None):
@@ -6091,6 +6101,99 @@ def staff_concerns():
     return render_template('staff_concerns.html', concerns=concerns, concern_types=CONCERN_TYPES, is_admin=is_admin)
 
 
+@app.route('/staff-messages', methods=['GET', 'POST'])
+@login_required
+def staff_messages():
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    if request.method == 'POST':
+        if not is_admin:
+            return 'Access denied', 403
+
+        message_type = request.form.get('message_type')
+        subject = request.form.get('subject', '').strip()
+        body = request.form.get('body', '').strip()
+        if message_type not in {'direct', 'announcement'}:
+            flash('Choose a valid message type.', 'danger')
+            return redirect(url_for('staff_messages'))
+        if not subject or len(subject) > 180 or not body or len(body) > 10000:
+            flash('Enter a subject (up to 180 characters) and message (up to 10,000 characters).', 'danger')
+            return redirect(url_for('staff_messages'))
+
+        if message_type == 'direct':
+            recipient_id = request.form.get('recipient_id', type=int)
+            recipient = Employee.query.filter(
+                Employee.id == recipient_id,
+                Employee.role.ilike('%staff%'),
+            ).first() if recipient_id is not None else None
+            if recipient is None:
+                flash('Choose one valid staff member for a private message.', 'danger')
+                return redirect(url_for('staff_messages'))
+            recipients = [recipient]
+        else:
+            if request.form.get('send_to_all') == '1':
+                recipients = Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+                    Employee.last_name, Employee.first_name,
+                ).all()
+            else:
+                raw_ids = request.form.getlist('recipient_ids')
+                try:
+                    recipient_ids = {int(value) for value in raw_ids}
+                except ValueError:
+                    recipient_ids = set()
+                if not recipient_ids or len(recipient_ids) != len(raw_ids):
+                    flash('Choose at least one valid staff member for the announcement.', 'danger')
+                    return redirect(url_for('staff_messages'))
+                recipients = Employee.query.filter(
+                    Employee.id.in_(recipient_ids),
+                    Employee.role.ilike('%staff%'),
+                ).order_by(Employee.last_name, Employee.first_name).all()
+                if len(recipients) != len(recipient_ids):
+                    flash('Announcements can only be sent to staff accounts.', 'danger')
+                    return redirect(url_for('staff_messages'))
+
+        if not recipients:
+            flash('There are no staff recipients for this message.', 'warning')
+            return redirect(url_for('staff_messages'))
+        db.session.add_all([
+            StaffMessage(
+                sender_id=current_user.id,
+                recipient_id=recipient.id,
+                message_type=message_type,
+                subject=subject,
+                body=body,
+            )
+            for recipient in recipients
+        ])
+        db.session.commit()
+        flash(f'Message sent to {len(recipients)} staff member(s).', 'success')
+        return redirect(url_for('staff_messages'))
+
+    if is_admin:
+        staff_members = Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+            Employee.last_name, Employee.first_name,
+        ).all()
+        sent_messages = StaffMessage.query.filter_by(sender_id=current_user.id).order_by(
+            StaffMessage.created_at.desc(),
+        ).limit(100).all()
+        return render_template(
+            'staff_messages.html',
+            is_admin=True,
+            staff_members=staff_members,
+            sent_messages=sent_messages,
+        )
+
+    inbox = StaffMessage.query.filter_by(recipient_id=current_user.id).order_by(
+        StaffMessage.created_at.desc(),
+    ).limit(100).all()
+    now = datetime.utcnow()
+    unread_messages = [message for message in inbox if message.read_at is None]
+    for message in unread_messages:
+        message.read_at = now
+    if unread_messages:
+        db.session.commit()
+    return render_template('staff_messages.html', is_admin=False, inbox=inbox)
+
+
 def generate_qr_image_bytes(verify_url, size=140):
     if qrcode is None:
         return None
@@ -7648,7 +7751,7 @@ def bulk_finalize_payroll():
             finalized += 1
     db.session.commit()
     flash(f'{finalized} payroll records finalized for this cutoff.', 'success')
-    return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
+    return redirect(url_for('payroll_dashboard'))
 
 
 @app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
@@ -9013,6 +9116,95 @@ def loan():
                            current_cutoff_end=current_cutoff_end,
                            now=datetime.now(),
                            print_mode=False)
+
+
+def loan_agreement_body(loan, deduction_per_cutoff):
+    employee_name = loan.employee.full_name()
+    return "\n".join([
+        "EMPLOYEE LOAN AGREEMENT",
+        f"Employee: {employee_name}",
+        f"Loan Amount: PHP {float(loan.amount):,.2f}",
+        f"Reason filed by employee: {loan.reason}",
+        f"Deduction per cutoff: PHP {deduction_per_cutoff:,.2f}",
+        "",
+        f"I fully agree and authorize the company to deduct {deduction_per_cutoff:,.2f} pesos from my salary every cut off until the loan is completely settled.",
+        "In the event of resignation or separation from the company, I agree that any remaining balance shall be deducted from my final pay or settled in full before clearance.",
+        "This agreement is made voluntarily and with full understanding of its terms.",
+        "",
+        "Signed:",
+        "Borrower/Employee: ___________________________",
+        f"Name: {employee_name}",
+        "Date: _______________________________________",
+        "Employer/Authorized Representative: ___________________________",
+        "Name: _______________________________________",
+        "Date: _______________________________________",
+    ])
+
+
+@app.route('/loan/<int:loan_id>/agreement', methods=['GET', 'POST'])
+@login_required
+def create_loan_agreement(loan_id):
+    if 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status != 'Approved':
+        flash("Loan must be approved before creating an agreement.", "warning")
+        return redirect(url_for('loan'))
+
+    from decimal import Decimal, InvalidOperation
+
+    default_deduction = min(Decimal('500.00'), Decimal(str(loan.amount)))
+    if request.method == 'POST':
+        try:
+            deduction_per_cutoff = Decimal(request.form.get('deduction_per_cutoff', ''))
+        except InvalidOperation:
+            flash("Enter a valid deduction amount.", "danger")
+            return redirect(url_for('create_loan_agreement', loan_id=loan.id))
+        if not deduction_per_cutoff.is_finite() or deduction_per_cutoff <= 0:
+            flash("Deduction per cutoff must be greater than zero.", "danger")
+            return redirect(url_for('create_loan_agreement', loan_id=loan.id))
+
+        from io import BytesIO
+        from xml.sax.saxutils import escape
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
+        body = loan_agreement_body(loan, deduction_per_cutoff)
+        buffer = BytesIO()
+        pdf = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=60, leftMargin=60)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'LoanAgreementTitle', parent=styles['Title'], alignment=1, spaceAfter=20,
+        )
+        body_style = ParagraphStyle(
+            'LoanAgreementBody', parent=styles['BodyText'], leading=17, spaceAfter=10,
+        )
+        story = []
+        for line_number, line in enumerate(body.splitlines()):
+            if line_number == 0:
+                story.append(Paragraph(escape(line), title_style))
+            elif line:
+                story.append(Paragraph(escape(line), body_style))
+            else:
+                story.append(Spacer(1, 10))
+        pdf.build(story)
+        buffer.seek(0)
+        employee_name = secure_filename(loan.employee.full_name()) or 'Employee'
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"Loan_Agreement_LOAN-{loan.id:06d}_{employee_name}.pdf",
+            mimetype='application/pdf',
+        )
+
+    return render_template(
+        'loan_agreement.html',
+        loan=loan,
+        deduction_per_cutoff=default_deduction,
+        agreement_body=loan_agreement_body(loan, default_deduction),
+    )
 
 
 @app.route('/admin/loans/opening-balance', methods=['POST'])

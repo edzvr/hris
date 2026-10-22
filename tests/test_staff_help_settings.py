@@ -11,6 +11,7 @@ def test_settings_questions_explain_customization():
         for instruction in ('My Account > Settings', 'Save Settings', 'Reset Layout', 'browser/device'):
             assert instruction in result['answer']
     assert answer_staff_help('download payslip')['topic']['endpoint'] == 'payroll'
+    assert answer_staff_help('read admin messages')['topic']['endpoint'] == 'staff_messages'
 
 
 def test_help_route_links_to_settings_panel():
