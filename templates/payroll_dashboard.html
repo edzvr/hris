@@ -4,161 +4,197 @@
     <meta charset="UTF-8">
     <title>Payroll Dashboard</title>
     <style>
-        body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 24px; background: #f1f5f3; color: #1d2b36; font-size: 16px; }
-        h1 { font-size: 28px; }
-        h2 { font-size: 20px; }
-        .page-shell { max-width: 1600px; margin: 0 auto; }
-        .table-wrap { overflow-x: auto; border: 1px solid #cbd7d1; background: #fff; }
-        h1 {
-            color: #2c3e50;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            min-width: 1380px;
-            margin: 0;
-        }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 11px 10px;
-            text-align: center;
-            font-size: 14px;
-        }
-        th {
-            background-color: #2879ad;
-            color: white;
-            font-size: 13px;
-            white-space: nowrap;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        input[type="number"] {
-            width: 88px;
-            padding: 7px;
-            font-size: 14px;
-        }
-        .btn {
-            display: inline-block;
-            padding: 9px 12px;
-            margin: 2px;
-            background-color: #2ecc71;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-        }
-        .btn:hover {
-            background-color: #27ae60;
-        }
-        button {
-            margin-top: 10px;
-            padding: 9px 14px;
-            background-color: #e67e22;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #d35400;
-        }
-        .accounting { border-left: 5px solid #8a5c19; background: #fff8e7; }
-        .admin-row td { background: #f7f0fa; }
-        .section-label td { background: #e6edf2; text-align: left; font-weight: 700; font-size: 15px; }
-        th:first-child, td:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 2;
-            background: #fff;
-            box-shadow: 2px 0 4px rgba(0, 0, 0, .08);
-        }
-        th:first-child { z-index: 4; background-color: #2879ad; }
-        .admin-row td:first-child { background: #f7f0fa; }
+        :root { color-scheme: light; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 28px; background: #f3f6f8; color: #1d2b36; font: 15px "Segoe UI", Arial, sans-serif; }
+        h1 { margin: 0; color: #20364a; font-size: 28px; }
+        h2 { margin: 0 0 8px; color: #20364a; font-size: 19px; }
+        p { line-height: 1.5; }
+        .page-shell { max-width: 1680px; margin: 0 auto; }
+        .page-header, .panel { margin-bottom: 16px; padding: 20px; border: 1px solid #d6e0e7; border-radius: 10px; background: #fff; }
+        .page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .page-subtitle, .muted { margin: 6px 0 0; color: #586b7a; }
+        .panel-heading { margin-bottom: 14px; }
+        .cutoff-form, .filter-grid, .summary-grid, .toolbar-actions, .report-links { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+        .cutoff-form label, .filter-grid label { display: grid; gap: 6px; color: #405466; font-size: 13px; font-weight: 600; }
+        select, input[type="number"] { min-height: 38px; padding: 7px 9px; border: 1px solid #b9c8d3; border-radius: 6px; background: #fff; color: #1d2b36; font: inherit; }
+        .cutoff-form select { min-width: 240px; }
+        .btn, button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 8px 13px; border: 1px solid transparent; border-radius: 6px; font: 600 14px "Segoe UI", Arial, sans-serif; text-decoration: none; cursor: pointer; }
+        .btn { background: #edf4f8; color: #17577e; }
+        .btn:hover { background: #deebf2; }
+        button { background: #176b9a; color: #fff; }
+        button:hover { background: #11577f; }
+        button[type="submit"][formaction*="bulk_finalize"] { background: #187447; }
+        button[type="submit"][formaction*="bulk_finalize"]:hover { background: #125d38; }
+        .summary-grid { align-items: stretch; }
+        .summary-card { flex: 1 1 210px; padding: 16px; border: 1px solid #d6e0e7; border-radius: 8px; background: #fff; }
+        .summary-card span { display: block; margin-bottom: 7px; color: #586b7a; font-size: 13px; }
+        .summary-card strong { color: #20364a; font-size: 21px; }
+        .summary-card.total { border-color: #d8c38d; background: #fff9e9; }
+        .review-counts { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
         .review-ready { color: #1d7a46; font-weight: 700; }
         .review-needed { color: #b45309; font-weight: 700; }
+        .deduction-cell, .deduction-details summary, .deduction-details input[type="number"] { color: #b42318; font-weight: 700; }
+        .deduction-heading { background: #7f2d32; }
+        .filter-grid { align-items: end; }
+        .filter-grid label { flex: 1 1 180px; }
+        .filter-grid select { width: 100%; }
+        .filter-help { align-self: center; margin: 0; color: #586b7a; font-size: 13px; }
+        .report-tools { padding: 0; overflow: hidden; }
+        .report-tools summary { padding: 16px 20px; color: #17577e; font-weight: 700; cursor: pointer; }
+        .report-links { padding: 0 20px 18px; align-items: center; }
+        .payroll-notes { margin-top: 12px; color: #586b7a; }
+        .payroll-notes summary { cursor: pointer; font-weight: 600; }
+        .payroll-notes p { margin-bottom: 0; }
+        .bulk-toolbar { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0 10px; padding: 12px 16px; border: 1px solid #cbd7e0; border-radius: 8px; background: rgba(255, 255, 255, .97); box-shadow: 0 3px 12px rgba(29, 43, 54, .08); }
+        .toolbar-actions { align-items: center; }
+        .toolbar-actions a { color: #17577e; font-weight: 600; }
+        .selection-count { color: #586b7a; font-size: 13px; }
+        .table-caption { margin: 0 0 8px; color: #586b7a; font-size: 13px; }
+        .table-wrap { max-height: 72vh; overflow: auto; border: 1px solid #cbd7e0; border-radius: 8px; background: #fff; }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1380px; margin: 0; }
+        th, td { border-right: 1px solid #dce4e9; border-bottom: 1px solid #dce4e9; padding: 10px; text-align: center; font-size: 13px; }
+        th { position: sticky; top: 0; z-index: 3; background: #245f83; color: #fff; font-size: 12px; white-space: nowrap; }
+        tr:nth-child(even) td { background: #f8fafb; }
+        input[type="number"] { width: 88px; }
+        th:first-child, td:first-child { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 4px rgba(0, 0, 0, .08); }
+        th:first-child { z-index: 5; background: #245f83; }
+        .admin-row td { background: #f7f0fa; }
+        .admin-row td:first-child { background: #f7f0fa; }
+        .section-label td { position: static; background: #e9eff4 !important; text-align: left; font-weight: 700; font-size: 14px; }
+        .payroll-row details { min-width: 160px; text-align: left; }
+        .payroll-row details label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; white-space: nowrap; }
+        .payroll-row details input[type="number"] { width: 78px; }
+        .payroll-row td:first-child label { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 170px; text-align: left; white-space: nowrap; }
+        .dashboard-back-link { color: #17577e; font-weight: 600; }
+        @media (max-width: 700px) {
+            body { padding: 12px; }
+            .page-header { align-items: flex-start; flex-direction: column; }
+            .page-header h1 { font-size: 23px; }
+            .panel { padding: 15px; }
+            .cutoff-form, .cutoff-form select, .cutoff-form button { width: 100%; }
+            .bulk-toolbar { align-items: flex-start; flex-direction: column; }
+            .toolbar-actions { align-items: stretch; flex-direction: column; width: 100%; }
+            .toolbar-actions button, .toolbar-actions a { width: 100%; text-align: center; }
+            .table-wrap { max-height: 65vh; }
+        }
     </style>
 </head>
 <body>
 <main class="page-shell">
-    <h1>Payroll Dashboard</h1>
-    <p><a class="btn" href="{{ url_for('admin_payroll_history') }}">📜 View Payroll History</a></p>
-    <p><strong>Selected Payroll Cutoff:</strong> {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} <span>(Saturday through Friday)</span></p>
-    <p>The combined de minimis ceiling is only a tax-exempt limit, not extra salary or an automatic allowance. Only rice subsidy is automatically added at ₱95 per worked day; other de minimis benefits count only when an amount is entered. Each category keeps its own applicable limit.</p>
+    <header class="page-header">
+        <div>
+            <h1>Payroll Dashboard</h1>
+            <p class="page-subtitle">Cutoff: {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} (Saturday–Friday)</p>
+        </div>
+        <a class="btn" href="{{ url_for('admin_payroll_history') }}">View Payroll History</a>
+    </header>
 
-    <form method="GET" style="margin:12px 0;">
-        <label for="cutoff-start">Pumili ng payroll cutoff (Sabado–Biyernes):</label>
-        <select id="cutoff-start" name="cutoff_start" required>
-            {% for cutoff in cutoff_options %}
-            <option value="{{ cutoff.start.isoformat() }}" {% if cutoff.start == start_cutoff %}selected{% endif %}>
-                {{ cutoff.label }}
-            </option>
-            {% endfor %}
-        </select>
-        <button type="submit">Load Cutoff</button>
-    </form>
-
-    <section style="border:1px solid #ccc; padding:12px; margin:12px 0;">
-        <h2>Company Payroll Summary</h2>
-        <p>View or download the one-page salary summary for sharing or printing.</p>
-        <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno', cutoff_start=start_cutoff, view='true') }}">View Trece-Uno Summary</a>
-        <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno', cutoff_start=start_cutoff) }}">Download Trece-Uno Summary</a>
-        <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert', cutoff_start=start_cutoff, view='true') }}">View Auto Expert Summary</a>
-        <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert', cutoff_start=start_cutoff) }}">Download Auto Expert Summary</a>
-        <a class="btn" href="{{ url_for('tax_reports') }}">Tax Reports</a>
-        <a class="btn" href="{{ url_for('thirteenth_month', year=start_cutoff.year) }}">13th-Month Pay</a>
+    <section class="panel">
+        <div class="panel-heading">
+            <h2>1. Choose payroll cutoff</h2>
+            <p class="muted">Pumili ng payroll cutoff (Sabado–Biyernes).</p>
+        </div>
+        <form method="GET" class="cutoff-form">
+            <label for="cutoff-start">Payroll cutoff
+                <select id="cutoff-start" name="cutoff_start" required>
+                    {% for cutoff in cutoff_options %}
+                    <option value="{{ cutoff.start.isoformat() }}" {% if cutoff.start == start_cutoff %}selected{% endif %}>
+                        {{ cutoff.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit">Load Cutoff</button>
+        </form>
+        <details class="payroll-notes">
+            <summary>Payroll allowance note</summary>
+            <p>The combined de minimis ceiling is only a tax-exempt limit, not extra salary or an automatic allowance. Only rice subsidy is automatically added at ₱95 per worked day; other de minimis benefits count only when an amount is entered. Each category keeps its own applicable limit.</p>
+        </details>
     </section>
 
-    <section class="accounting" style="padding:14px; margin:12px 0;">
-        <h2>Accounting Overview</h2>
-        <strong>Staff Payroll: ₱{{ accounting_totals.staff_net_pay|currency }}</strong>
-        &nbsp; | &nbsp;
-        <strong>Admin Payroll: ₱{{ accounting_totals.admin_net_pay|currency }}</strong>
-        &nbsp; | &nbsp;
-        <strong>Total Cash Requirement: ₱{{ accounting_totals.total_net_pay|currency }}</strong>
+    <details class="panel report-tools">
+        <summary>Reports and payroll tools</summary>
+        <div class="report-links">
+            <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno', cutoff_start=start_cutoff, view='true') }}">View Trece-Uno Summary</a>
+            <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno', cutoff_start=start_cutoff) }}">Download Trece-Uno Summary</a>
+            <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert', cutoff_start=start_cutoff, view='true') }}">View Auto Expert Summary</a>
+            <a class="btn" href="{{ url_for('payroll_summary', company='Auto Expert', cutoff_start=start_cutoff) }}">Download Auto Expert Summary</a>
+            <a class="btn" href="{{ url_for('tax_reports') }}">Tax Reports</a>
+            <a class="btn" href="{{ url_for('thirteenth_month', year=start_cutoff.year) }}">13th-Month Pay</a>
+        </div>
+    </details>
+
+    <section class="summary-grid" aria-label="Payroll totals">
+        <div class="summary-card">
+            <span>Staff Payroll</span>
+            <strong>₱{{ accounting_totals.staff_net_pay|currency }}</strong>
+        </div>
+        <div class="summary-card">
+            <span>Admin Payroll</span>
+            <strong>₱{{ accounting_totals.admin_net_pay|currency }}</strong>
+        </div>
+        <div class="summary-card total">
+            <span>Total Cash Requirement</span>
+            <strong>₱{{ accounting_totals.total_net_pay|currency }}</strong>
+        </div>
     </section>
 
-    <section style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; padding:12px; background:#fff; border:1px solid #cbd7d1; margin:12px 0;">
-        <strong>Payroll Review:</strong>
+    <section class="panel" aria-labelledby="review-heading">
+        <div class="panel-heading">
+            <h2 id="review-heading">2. Review and filter employees</h2>
+            <p class="muted">I-filter ang listahan bago mag-edit o mag-finalize ng payroll.</p>
+        </div>
+        <div class="review-counts">
         <span class="review-ready">Ready: {{ payroll_data|rejectattr('is_payroll_attendance_exempt')|selectattr('review_status', 'equalto', 'Ready')|list|length }}</span>
         <span class="review-needed">Needs Review: {{ payroll_data|rejectattr('is_payroll_attendance_exempt')|selectattr('review_status', 'equalto', 'Needs Review')|list|length }}</span>
-        <label for="review-filter">Show:</label>
-        <select id="review-filter">
-            <option value="all">All employees</option>
-            <option value="ready">Ready only</option>
-            <option value="review">Needs Review only</option>
-        </select>
-        <label for="company-filter">Company:</label>
-        <select id="company-filter">
-            <option value="all">All companies</option>
-            <option value="trece">Trece-Uno</option>
-            <option value="auto">Auto-Expert</option>
-        </select>
-        <label for="employee-filter">Employee:</label>
-        <select id="employee-filter">
-            <option value="all">All employees</option>
-            <option value="__ready__">Ready only</option>
-            <option value="__review__">Needs Review only</option>
-            <optgroup label="Trece-Uno">
-                {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('trece') %}
-                <option value="{{ p.emp.id }}" data-company="trece">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
-                {% endfor %}
-            </optgroup>
-            <optgroup label="Auto-Expert">
-                {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('auto') %}
-                <option value="{{ p.emp.id }}" data-company="auto">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
-                {% endfor %}
-            </optgroup>
-        </select>
+        </div>
+        <div class="filter-grid">
+            <label for="review-filter">Review status
+                <select id="review-filter">
+                    <option value="all">All statuses</option>
+                    <option value="ready">Ready only</option>
+                    <option value="review">Needs Review only</option>
+                </select>
+            </label>
+            <label for="company-filter">Company
+                <select id="company-filter">
+                    <option value="all">All companies</option>
+                    <option value="trece">Trece-Uno</option>
+                    <option value="auto">Auto-Expert</option>
+                </select>
+            </label>
+            <label for="employee-filter">Employee
+                <select id="employee-filter">
+                    <option value="all">All employees</option>
+                    <optgroup label="Trece-Uno">
+                        {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('trece') %}
+                        <option value="{{ p.emp.id }}" data-company="trece">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    <optgroup label="Auto-Expert">
+                        {% for p in payroll_data if p.emp.company and p.emp.company.lower().startswith('auto') %}
+                        <option value="{{ p.emp.id }}" data-company="auto">{{ p.emp.first_name }} {{ p.emp.last_name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                </select>
+            </label>
+            <button type="button" id="clear-payroll-filters" class="btn">Clear filters</button>
+        </div>
     </section>
 
     <form method="POST" action="{{ url_for('payroll_dashboard') }}">
         <input type="hidden" name="cutoff_start" value="{{ start_cutoff }}">
-        <div style="margin: 10px 0 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <label><input type="checkbox" id="select-all-employees"> Select all</label>
-            <button type="submit" formaction="{{ url_for('bulk_finalize_payroll') }}" formmethod="POST">✅ Finalize Selected</button>
-            <a href="{{ url_for('review_zero_payroll') }}">Review / Repair Finalized Zero Payroll (All Employees)</a>
-            <input type="hidden" name="cutoff_start" value="{{ start_cutoff }}">
+        <div class="bulk-toolbar">
+            <label><input type="checkbox" id="select-all-employees"> Select all shown</label>
+            <span class="selection-count" id="selection-count">0 selected</span>
+            <div class="toolbar-actions">
+                <button type="submit" formaction="{{ url_for('bulk_finalize_payroll') }}" formmethod="POST">Finalize Selected</button>
+                <a href="{{ url_for('review_zero_payroll') }}">Review / Repair Finalized Zero Payroll</a>
+                <button type="submit">Save All Updates</button>
+            </div>
         </div>
+        <p class="table-caption">3. Payroll details — scroll horizontally to view all pay and deduction columns.</p>
         <div class="table-wrap">
         <table>
             <thead>
@@ -171,17 +207,17 @@
                     <th>Worked Days</th>
                     <th>Rest Day / OT Pay</th>
                     <th>Gross Income</th>
-                    <th>SSS</th>
-                    <th>PhilHealth</th>
-                    <th>Pag-IBIG</th>
-                    <th>SSS Loan</th>
-                    <th>Pag-IBIG Loan</th>
-                    <th>Withholding Tax</th>
-                    <th>Liability</th>
-                    <th>Deductions (Editable)</th>
+                    <th class="deduction-heading">SSS</th>
+                    <th class="deduction-heading">PhilHealth</th>
+                    <th class="deduction-heading">Pag-IBIG</th>
+                    <th class="deduction-heading">SSS Loan</th>
+                    <th class="deduction-heading">Pag-IBIG Loan</th>
+                    <th class="deduction-heading">Withholding Tax</th>
+                    <th class="deduction-heading">Liability</th>
+                    <th class="deduction-heading">Deductions (Editable)</th>
                     <th>Net Pay</th>
                     <th>Outstanding Loan</th>
-                    <th>Company Loan Deduction This Cutoff</th>
+                    <th class="deduction-heading">Company Loan Deduction This Cutoff</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -228,15 +264,15 @@
                     <td>{{ p.worked_days }}</td>
                     <td>₱{{ p.approved_ot_pay|currency }}</td>
                     <td>₱{{ p.gross_income|currency }}</td>
-                    <td>₱{{ p.sss|currency }}</td>
-                    <td>₱{{ p.philhealth|currency }}</td>
-                    <td>₱{{ p.pagibig|currency }}</td>
-                    <td>₱{{ p.sss_loan|currency }}</td>
-                    <td>₱{{ p.pagibig_loan|currency }}</td>
-                    <td>₱{{ p.withholding_tax|currency }}</td>
-                    <td>₱{{ p.liability_deduction|currency }}</td>
-                    <td>
-                        <details>
+                    <td class="deduction-cell">₱{{ p.sss|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.philhealth|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.pagibig|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.sss_loan|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.pagibig_loan|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.withholding_tax|currency }}</td>
+                    <td class="deduction-cell">₱{{ p.liability_deduction|currency }}</td>
+                    <td class="deduction-cell">
+                        <details class="deduction-details">
                             <summary><strong>₱{{ p.deductions|currency }}</strong></summary>
                             <label>SSS Loan
                                 <input type="number" min="0" step="0.01" name="sss_loan_{{ p.emp.id }}" value="{{ p.sss_loan or 0 }}" {% if p.is_paid %}disabled{% endif %}>
@@ -262,7 +298,7 @@
                     <td>
                         <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}" {% if p.is_paid %}disabled{% endif %}>
                     </td>
-                    <td>
+                    <td class="deduction-cell">
                         <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}" {% if p.is_paid %}disabled{% endif %}>
                     </td>
                     <td>
@@ -281,28 +317,57 @@
             </tbody>
         </table>
         </div>
-        <button type="submit">💾 Save All Updates</button>
     </form>
     <p><a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">Back to Dashboard</a></p>
 </main>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const selectAll = document.getElementById('select-all-employees');
+        const selectionCount = document.getElementById('selection-count');
+        const employeeCheckboxes = Array.from(
+            document.querySelectorAll('input[name="selected_employee_ids"]')
+        );
+        function updateSelectionCount() {
+            const selectedCount = employeeCheckboxes.filter(function (checkbox) {
+                return checkbox.checked;
+            }).length;
+            const visibleCheckboxes = employeeCheckboxes.filter(function (checkbox) {
+                return checkbox.closest('.payroll-row').style.display !== 'none';
+            });
+            const visibleSelected = visibleCheckboxes.filter(function (checkbox) {
+                return checkbox.checked;
+            }).length;
+            if (selectionCount) {
+                selectionCount.textContent = selectedCount + ' selected';
+            }
+            if (selectAll) {
+                selectAll.checked = visibleCheckboxes.length > 0
+                    && visibleSelected === visibleCheckboxes.length;
+                selectAll.indeterminate = visibleSelected > 0
+                    && visibleSelected < visibleCheckboxes.length;
+            }
+        }
         if (selectAll) {
             selectAll.addEventListener('change', function () {
-                document.querySelectorAll('input[name="selected_employee_ids"]').forEach(function (checkbox) {
-                    checkbox.checked = selectAll.checked;
+                employeeCheckboxes.forEach(function (checkbox) {
+                    if (checkbox.closest('.payroll-row').style.display !== 'none') {
+                        checkbox.checked = selectAll.checked;
+                    }
                 });
+                updateSelectionCount();
             });
         }
+        employeeCheckboxes.forEach(function (checkbox) {
+            checkbox.addEventListener('change', updateSelectionCount);
+        });
         const reviewFilter = document.getElementById('review-filter');
         const companyFilter = document.getElementById('company-filter');
         const employeeFilter = document.getElementById('employee-filter');
+        const clearFilters = document.getElementById('clear-payroll-filters');
         function applyPayrollFilters() {
             const review = reviewFilter ? reviewFilter.value : 'all';
             const company = companyFilter ? companyFilter.value : 'all';
-            const employee = employeeFilter ? employeeFilter.value : 'all';
-            const selectionReview = employee === '__ready__' ? 'ready' : employee === '__review__' ? 'review' : 'all';
+            let employee = employeeFilter ? employeeFilter.value : 'all';
             if (employeeFilter) {
                 employeeFilter.querySelectorAll('option[data-company]').forEach(function (option) {
                     option.hidden = company !== 'all' && option.dataset.company !== company;
@@ -310,19 +375,28 @@
                 const selectedEmployee = employeeFilter.selectedOptions[0];
                 if (selectedEmployee && selectedEmployee.hidden) {
                     employeeFilter.value = 'all';
+                    employee = 'all';
                 }
             }
-            const selectedEmployeeId = selectionReview === 'all' ? employee : 'all';
             document.querySelectorAll('.payroll-row').forEach(function (row) {
-                const matchesReview = (review === 'all' || row.dataset.review === review)
-                    && (selectionReview === 'all' || row.dataset.review === selectionReview);
+                const matchesReview = review === 'all' || row.dataset.review === review;
                 const matchesCompany = company === 'all' || row.dataset.company === company;
-                const matchesEmployee = selectedEmployeeId === 'all' || row.dataset.employee === selectedEmployeeId;
+                const matchesEmployee = employee === 'all' || row.dataset.employee === employee;
                 row.style.display = matchesReview && matchesCompany && matchesEmployee ? '' : 'none';
             });
             document.querySelectorAll('.payroll-section').forEach(function (row) {
-                row.style.display = employee === 'all' ? '' : 'none';
+                let nextRow = row.nextElementSibling;
+                let hasVisibleEmployee = false;
+                while (nextRow && !nextRow.classList.contains('payroll-section')) {
+                    if (nextRow.classList.contains('payroll-row') && nextRow.style.display !== 'none') {
+                        hasVisibleEmployee = true;
+                        break;
+                    }
+                    nextRow = nextRow.nextElementSibling;
+                }
+                row.style.display = hasVisibleEmployee ? '' : 'none';
             });
+            updateSelectionCount();
         }
         if (reviewFilter) {
             reviewFilter.addEventListener('change', applyPayrollFilters);
@@ -333,6 +407,15 @@
         if (employeeFilter) {
             employeeFilter.addEventListener('change', applyPayrollFilters);
         }
+        if (clearFilters) {
+            clearFilters.addEventListener('click', function () {
+                reviewFilter.value = 'all';
+                companyFilter.value = 'all';
+                employeeFilter.value = 'all';
+                applyPayrollFilters();
+            });
+        }
+        updateSelectionCount();
     });
 </script>
 </body>

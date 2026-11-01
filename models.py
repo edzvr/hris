@@ -610,3 +610,23 @@ class StaffConcern(db.Model):
 
     employee = db.relationship("Employee", foreign_keys=[employee_id], backref="staff_concerns")
     responder = db.relationship("Employee", foreign_keys=[responded_by])
+
+
+class StaffMessage(db.Model):
+    __tablename__ = "staff_messages"
+    __table_args__ = (
+        db.Index("ix_staff_messages_recipient_created", "recipient_id", "created_at"),
+        db.Index("ix_staff_messages_sender_created", "sender_id", "created_at"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    message_type = db.Column(db.String(20), nullable=False, default="direct")
+    subject = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    sender = db.relationship("Employee", foreign_keys=[sender_id])
+    recipient = db.relationship("Employee", foreign_keys=[recipient_id])

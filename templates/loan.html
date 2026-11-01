@@ -152,6 +152,7 @@
             </td>
             {% if current_user.role.lower() == 'admin' %}
             <td class="no-print">
+                {% if l.status == 'Approved' %}<a class="btn" href="{{ url_for('create_loan_agreement', loan_id=l.id) }}">Loan Agreement</a>{% endif %}
                 {% if l.status == 'Pending' %}<form action="{{ url_for('approve_loan', id=l.id) }}" method="POST" style="display:inline;">
                     <button type="submit" class="btn">Approve &amp; Add to Balance</button>
                 </form>

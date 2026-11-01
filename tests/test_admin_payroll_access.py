@@ -148,6 +148,10 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             log_in(client, db.session.get(Employee, admin_id))
         response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
         assert response.status_code == 200
+        assert b'2. Review and filter employees' in response.data
+        assert b'Select all shown' in response.data
+        assert b'class="deduction-heading">SSS</th>' in response.data
+        assert b'class="deduction-cell">' in response.data
         assert b'SSS Loan' in response.data
         assert b'Pag-IBIG Loan' in response.data
         assert b'Karl Ronquillo' in response.data
