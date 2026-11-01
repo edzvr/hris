@@ -2575,21 +2575,50 @@ def biometric_import():
             Employee.biometric_id.in_(biometric_ids),
         ).all()
         employees_by_biometric_id = {employee.biometric_id: employee for employee in employees}
+        seen_employee_dates = set()
         for row in parsed_rows:
             employee = employees_by_biometric_id.get(row['biometric_id'])
             row['employee_id'] = employee.id if employee else None
             row['employee'] = employee.full_name() if employee else 'Unmatched biometric ID'
-            row['status'] = (
-                'Unmatched' if employee is None
-                else 'Duplicate' if Attendance.query.filter_by(employee_id=employee.id, date=date.fromisoformat(row['date'])).first()
-                else 'Ready'
+            employee_date = (
+                (employee.id, date.fromisoformat(row['date']))
+                if employee else None
             )
+            if employee is None:
+                row['status'] = 'Unmatched'
+            elif (
+                employee_date in seen_employee_dates
+                or Attendance.query.filter_by(
+                    employee_id=employee.id,
+                    date=employee_date[1],
+                ).first()
+            ):
+                row['status'] = 'Duplicate'
+            else:
+                row['status'] = 'Ready'
+            if employee_date:
+                seen_employee_dates.add(employee_date)
         session['biometric_import_rows'] = parsed_rows
         preview_rows = parsed_rows
     elif request.method == 'POST' and request.form.get('action') == 'import':
         imported = 0
+        duplicates_skipped = 0
+        imported_employee_dates = set()
         for row in preview_rows:
             if row['status'] != 'Ready':
+                continue
+            employee_date = (
+                row['employee_id'],
+                date.fromisoformat(row['date']),
+            )
+            if (
+                employee_date in imported_employee_dates
+                or Attendance.query.filter_by(
+                    employee_id=employee_date[0],
+                    date=employee_date[1],
+                ).first()
+            ):
+                duplicates_skipped += 1
                 continue
             clock_in = datetime.fromisoformat(row['clock_in']) if row['clock_in'] else None
             clock_out = datetime.fromisoformat(row['clock_out']) if row['clock_out'] else None
@@ -2606,10 +2635,16 @@ def biometric_import():
             if clock_out:
                 apply_overtime_details(attendance)
             db.session.add(attendance)
+            imported_employee_dates.add(employee_date)
             imported += 1
         db.session.commit()
         session.pop('biometric_import_rows', None)
-        flash(f'{imported} biometric attendance record(s) imported. Unmatched and duplicate rows were skipped.', 'success')
+        flash(
+            f'{imported} biometric attendance record(s) imported. '
+            f'{duplicates_skipped} duplicate row(s) skipped. '
+            'Unmatched and duplicate rows were skipped.',
+            'success',
+        )
         return redirect(url_for('biometric_import'))
     return render_template('biometric_import.html', preview_rows=preview_rows)
 
@@ -6536,30 +6571,56 @@ def attendance_action(employee_id):
         return redirect(url_for('dashboard_staff'))
 
     if "clockin" in request.form:
-        open_log = Attendance.query.filter_by(
+        day_logs = Attendance.query.filter_by(
             employee_id=employee_id,
             date=event_now.date()
-        ).filter(Attendance.clock_out == None).first()
-        if open_log:
-            flash("⚠️ You are already clocked in.", "warning")
+        ).order_by(Attendance.id).all()
+        if len(day_logs) > 1:
+            flash(
+                "⚠️ Multiple attendance records already exist for this date. "
+                "Ask an admin to review them before clocking in.",
+                "warning",
+            )
+            return redirect(url_for('dashboard_staff'))
+        if day_logs and (
+            day_logs[0].clock_in is not None or day_logs[0].clock_out is not None
+        ):
+            flash(
+                "⚠️ An attendance record already exists for today. "
+                "Contact an admin if it needs correction.",
+                "warning",
+            )
             return redirect(url_for('dashboard_staff'))
 
-        # --- Clock In Logic ---
-        log = Attendance(date=event_now.date(),
-                         clock_in=event_now,
-                         status=attendance_status(event_now),
-                         employee_id=employee_id)
-        db.session.add(log)
+        log = day_logs[0] if day_logs else Attendance(
+            date=event_now.date(),
+            employee_id=employee_id,
+        )
+        log.clock_in = event_now
+        log.status = attendance_status(event_now)
+        if not day_logs:
+            db.session.add(log)
         db.session.commit()
         notify_attendance_event(emp, "clockin", event_now)
         flash("🟢 Clocked in successfully!", "success")
 
     elif "clockout" in request.form:
-        # --- Clock Out Logic ---
-        log = Attendance.query.filter_by(
+        day_logs = Attendance.query.filter_by(
             employee_id=employee_id,
             date=event_now.date()
-        ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
+        ).order_by(Attendance.clock_in.desc()).all()
+        if len(day_logs) > 1:
+            flash(
+                "⚠️ Multiple attendance records already exist for this date. "
+                "Ask an admin to review them before clocking out.",
+                "warning",
+            )
+            return redirect(url_for('attendance', employee_id=employee_id))
+        log = (
+            day_logs[0]
+            if day_logs and day_logs[0].clock_in and not day_logs[0].clock_out
+            else None
+        )
         if log:
             log.clock_out = event_now
             log.hours = regular_attendance_hours(log)
@@ -6585,18 +6646,38 @@ def attendance_api(employee_id):
             return jsonify(status="error", message="❌ Access denied."), 403
 
         if "clockin" in request.form:
-            open_log = Attendance.query.filter_by(
+            day_logs = Attendance.query.filter_by(
                 employee_id=employee_id,
                 date=event_now.date()
-            ).filter(Attendance.clock_out == None).first()
-            if open_log:
-                return jsonify(status="warning", message="⚠️ You are already clocked in.")
+            ).order_by(Attendance.id).all()
+            if len(day_logs) > 1:
+                return jsonify(
+                    status="warning",
+                    message=(
+                        "⚠️ Multiple attendance records already exist for this date. "
+                        "Ask an admin to review them before clocking in."
+                    ),
+                )
+            if day_logs and (
+                day_logs[0].clock_in is not None
+                or day_logs[0].clock_out is not None
+            ):
+                return jsonify(
+                    status="warning",
+                    message=(
+                        "⚠️ An attendance record already exists for today. "
+                        "Contact an admin if it needs correction."
+                    ),
+                )
 
-            log = Attendance(date=event_now.date(),
-                             clock_in=event_now,
-                             status=attendance_status(event_now),
-                             employee_id=employee_id)
-            db.session.add(log)
+            log = day_logs[0] if day_logs else Attendance(
+                date=event_now.date(),
+                employee_id=employee_id,
+            )
+            log.clock_in = event_now
+            log.status = attendance_status(event_now)
+            if not day_logs:
+                db.session.add(log)
             db.session.commit()
             notify_attendance_event(emp, "clockin", event_now)
             worked_hours = max(
@@ -6608,10 +6689,23 @@ def attendance_api(employee_id):
                            worked_hours=worked_hours)
 
         elif "clockout" in request.form:
-            log = Attendance.query.filter_by(
+            day_logs = Attendance.query.filter_by(
                 employee_id=employee_id,
                 date=event_now.date()
-            ).filter(Attendance.clock_out == None).order_by(Attendance.clock_in.desc()).first()
+            ).order_by(Attendance.clock_in.desc()).all()
+            if len(day_logs) > 1:
+                return jsonify(
+                    status="warning",
+                    message=(
+                        "⚠️ Multiple attendance records already exist for this date. "
+                        "Ask an admin to review them before clocking out."
+                    ),
+                )
+            log = (
+                day_logs[0]
+                if day_logs and day_logs[0].clock_in and not day_logs[0].clock_out
+                else None
+            )
             if log:
                 log.clock_out = event_now
                 log.hours = regular_attendance_hours(log)
@@ -6646,6 +6740,17 @@ def attendance_correction():
                 employee_id=current_user.id,
                 date=correction_date,
             ).order_by(Attendance.clock_in.desc()).first()
+            attendance_records = Attendance.query.filter_by(
+                employee_id=current_user.id,
+                date=correction_date,
+            ).all()
+            if len(attendance_records) > 1:
+                flash(
+                    'Multiple attendance records exist for this date. '
+                    'Ask an admin to reconcile them before submitting a correction.',
+                    'danger',
+                )
+                return redirect(url_for('attendance_correction'))
             effective_clock_in = requested_clock_in or (
                 attendance_record.clock_in if attendance_record else None
             )
@@ -6660,7 +6765,8 @@ def attendance_correction():
                 correction_date=correction_date,
                 requested_clock_in=requested_clock_in,
                 requested_clock_out=requested_clock_out,
-                reason=reason
+                reason=reason,
+                attendance=attendance_record,
             ))
             db.session.commit()
             flash('Attendance correction submitted for admin review.', 'success')
@@ -6693,14 +6799,29 @@ def review_attendance_correction(correction_id, action):
     if correction.status != 'Pending':
         flash('This correction request was already reviewed.', 'warning')
         return redirect(url_for('dashboard_admin'))
-    correction.status = 'Approved' if action == 'approve' else 'Rejected'
-    correction.reviewed_by = current_user.id
-    correction.reviewed_at = datetime.utcnow()
     if action == 'approve':
-        attendance_record = Attendance.query.filter_by(
+        attendance_records = Attendance.query.filter_by(
             employee_id=correction.employee_id,
             date=correction.correction_date
-        ).order_by(Attendance.clock_in.desc()).first()
+        ).order_by(Attendance.clock_in.desc()).all()
+        if len(attendance_records) > 1:
+            flash(
+                'Multiple attendance records exist for this date. '
+                'Reconcile them before approving the correction.',
+                'danger',
+            )
+            return redirect(url_for('dashboard_admin'))
+        attendance_record = attendance_records[0] if attendance_records else None
+        if correction.attendance_id and (
+            attendance_record is None
+            or attendance_record.id != correction.attendance_id
+        ):
+            flash(
+                'The attendance record linked to this correction is no longer available. '
+                'Review the attendance before approving.',
+                'danger',
+            )
+            return redirect(url_for('dashboard_admin'))
         if attendance_record is None:
             employee = db.session.get(Employee, correction.employee_id)
             attendance_record = Attendance(
@@ -6710,6 +6831,9 @@ def review_attendance_correction(correction_id, action):
                 status='Present'
             )
             db.session.add(attendance_record)
+        correction.status = 'Approved'
+        correction.reviewed_by = current_user.id
+        correction.reviewed_at = datetime.utcnow()
         attendance_record.clock_in = (
             correction.requested_clock_in or attendance_record.clock_in
         )
@@ -6724,6 +6848,9 @@ def review_attendance_correction(correction_id, action):
         correction.attendance = attendance_record
         flash('Attendance correction approved. Recalculate the employee payroll.', 'success')
     else:
+        correction.status = 'Rejected'
+        correction.reviewed_by = current_user.id
+        correction.reviewed_at = datetime.utcnow()
         flash('Attendance correction rejected.', 'info')
     db.session.commit()
     employee = db.session.get(Employee, correction.employee_id)
