@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Government Contribution Settings</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        .section { background:#fff; padding:18px 20px; margin-bottom:18px; border-radius:8px; overflow:auto; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { border:1px solid #ddd; padding:7px 8px; text-align:left; font-size:13px; }
+        th { background:#1f6f43; color:#fff; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px 16px; }
+        label { display:flex; flex-direction:column; font-size:13px; gap:4px; }
+        input, select, textarea { padding:7px; border:1px solid #c9d3cc; border-radius:4px; font-size:14px; }
+        textarea { width:100%; min-height:320px; font-family:Consolas, monospace; font-size:12px; }
+        .btn, button { display:inline-block; padding:8px 12px; margin:3px; border:0; border-radius:4px; text-decoration:none; background:#1f6f43; color:#fff; cursor:pointer; }
+        .btn.light { background:#e8ece9; color:#222; }
+        .error { background:#fdecea; border-left:5px solid #c62828; padding:10px 14px; border-radius:6px; }
+        .muted { color:#5b6b60; font-size:13px; }
+        .flash { padding:8px 12px; border-radius:6px; background:#e6f4ea; }
+    </style>
+</head>
+<body>
+<main class="section">
+    <h2>Government Contribution Settings</h2>
+    <p class="muted">Rates and the SSS table are stored in the database. To apply a new government circular, create a new version with its effective month &mdash; no source-code change needed. Each payroll month uses the latest version effective on or before that month. Paid payslips are never recalculated.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<p class="flash">{{ message }}</p>{% endfor %}
+    {% endwith %}
+    <p>
+        <a class="btn light" href="{{ url_for('government_contributions') }}">&larr; Government Contributions</a>
+        <a class="btn" href="{{ url_for('government_contribution_setting_new') }}">+ New version</a>
+    </p>
+    <table>
+        <tr><th>Effective month</th><th>PhilHealth</th><th>Pag-IBIG</th><th>SSS brackets</th><th>Source</th><th></th></tr>
+        {% for item in settings %}
+        <tr>
+            <td>{{ item.effective_month.strftime('%B %Y') }}</td>
+            <td>{{ '%.2f'|format(item.philhealth_rate * 100) }}% &middot; floor {{ '{:,.2f}'.format(item.philhealth_floor) }} &middot; ceiling {{ '{:,.2f}'.format(item.philhealth_ceiling) }}</td>
+            <td>EE {{ '%.2f'|format(item.pagibig_employee_rate_high * 100) }}% / ER {{ '%.2f'|format(item.pagibig_employer_rate * 100) }}% &middot; max {{ '{:,.2f}'.format(item.pagibig_max_fund_salary) }}</td>
+            <td>{{ item.sss_brackets|length }}</td>
+            <td>{{ item.source_reference }}</td>
+            <td><a href="{{ url_for('government_contribution_settings', setting_id=item.id) }}">Edit</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</main>
+
+<section class="section">
+    <h3>{{ 'New contribution version' if is_new or not setting else 'Edit version effective ' ~ setting.effective_month.strftime('%B %Y') }}</h3>
+    {% if errors %}
+    <div class="error"><strong>Invalid Government Contribution Settings:</strong>
+        <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('government_contribution_setting_new') if is_new or not setting else url_for('government_contribution_settings', setting_id=setting.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid">
+            <label>Effective month<input type="month" name="effective_month" value="{{ form.effective_month or '' }}" required></label>
+            <label>Default PhilHealth workweek
+                <select name="default_workweek">
+                    <option value="5" {% if form.default_workweek|string != '6' %}selected{% endif %}>5-day (x261/12)</option>
+                    <option value="6" {% if form.default_workweek|string == '6' %}selected{% endif %}>6-day (x313/12)</option>
+                </select>
+            </label>
+            <label>PhilHealth rate (%)<input name="philhealth_rate" value="{{ form.philhealth_rate or '' }}" required></label>
+            <label>PhilHealth floor (MBS)<input name="philhealth_floor" value="{{ form.philhealth_floor or '' }}" required></label>
+            <label>PhilHealth ceiling (MBS)<input name="philhealth_ceiling" value="{{ form.philhealth_ceiling or '' }}" required></label>
+            <label>Pag-IBIG low-income threshold<input name="pagibig_low_threshold" value="{{ form.pagibig_low_threshold or '' }}" required></label>
+            <label>Pag-IBIG EE rate at/below threshold (%)<input name="pagibig_employee_rate_low" value="{{ form.pagibig_employee_rate_low or '' }}" required></label>
+            <label>Pag-IBIG EE rate above threshold (%)<input name="pagibig_employee_rate_high" value="{{ form.pagibig_employee_rate_high or '' }}" required></label>
+            <label>Pag-IBIG ER rate (%)<input name="pagibig_employer_rate" value="{{ form.pagibig_employer_rate or '' }}" required></label>
+            <label>Pag-IBIG maximum fund salary<input name="pagibig_max_fund_salary" value="{{ form.pagibig_max_fund_salary or '' }}" required></label>
+        </div>
+        <label style="margin-top:10px">Source / circular reference<input name="source_reference" maxlength="255" value="{{ form.source_reference or '' }}"></label>
+        <h4>SSS Contribution Table</h4>
+        <p class="muted">One bracket per line: <code>salary_from,salary_to,msc,employee_share,employer_share,ec</code>. Brackets must start at 0, have no gaps, and the last line must leave salary_to blank. Employee/employer shares include the MPF (WISP) portion.</p>
+        <textarea name="sss_table" spellcheck="false">{{ form.sss_table or '' }}</textarea>
+        <p><button type="submit">Save settings</button></p>
+    </form>
+</section>
+
+<section class="section">
+    <h3>Audit Trail</h3>
+    <table>
+        <tr><th>When (UTC)</th><th>By</th><th>Action</th><th>Version</th></tr>
+        {% for item in audit %}
+        <tr><td>{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ item.actor_name }}</td><td>{{ item.action }}</td><td>#{{ item.entity_id }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">No changes yet.</td></tr>
+        {% endfor %}
+    </table>
+</section>
+</body>
+</html>

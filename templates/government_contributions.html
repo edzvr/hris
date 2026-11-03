@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Government Contributions</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        .section { background:#fff; padding:18px 20px; margin-bottom:18px; border-radius:8px; overflow:auto; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { border:1px solid #ddd; padding:7px 8px; text-align:right; font-size:13px; }
+        th:first-child, td:first-child, td.left, th.left { text-align:left; }
+        th { background:#1f6f43; color:#fff; }
+        tr.total td { font-weight:bold; background:#eef6ef; }
+        .btn, button { display:inline-block; padding:8px 12px; margin:3px; border:0; border-radius:4px; text-decoration:none; background:#1f6f43; color:#fff; cursor:pointer; font-size:14px; }
+        .btn.light { background:#e8ece9; color:#222; }
+        .btn.active { outline:3px solid #9ccfa9; }
+        .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; }
+        .card { border:1px solid #dfe7e1; border-radius:8px; padding:10px 12px; background:#fbfdfb; }
+        .card small { color:#5b6b60; display:block; }
+        .card strong { font-size:18px; }
+        .warning { background:#fff6e0; border-left:5px solid #e0a100; padding:10px 14px; border-radius:6px; }
+        .error { background:#fdecea; border-left:5px solid #c62828; padding:10px 14px; border-radius:6px; }
+        .ok { color:#1f6f43; }
+        .issue { color:#b42318; font-size:12px; text-align:left; }
+        .agency { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+        .agency table td:first-child { width:60%; }
+        .muted { color:#5b6b60; font-size:13px; }
+        .employee-preview { border:1px solid #dfe7e1; border-radius:8px; padding:12px; margin-bottom:14px; }
+        .employee-preview h4 { margin:4px 0 10px; }
+    </style>
+</head>
+<body>
+{% set peso = '₱{:,.2f}' %}
+<main class="section">
+    <h2>Government Contributions &amp; Labor Cost</h2>
+    <form method="get">
+        <label>Payroll month <input type="month" name="month" value="{{ month.strftime('%Y-%m') }}" required></label>
+        <label>Employer
+            <select name="company">
+                <option value="" {% if not company %}selected{% endif %}>All companies</option>
+                <option value="Trece-Uno" {% if company == 'Trece-Uno' %}selected{% endif %}>Trece-Uno Auto Supply</option>
+                <option value="Auto Expert" {% if company == 'Auto Expert' %}selected{% endif %}>Auto-Expert Auto Supply</option>
+            </select>
+        </label>
+        <button type="submit">View</button>
+    </form>
+    {% set q = {'month': month.strftime('%Y-%m'), 'company': company} %}
+    <p>
+        <a class="btn {{ 'active' if view == 'dashboard' else 'light' }}" href="{{ url_for('government_contributions', **q) }}">Dashboard &amp; Register</a>
+        <a class="btn {{ 'active' if view == 'preview' else 'light' }}" href="{{ url_for('government_contribution_preview', **q) }}">Government Contribution Preview</a>
+        <a class="btn {{ 'active' if view == 'portal' else 'light' }}" href="{{ url_for('government_portal_payment', **q) }}">How Much Will I Pay In The Government Portal?</a>
+        <a class="btn light" href="{{ url_for('government_contribution_settings') }}">Contribution Settings</a>
+    </p>
+</main>
+
+{% if settings_error %}
+<section class="section"><div class="error"><strong>Invalid Government Contribution Settings:</strong> {{ settings_error }} <a href="{{ url_for('government_contribution_settings') }}">Fix settings</a></div></section>
+{% elif data %}
+{% set portal = data.portal %}
+{% set labor = data.labor %}
+
+<section class="section">
+    <div class="warning">
+        <strong>PhilHealth uses EMR (Equivalent Monthly Rate).</strong>
+        Absences, undertime, tardiness, and leave without pay do not reduce the PhilHealth Monthly Basic Salary.
+        Actual earnings may differ from the PhilHealth contribution basis.
+    </div>
+    <p class="muted">
+        Rules effective {{ data.setting.effective_month.strftime('%B %Y') }}. Source: {{ data.setting.source_reference or 'Not recorded' }}.
+        Payroll cutoffs this month: {% for item in data.cutoff_dates %}{{ item.strftime('%b %d') }}{{ ', ' if not loop.last }}{% endfor %}.
+        {% if data.legacy_month %}<br><strong>Note:</strong> payroll for this month was deducted under the old calculation; amounts below are the official-rate recomputation for reference only.{% endif %}
+    </p>
+</section>
+
+{% if view == 'dashboard' %}
+<section class="section">
+    <h3>Labor Cost Dashboard &mdash; {{ month.strftime('%B %Y') }}</h3>
+    <div class="cards">
+        <div class="card"><small>Total Employees</small><strong>{{ labor.employees }}</strong></div>
+        <div class="card"><small>Total Gross Payroll</small><strong>{{ peso.format(labor.gross) }}</strong></div>
+        <div class="card"><small>Total SSS Employer Share</small><strong>{{ peso.format(labor.sss_er) }}</strong></div>
+        <div class="card"><small>Total EC</small><strong>{{ peso.format(labor.sss_ec) }}</strong></div>
+        <div class="card"><small>Total PhilHealth Employer Share</small><strong>{{ peso.format(labor.ph_er) }}</strong></div>
+        <div class="card"><small>Total Pag-IBIG Employer Share</small><strong>{{ peso.format(labor.pi_er) }}</strong></div>
+        <div class="card"><small>TOTAL GOVERNMENT LIABILITY (EE + ER + EC)</small><strong>{{ peso.format(labor.government_liability) }}</strong></div>
+        <div class="card"><small>TOTAL LABOR COST (Gross + ER + EC)</small><strong>{{ peso.format(labor.labor_cost) }}</strong></div>
+    </div>
+</section>
+
+<section class="section">
+    <h3>Contribution Basis Breakdown</h3>
+    <table>
+        <tr><th class="left">Agency</th><th class="left">Basis used</th></tr>
+        <tr><td>SSS</td><td class="left">Actual Monthly Compensation = Daily Rate &times; actual days/hours worked (no OT, allowances or Sunday rest-day pay) &rarr; salary bracket &rarr; MSC</td></tr>
+        <tr><td>PhilHealth</td><td class="left">Equivalent Monthly Rate (EMR) = Daily Rate &times; 261 &divide; 12 (5-day) or Daily Rate &times; 313 &divide; 12 (6-day), within floor/ceiling</td></tr>
+        <tr><td>Pag-IBIG</td><td class="left">Monthly Compensation (actual), capped at the maximum fund salary</td></tr>
+    </table>
+</section>
+
+{% if data.validations %}
+<section class="section">
+    <h3>Validations ({{ data.validations|length }})</h3>
+    <table>
+        <tr><th class="left">Employee</th><th class="left">Employer</th><th class="left">Issue</th></tr>
+        {% for item in data.validations %}
+        <tr><td>{{ item.employee.full_name() }}</td><td class="left">{{ item.company }}</td><td class="issue">{{ item.message }}</td></tr>
+        {% endfor %}
+    </table>
+</section>
+{% endif %}
+
+<section class="section">
+    <h3>Employer Payment Monitor &mdash; {{ month.strftime('%B %Y') }}</h3>
+    <table style="min-width:1500px">
+        <tr>
+            <th>Employee</th><th>Employer</th><th>Days</th><th>Gross Salary</th><th>Actual Earnings (SSS basis)</th>
+            <th>Salary Bracket</th><th>MSC</th><th>SSS EE</th><th>SSS ER</th><th>EC</th><th>SSS Total</th>
+            <th>PhilHealth Basis (EMR)</th><th>PH EE</th><th>PH ER</th><th>PH Total</th>
+            <th>Pag-IBIG EE</th><th>Pag-IBIG ER</th><th>Pag-IBIG Total</th>
+            <th>Grand Total Payable</th><th>True Cost to Company</th><th>History</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td>{{ row.employee.full_name() }}{% if row.manual %} <small>(owner &ndash; manual)</small>{% endif %}</td>
+            <td class="left">{{ row.company }}</td>
+            <td>{{ row.days_worked }}</td>
+            <td>{{ peso.format(row.gross_pay) }}</td>
+            <td>{{ peso.format(row.actual_earnings) }}</td>
+            <td>{{ row.result.sss.bracket_label if row.result else 'Manual' }}</td>
+            <td>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</td>
+            <td>{{ peso.format(row.sss_ee) }}</td><td>{{ peso.format(row.sss_er) }}</td><td>{{ peso.format(row.sss_ec) }}</td>
+            <td>{{ peso.format(row.sss_ee + row.sss_er + row.sss_ec) }}</td>
+            <td>{{ peso.format(row.result.philhealth.basis) if row.result else '-' }}</td>
+            <td>{{ peso.format(row.ph_ee) }}</td><td>{{ peso.format(row.ph_er) }}</td><td>{{ peso.format(row.ph_ee + row.ph_er) }}</td>
+            <td>{{ peso.format(row.pi_ee) }}</td><td>{{ peso.format(row.pi_er) }}</td><td>{{ peso.format(row.pi_ee + row.pi_er) }}</td>
+            <td><strong>{{ peso.format(row.remittance_total) }}</strong></td>
+            <td>{{ peso.format(row.true_cost) }}</td>
+            <td><a href="{{ url_for('government_contribution_history', employee_id=row.employee.id) }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="21">No employees with attendance or payroll for this month.</td></tr>
+        {% endfor %}
+        {% set o = portal.overall %}
+        <tr class="total">
+            <td>TOTAL</td><td></td><td></td><td>{{ peso.format(labor.gross) }}</td><td></td><td></td><td></td>
+            <td>{{ peso.format(o.sss.ee) }}</td><td>{{ peso.format(o.sss.er) }}</td><td>{{ peso.format(o.sss.ec) }}</td><td>{{ peso.format(o.sss.total) }}</td>
+            <td></td><td>{{ peso.format(o.philhealth.ee) }}</td><td>{{ peso.format(o.philhealth.er) }}</td><td>{{ peso.format(o.philhealth.total) }}</td>
+            <td>{{ peso.format(o.pagibig.ee) }}</td><td>{{ peso.format(o.pagibig.er) }}</td><td>{{ peso.format(o.pagibig.total) }}</td>
+            <td>{{ peso.format(o.overall) }}</td><td>{{ peso.format(labor.labor_cost) }}</td><td></td>
+        </tr>
+    </table>
+</section>
+
+<section class="section">
+    <h3>Reports &amp; Exports</h3>
+    <table>
+        <tr><th class="left">Report</th><th>Excel</th><th>PDF</th><th>CSV</th></tr>
+        {% for key, label in [('register','Government Contribution Register'),('sss','SSS Monthly Report'),('philhealth','PhilHealth Monthly Report'),('pagibig','Pag-IBIG Monthly Report'),('remittance','Monthly Remittance Summary'),('payment','Government Payment Summary'),('liability','Employer Liability Summary'),('labor','Labor Cost Summary'),('cost_per_employee','Cost Per Employee Summary')] %}
+        <tr>
+            <td>{{ label }}</td>
+            {% for fmt, name in [('xlsx','Excel'),('pdf','PDF'),('csv','CSV')] %}
+            <td><a href="{{ url_for('government_contribution_export', report=key, format=fmt, **q) }}">{{ name }}</a></td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="muted">Employee Contribution History is available from each employee's History link.</p>
+</section>
+{% endif %}
+
+{% if view == 'preview' %}
+<section class="section">
+    <h3>Government Contribution Preview &mdash; {{ month.strftime('%B %Y') }}</h3>
+    {% for row in data.rows if not selected_employee_id or row.employee.id == selected_employee_id %}
+    <div class="employee-preview">
+        <h4>{{ row.employee.full_name() }} &middot; Employee No. {{ row.employee.id }} &middot; {{ row.company }}</h4>
+        {% if row.manual %}
+        <p class="muted">Owner with manual contributions: amounts are the saved manual employee contributions.</p>
+        {% endif %}
+        <div class="agency">
+            <table>
+                <tr><th colspan="2" class="left">Earnings</th></tr>
+                <tr><td>Daily Rate</td><td>{{ peso.format(row.daily_rate) }}</td></tr>
+                <tr><td>Days Worked</td><td>{{ row.days_worked }}</td></tr>
+                <tr><td>Actual Earnings</td><td>{{ peso.format(row.actual_earnings) }}</td></tr>
+            </table>
+            <table>
+                <tr><th colspan="2" class="left">SSS</th></tr>
+                <tr><td>Salary Bracket</td><td>{{ row.result.sss.bracket_label if row.result else 'Manual' }}</td></tr>
+                <tr><td>MSC</td><td>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</td></tr>
+                <tr><td>Employee Share</td><td>{{ peso.format(row.sss_ee) }}</td></tr>
+                <tr><td>Employer Share</td><td>{{ peso.format(row.sss_er) }}</td></tr>
+                <tr><td>EC</td><td>{{ peso.format(row.sss_ec) }}</td></tr>
+                <tr class="total"><td>Total SSS Contribution</td><td>{{ peso.format(row.sss_ee + row.sss_er + row.sss_ec) }}</td></tr>
+            </table>
+            <table>
+                <tr><th colspan="2" class="left">PhilHealth</th></tr>
+                {% if row.result %}
+                <tr><td>Work Schedule</td><td>{{ row.result.philhealth.workweek }}-day (&times;{{ row.result.philhealth.factor }} &divide; 12)</td></tr>
+                <tr><td>Daily Rate</td><td>{{ peso.format(row.daily_rate) }}</td></tr>
+                <tr><td>EMR</td><td>{{ peso.format(row.result.philhealth.emr) }}</td></tr>
+                <tr><td>Monthly Basic Salary</td><td>{{ peso.format(row.result.philhealth.basis) }}</td></tr>
+                <tr><td>PhilHealth Rate</td><td>{{ '%.2f'|format(row.result.philhealth.rate * 100) }}%</td></tr>
+                {% endif %}
+                <tr><td>Employee Share</td><td>{{ peso.format(row.ph_ee) }}</td></tr>
+                <tr><td>Employer Share</td><td>{{ peso.format(row.ph_er) }}</td></tr>
+                <tr class="total"><td>Total PhilHealth Contribution</td><td>{{ peso.format(row.ph_ee + row.ph_er) }}</td></tr>
+            </table>
+            <table>
+                <tr><th colspan="2" class="left">Pag-IBIG</th></tr>
+                <tr><td>Employee Share</td><td>{{ peso.format(row.pi_ee) }}</td></tr>
+                <tr><td>Employer Share</td><td>{{ peso.format(row.pi_er) }}</td></tr>
+                <tr class="total"><td>Total Contribution</td><td>{{ peso.format(row.pi_ee + row.pi_er) }}</td></tr>
+            </table>
+            <table>
+                <tr><th colspan="2" class="left">Employer Cost</th></tr>
+                <tr><td>Gross Salary</td><td>{{ peso.format(row.gross_pay) }}</td></tr>
+                <tr><td>SSS Employer Share + EC</td><td>{{ peso.format(row.sss_er + row.sss_ec) }}</td></tr>
+                <tr><td>PhilHealth Employer Share</td><td>{{ peso.format(row.ph_er) }}</td></tr>
+                <tr><td>Pag-IBIG Employer Share</td><td>{{ peso.format(row.pi_er) }}</td></tr>
+                <tr class="total"><td>TRUE COST TO COMPANY</td><td>{{ peso.format(row.true_cost) }}</td></tr>
+                <tr class="total"><td>TOTAL GOVERNMENT LIABILITY</td><td>{{ peso.format(row.remittance_total) }}</td></tr>
+            </table>
+        </div>
+        {% if row.issues %}<p class="issue">{{ row.issues|join(' · ') }}</p>{% endif %}
+    </div>
+    {% else %}
+    <p>No employees with attendance or payroll for this month.</p>
+    {% endfor %}
+</section>
+{% endif %}
+
+{% if view == 'portal' %}
+<section class="section">
+    <h3>How Much Will I Pay In The Government Portal? &mdash; {{ month.strftime('%B %Y') }}</h3>
+    <p class="muted">Pay each employer's amounts under that employer's own SSS / PhilHealth / Pag-IBIG employer number. Totals are computed from official rates and actual attendance; saved payslips are not changed.</p>
+    {% for label, totals in portal.companies.items() %}
+    {% include 'partials/government_portal_totals.html' %}
+    {% endfor %}
+    {% if portal.companies|length > 1 %}
+    {% set label = 'OVERALL GOVERNMENT REMITTANCE (all employers)' %}
+    {% set totals = portal.overall %}
+    {% include 'partials/government_portal_totals.html' %}
+    {% endif %}
+    {% if not data.rows %}<p>No employees with attendance or payroll for this month.</p>{% endif %}
+    <p>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='pdf', **q) }}">Download PDF</a>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='xlsx', **q) }}">Download Excel</a>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='csv', **q) }}">Download CSV</a>
+    </p>
+</section>
+{% endif %}
+{% endif %}
+</body>
+</html>
