@@ -4,7 +4,7 @@ import secrets
 import json
 import sqlite3
 import tempfile
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import struct
 from math import isfinite
 from datetime import datetime, date, timedelta, time
@@ -283,6 +283,9 @@ from models import (
     PayslipVerification,
     CalendarReminder,
     CalendarReminderDelivery,
+    GovContributionAudit,
+    GovContributionSetting,
+    SSSContributionBracket,
 )
 from utils.calendar_reminders import (
     MANILA, dispatch_reminders, local_time as reminder_local_time,
@@ -297,6 +300,24 @@ from utils.helpers import (
     ai_suggestion,
     split_allowance,
     compute_weekly_payroll,
+)
+from services.government_contributions import (
+    AMOUNT_KEYS as GOV_AMOUNT_KEYS,
+    RULES_START as GOV_RULES_START,
+    AuditTrailService as GovAuditTrailService,
+    ContributionSettingsError,
+    GovernmentContributionCalculator,
+    GovernmentReportsService as GovReportsService,
+    LaborCostService as GovLaborCostService,
+    PayrollService as GovPayrollService,
+    PortalPaymentService as GovPortalPaymentService,
+    bracket_values as gov_bracket_values,
+    ensure_default_settings as ensure_default_contribution_settings,
+    format_sss_table,
+    money as gov_money,
+    parse_sss_table,
+    setting_values as gov_setting_values,
+    validate_setting as validate_gov_setting,
 )
 
 
@@ -1076,6 +1097,8 @@ def ensure_employee_hr_columns():
         "civil_status": "VARCHAR(30)",
         "immediate_supervisor": "VARCHAR(120)",
         "work_location": "VARCHAR(100)",
+        "contribution_workweek": "INTEGER",
+        "tax_status": "VARCHAR(30)",
         "bank_name": "VARCHAR(100)",
         "bank_account_name": "VARCHAR(150)",
         "bank_account_number": "VARCHAR(100)",
@@ -1295,6 +1318,7 @@ with app.app_context():
     bootstrap_postgres_from_sqlite()
     normalize_employee_names()
     sync_postgres_id_sequences()
+    ensure_default_contribution_settings()
 
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
@@ -1603,6 +1627,7 @@ def inject_authenticated_sidebar(response):
             ('staff_concerns', 'Staff Concerns'),
             ('staff_messages', 'Staff Messages'),
             ('monthly_deductions', 'Monthly Deductions'),
+            ('government_contributions', 'Government Contributions'),
             ('employee_liabilities', 'Liabilities / Shortage'),
             ('tax_reports', 'Tax Reports'),
             ('compliance_reports', 'Compliance Reports'),
@@ -1767,6 +1792,459 @@ def download_database_backup():
         mimetype='application/x-sqlite3',
         as_attachment=True,
         download_name=f'hris_backup_{datetime.now(ZoneInfo("Asia/Manila")):%Y%m%d}.db',
+    )
+
+
+def gov_company_label(employee):
+    return 'Trece-Uno' if str(employee.company or '').lower().startswith('trece') else 'Auto Expert'
+
+
+def gov_month_from_request():
+    value = request.values.get('month')
+    try:
+        return datetime.strptime(value, '%Y-%m').date() if value else datetime.now(ZoneInfo('Asia/Manila')).date().replace(day=1)
+    except (TypeError, ValueError):
+        return datetime.now(ZoneInfo('Asia/Manila')).date().replace(day=1)
+
+
+def gov_company_from_request():
+    company = request.values.get('company', '')
+    return company if company in ('Trece-Uno', 'Auto Expert') else ''
+
+
+def gov_id_digits(value):
+    return re.sub(r'\D', '', str(value or ''))
+
+
+def gov_duplicate_ids():
+    seen = {}
+    for employee in Employee.query.all():
+        for field, agency in (('sss', 'SSS'), ('philhealth', 'PhilHealth'), ('pagibig', 'Pag-IBIG')):
+            digits = gov_id_digits(getattr(employee, field))
+            if digits:
+                seen.setdefault((agency, digits), []).append(employee)
+    return {key: owners for key, owners in seen.items() if len(owners) > 1}
+
+
+def gov_attendance_month(employee, cutoff_dates):
+    daily_rate = float(employee.daily_rate or 0)
+    bases, days = [], 0
+    for cutoff in cutoff_dates:
+        regular = [
+            item for item in payroll_attendance_records(employee, cutoff, cutoff + timedelta(days=7))
+            if item.date.weekday() != 6
+        ]
+        hours = [regular_attendance_hours(item) for item in regular]
+        days += sum(1 for value in hours if value > 0)
+        bases.append(round(sum(daily_rate * value / 8.0 for value in hours), 2))
+    return bases, days
+
+
+def build_government_contribution_month(month, company='', only_employee_id=None):
+    """Official-rate contribution register for a payroll month (no records are modified)."""
+    month = month.replace(day=1)
+    calculator = GovernmentContributionCalculator.for_month(month)
+    cutoff_dates = payroll_cutoff_dates_in_month(month)
+    next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    closed_cutoffs = [item for item in cutoff_dates if item + timedelta(days=7) <= today]
+    saved_by_employee = {}
+    for record in Payroll.query.filter(
+        Payroll.cutoff_start >= month, Payroll.cutoff_start < next_month,
+    ).all():
+        saved_by_employee.setdefault(record.employee_id, []).append(record)
+    duplicates = gov_duplicate_ids()
+    duplicate_messages = {}
+    for (agency, digits), owners in duplicates.items():
+        for owner in owners:
+            others = ', '.join(item.full_name() for item in owners if item.id != owner.id)
+            duplicate_messages.setdefault(owner.id, []).append(f'Duplicate {agency} number shared with {others}')
+
+    rows, validations = [], []
+    employees = Employee.query.order_by(Employee.company, Employee.last_name, Employee.first_name).all()
+    for employee in employees:
+        label = gov_company_label(employee)
+        if company and label != company:
+            continue
+        if only_employee_id is not None and employee.id != only_employee_id:
+            continue
+        saved = sorted(saved_by_employee.get(employee.id, []), key=lambda item: item.cutoff_start)
+        manual = bool(employee.payroll_attendance_exempt)
+        bases, days = ([], 0) if manual else gov_attendance_month(employee, cutoff_dates)
+        if not saved and not any(bases):
+            continue
+        deducted = {key: sum((gov_money(getattr(item, key)) for item in saved), gov_money(0))
+                    for key in GOV_AMOUNT_KEYS}
+        issues = []
+        if manual:
+            result = None
+            amounts = {
+                'sss_ee': deducted['sss'], 'sss_er': gov_money(0), 'sss_ec': gov_money(0),
+                'ph_ee': deducted['philhealth'], 'ph_er': gov_money(0),
+                'pi_ee': deducted['pagibig'], 'pi_er': gov_money(0),
+            }
+        else:
+            try:
+                result = calculator.monthly(sum(bases), employee.daily_rate, employee.contribution_workweek)
+            except ContributionSettingsError as error:
+                result = None
+                issues.append(f'Invalid contribution bracket: {error}')
+            amounts = {
+                'sss_ee': result.sss.employee if result else gov_money(0),
+                'sss_er': result.sss.employer if result else gov_money(0),
+                'sss_ec': result.sss.ec if result else gov_money(0),
+                'ph_ee': result.philhealth.employee if result else gov_money(0),
+                'ph_er': result.philhealth.employer if result else gov_money(0),
+                'pi_ee': result.pagibig.employee if result else gov_money(0),
+                'pi_er': result.pagibig.employer if result else gov_money(0),
+            }
+            if float(employee.daily_rate or 0) <= 0:
+                issues.append('Missing daily rate')
+            if days == 0:
+                issues.append('Missing attendance for this month')
+            saved_starts = {item.cutoff_start for item in saved}
+            missing_payroll = [item for item in closed_cutoffs if item not in saved_starts]
+            if missing_payroll:
+                issues.append('Missing payroll data for cutoff ' + ', '.join(f'{item:%b %d}' for item in missing_payroll))
+        for field, agency in (('sss', 'SSS'), ('philhealth', 'PhilHealth'), ('pagibig', 'Pag-IBIG MID')):
+            if not gov_id_digits(getattr(employee, field)):
+                issues.append(f'Missing {agency} number')
+        issues.extend(duplicate_messages.get(employee.id, []))
+        deducted_ee = deducted['sss'] + deducted['philhealth'] + deducted['pagibig']
+        employee_share = amounts['sss_ee'] + amounts['ph_ee'] + amounts['pi_ee']
+        employer_share = amounts['sss_er'] + amounts['sss_ec'] + amounts['ph_er'] + amounts['pi_er']
+        actual_earnings = gov_money(sum(bases))
+        gross_pay = (
+            sum((gov_money(item.gross_income) for item in saved), gov_money(0)) if saved else actual_earnings
+        )
+        row = {
+            'employee': employee, 'company': label, 'manual': manual, 'result': result,
+            'daily_rate': gov_money(employee.daily_rate), 'days_worked': days,
+            'cutoff_bases': list(zip(cutoff_dates, bases)), 'actual_earnings': actual_earnings,
+            'saved_cutoffs': len(saved), 'paid_cutoffs': sum(1 for item in saved if item.is_paid),
+            'cutoff_count': len(cutoff_dates), 'gross_pay': gross_pay,
+            'deducted': deducted, 'deducted_ee': deducted_ee,
+            'employee_share': employee_share, 'employer_share': employer_share,
+            'remittance_total': employee_share + employer_share,
+            'ee_difference': employee_share - deducted_ee,
+            'true_cost': gross_pay + employer_share, 'issues': issues, **amounts,
+        }
+        rows.append(row)
+        validations.extend({'employee': employee, 'company': label, 'message': issue} for issue in issues)
+    return {
+        'month': month, 'calculator': calculator, 'setting': calculator.setting,
+        'cutoff_dates': cutoff_dates, 'rows': rows, 'validations': validations,
+        'portal': GovPortalPaymentService.summarize(rows),
+        'labor': GovLaborCostService.summarize(rows),
+        'legacy_month': month < GOV_RULES_START,
+    }
+
+
+def gov_csrf_token():
+    return session.setdefault('gov_contribution_csrf', secrets.token_urlsafe(32))
+
+
+def gov_require_csrf():
+    if not secrets.compare_digest(gov_csrf_token().encode(), request.form.get('csrf_token', '').encode()):
+        abort(400)
+
+
+def gov_page_context(view):
+    month = gov_month_from_request()
+    company = gov_company_from_request()
+    try:
+        data = build_government_contribution_month(month, company)
+        error = None
+    except ContributionSettingsError as exc:
+        logger.warning('Government contribution settings error: %s', exc)
+        data, error = None, str(exc)
+    return {
+        'view': view, 'month': month, 'company': company, 'data': data, 'settings_error': error,
+        'selected_employee_id': request.args.get('employee_id', type=int),
+    }
+
+
+@app.route('/admin/government-contributions')
+@login_required
+def government_contributions():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    return render_template('government_contributions.html', **gov_page_context('dashboard'))
+
+
+@app.route('/admin/government-contributions/preview')
+@login_required
+def government_contribution_preview():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    return render_template('government_contributions.html', **gov_page_context('preview'))
+
+
+@app.route('/admin/government-contributions/portal')
+@login_required
+def government_portal_payment():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    return render_template('government_contributions.html', **gov_page_context('portal'))
+
+
+def gov_employee_history(employee):
+    months = sorted({
+        record.cutoff_start.replace(day=1)
+        for record in Payroll.query.filter_by(employee_id=employee.id).all()
+    }, reverse=True)[:24]
+    history = []
+    for month in months:
+        try:
+            data = build_government_contribution_month(month, gov_company_label(employee), employee.id)
+        except ContributionSettingsError as exc:
+            history.append({'month': month, 'row': None, 'error': str(exc)})
+            continue
+        row = next((item for item in data['rows'] if item['employee'].id == employee.id), None)
+        history.append({'month': month, 'row': row, 'error': None, 'legacy_month': data['legacy_month']})
+    return history
+
+
+@app.route('/admin/government-contributions/history/<int:employee_id>')
+@login_required
+def government_contribution_history(employee_id):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    employee = db.get_or_404(Employee, employee_id)
+    return render_template(
+        'government_contribution_history.html', employee=employee,
+        history=gov_employee_history(employee),
+    )
+
+
+GOV_REPORTS = {
+    'register': 'Government Contribution Register',
+    'sss': 'SSS Monthly Report',
+    'philhealth': 'PhilHealth Monthly Report',
+    'pagibig': 'Pag-IBIG Monthly Report',
+    'remittance': 'Monthly Remittance Summary',
+    'payment': 'Government Payment Summary',
+    'liability': 'Employer Liability Summary',
+    'labor': 'Labor Cost Summary',
+    'cost_per_employee': 'Cost Per Employee Summary',
+    'history': 'Employee Contribution History',
+}
+
+
+def gov_report_table(report, data, employee=None):
+    rows = data['rows'] if data else []
+    name = lambda row: row['employee'].full_name()
+    if report == 'register':
+        headers = ['Employee No', 'Employee', 'Company', 'Daily Rate', 'Days Worked', 'Actual Earnings',
+                   'SSS Bracket', 'SSS MSC', 'SSS EE', 'SSS ER', 'EC', 'SSS Total',
+                   'PhilHealth Basis', 'PhilHealth EE', 'PhilHealth ER', 'PhilHealth Total',
+                   'Pag-IBIG EE', 'Pag-IBIG ER', 'Pag-IBIG Total', 'Grand Total Payable', 'Issues']
+        body = [[
+            row['employee'].id, name(row), row['company'], row['daily_rate'], row['days_worked'],
+            row['actual_earnings'],
+            'Manual owner contribution' if row['manual'] else (row['result'].sss.bracket_label if row['result'] else 'Invalid'),
+            row['result'].sss.msc if row['result'] else '',
+            row['sss_ee'], row['sss_er'], row['sss_ec'], row['sss_ee'] + row['sss_er'] + row['sss_ec'],
+            row['result'].philhealth.basis if row['result'] else '',
+            row['ph_ee'], row['ph_er'], row['ph_ee'] + row['ph_er'],
+            row['pi_ee'], row['pi_er'], row['pi_ee'] + row['pi_er'], row['remittance_total'],
+            '; '.join(row['issues']),
+        ] for row in rows]
+    elif report == 'sss':
+        headers = ['Employee', 'SSS Number', 'Actual Monthly Compensation', 'Salary Bracket', 'MSC',
+                   'MPF Portion of MSC', 'Employee Share', 'Employer Share', 'EC', 'Total SSS']
+        body = [[
+            name(row), row['employee'].sss or '', row['actual_earnings'],
+            row['result'].sss.bracket_label if row['result'] else 'Manual / invalid',
+            row['result'].sss.msc if row['result'] else '', row['result'].sss.mpf_msc if row['result'] else '',
+            row['sss_ee'], row['sss_er'], row['sss_ec'], row['sss_ee'] + row['sss_er'] + row['sss_ec'],
+        ] for row in rows]
+    elif report == 'philhealth':
+        headers = ['Employee', 'PhilHealth Number', 'Daily Rate', 'Workweek', 'EMR',
+                   'Monthly Basic Salary', 'Rate', 'Employee Share', 'Employer Share', 'Total PhilHealth']
+        body = [[
+            name(row), row['employee'].philhealth or '', row['daily_rate'],
+            f"{row['result'].philhealth.workweek}-day" if row['result'] else 'Manual',
+            row['result'].philhealth.emr if row['result'] else '',
+            row['result'].philhealth.basis if row['result'] else '',
+            f"{row['result'].philhealth.rate * 100:.2f}%" if row['result'] else '',
+            row['ph_ee'], row['ph_er'], row['ph_ee'] + row['ph_er'],
+        ] for row in rows]
+    elif report == 'pagibig':
+        headers = ['Employee', 'Pag-IBIG MID', 'Monthly Compensation', 'Fund Salary',
+                   'Employee Share', 'Employer Share', 'Total Pag-IBIG']
+        body = [[
+            name(row), row['employee'].pagibig or '', row['actual_earnings'],
+            row['result'].pagibig.fund_salary if row['result'] else '',
+            row['pi_ee'], row['pi_er'], row['pi_ee'] + row['pi_er'],
+        ] for row in rows]
+    elif report in ('remittance', 'payment'):
+        headers = ['Employer', 'Agency', 'Employee Share', 'Employer Share', 'EC', 'Grand Total Due',
+                   'Already Deducted from Employees (EE)']
+        body = []
+        groups = list(data['portal']['companies'].items()) + [('ALL COMPANIES', data['portal']['overall'])]
+        for label, totals in groups:
+            body.append([label, 'SSS', totals['sss']['ee'], totals['sss']['er'], totals['sss']['ec'], totals['sss']['total'], ''])
+            body.append([label, 'PhilHealth', totals['philhealth']['ee'], totals['philhealth']['er'], '', totals['philhealth']['total'], ''])
+            body.append([label, 'Pag-IBIG', totals['pagibig']['ee'], totals['pagibig']['er'], '', totals['pagibig']['total'], ''])
+            body.append([label, 'TOTAL', totals['employee_share'], totals['employer_share'], '', totals['overall'], totals['deducted_ee']])
+    elif report in ('labor', 'liability', 'cost_per_employee'):
+        headers = ['Employee', 'Company', 'Gross Pay', 'SSS ER', 'EC', 'PhilHealth ER', 'Pag-IBIG ER',
+                   'Employer Contributions', 'Total Government Liability', 'True Cost to Company']
+        body = [[
+            name(row), row['company'], row['gross_pay'], row['sss_er'], row['sss_ec'], row['ph_er'],
+            row['pi_er'], row['employer_share'], row['remittance_total'], row['true_cost'],
+        ] for row in rows]
+        labor = data['labor']
+        body.append(['TOTAL', f"{labor['employees']} employees", labor['gross'], labor['sss_er'], labor['sss_ec'],
+                     labor['ph_er'], labor['pi_er'], labor['employer_contributions'],
+                     labor['government_liability'], labor['labor_cost']])
+    elif report == 'history' and employee is not None:
+        headers = ['Month', 'Actual Earnings', 'SSS EE', 'SSS ER', 'EC', 'PhilHealth EE', 'PhilHealth ER',
+                   'Pag-IBIG EE', 'Pag-IBIG ER', 'Total Remittance', 'EE Deducted in Payroll', 'EE Difference']
+        body = []
+        for item in gov_employee_history(employee):
+            row = item['row']
+            if row is None:
+                body.append([f"{item['month']:%B %Y}", item['error'] or 'No data'] + [''] * 10)
+                continue
+            body.append([f"{item['month']:%B %Y}", row['actual_earnings'], row['sss_ee'], row['sss_er'], row['sss_ec'],
+                         row['ph_ee'], row['ph_er'], row['pi_ee'], row['pi_er'], row['remittance_total'],
+                         row['deducted_ee'], row['ee_difference']])
+    else:
+        abort(404)
+    return headers, body
+
+
+@app.route('/admin/government-contributions/export')
+@login_required
+def government_contribution_export():
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    report = request.args.get('report', 'register')
+    fmt = request.args.get('format', 'xlsx')
+    if report not in GOV_REPORTS or fmt not in GovReportsService.MIMETYPES:
+        abort(404)
+    employee = None
+    if report == 'history':
+        employee = db.get_or_404(Employee, request.args.get('employee_id', type=int) or 0)
+        data = None
+        subtitle = f'{employee.full_name()} - {gov_company_label(employee)}'
+    else:
+        context = gov_page_context('export')
+        if context['data'] is None:
+            flash(context['settings_error'], 'danger')
+            return redirect(url_for('government_contributions'))
+        data = context['data']
+        subtitle = f"{context['month']:%B %Y} - {context['company'] or 'All companies'}"
+    headers, body = gov_report_table(report, data, employee)
+    buffer, mimetype, extension = GovReportsService.export(GOV_REPORTS[report], subtitle, headers, body, fmt)
+    stamp = f"{employee.id}" if employee else f"{gov_month_from_request():%Y-%m}"
+    return send_file(buffer, mimetype=mimetype, as_attachment=True,
+                     download_name=f'{report}_{stamp}.{extension}')
+
+
+def gov_setting_form_values(form):
+    values, errors = {}, []
+    try:
+        values['effective_month'] = datetime.strptime(form.get('effective_month', ''), '%Y-%m').date()
+    except ValueError:
+        errors.append('Effective month is required (YYYY-MM).')
+    numeric = {
+        'philhealth_rate': 'PhilHealth rate (%)', 'philhealth_floor': 'PhilHealth floor',
+        'philhealth_ceiling': 'PhilHealth ceiling', 'pagibig_low_threshold': 'Pag-IBIG low-income threshold',
+        'pagibig_employee_rate_low': 'Pag-IBIG EE rate at/below threshold (%)',
+        'pagibig_employee_rate_high': 'Pag-IBIG EE rate above threshold (%)',
+        'pagibig_employer_rate': 'Pag-IBIG ER rate (%)', 'pagibig_max_fund_salary': 'Pag-IBIG maximum fund salary',
+    }
+    for key, label in numeric.items():
+        raw = str(form.get(key, '')).replace(',', '').strip()
+        try:
+            amount = Decimal(raw)
+            if not amount.is_finite():
+                raise InvalidOperation
+        except (InvalidOperation, ValueError):
+            errors.append(f'{label} must be a number.')
+            continue
+        values[key] = amount / 100 if key.endswith('_rate') or '_rate_' in key else amount
+    try:
+        values['default_workweek'] = int(form.get('default_workweek', 5))
+    except ValueError:
+        values['default_workweek'] = 0
+    values['source_reference'] = str(form.get('source_reference', '')).strip()[:255]
+    brackets, bracket_errors = parse_sss_table(form.get('sss_table', ''))
+    errors.extend(bracket_errors)
+    if not errors:
+        errors.extend(validate_gov_setting(values, brackets))
+    return values, brackets, errors
+
+
+def gov_setting_snapshot(setting):
+    values = gov_setting_values(setting)
+    values['sss_table'] = format_sss_table(gov_bracket_values(setting.sss_brackets))
+    return values
+
+
+@app.route('/admin/government-contributions/settings', methods=['GET'])
+@app.route('/admin/government-contributions/settings/<int:setting_id>', methods=['GET', 'POST'])
+@app.route('/admin/government-contributions/settings/new', methods=['GET', 'POST'], endpoint='government_contribution_setting_new')
+@login_required
+def government_contribution_settings(setting_id=None):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    settings = GovContributionSetting.query.order_by(GovContributionSetting.effective_month.desc()).all()
+    is_new = request.endpoint == 'government_contribution_setting_new'
+    setting = db.get_or_404(GovContributionSetting, setting_id) if setting_id else None
+    if setting is None and not is_new and settings:
+        setting = settings[0]
+    errors = []
+    form_values = None
+    if request.method == 'POST':
+        gov_require_csrf()
+        values, brackets, errors = gov_setting_form_values(request.form)
+        duplicate = (
+            GovContributionSetting.query.filter(
+                GovContributionSetting.effective_month == values.get('effective_month'),
+                GovContributionSetting.id != (setting.id if setting else 0),
+            ).first() if 'effective_month' in values else None
+        )
+        if duplicate is not None:
+            errors.append('Another version already uses that effective month; edit that version instead.')
+        if not errors:
+            before = gov_setting_snapshot(setting) if setting else None
+            if setting is None:
+                setting = GovContributionSetting(created_by=current_user.id)
+                db.session.add(setting)
+            for key, value in values.items():
+                setattr(setting, key, float(value) if isinstance(value, Decimal) else value)
+            setting.updated_at = datetime.utcnow()
+            setting.sss_brackets = [
+                SSSContributionBracket(**{key: (float(value) if value is not None else None) for key, value in row.items()})
+                for row in brackets
+            ]
+            db.session.flush()
+            GovAuditTrailService.record(
+                current_user, 'Created contribution settings' if before is None else 'Updated contribution settings',
+                setting.id, {'before': before, 'after': gov_setting_snapshot(setting)},
+            )
+            db.session.commit()
+            record_audit_action(f'Saved government contribution settings effective {setting.effective_month:%Y-%m}')
+            flash(f'Contribution settings effective {setting.effective_month:%B %Y} saved.', 'success')
+            return redirect(url_for('government_contribution_settings', setting_id=setting.id))
+        form_values = dict(request.form)
+    if form_values is None:
+        source = gov_setting_snapshot(setting) if setting else gov_setting_snapshot(settings[0]) if settings else None
+        form_values = {}
+        if source:
+            form_values = {
+                key: (f'{value * 100:.4f}'.rstrip('0').rstrip('.') if key.endswith('_rate') or '_rate_' in key else value)
+                for key, value in source.items()
+            }
+            form_values['effective_month'] = source['effective_month'].strftime('%Y-%m') if not is_new else ''
+    audit = GovContributionAudit.query.order_by(GovContributionAudit.created_at.desc()).limit(30).all()
+    return render_template(
+        'government_contribution_settings.html', settings=settings, setting=setting, is_new=is_new,
+        form=form_values, errors=errors, csrf_token=gov_csrf_token(), audit=audit,
     )
 
 
@@ -2417,6 +2895,11 @@ def profile(user_id):
                 emp.civil_status = request.form.get('civil_status', '').strip() or None
                 emp.immediate_supervisor = request.form.get('immediate_supervisor', '').strip() or None
                 emp.work_location = request.form.get('work_location', '').strip() or None
+                if 'contribution_workweek' in request.form:
+                    workweek = request.form.get('contribution_workweek', '').strip()
+                    emp.contribution_workweek = int(workweek) if workweek in ('5', '6') else None
+                if 'tax_status' in request.form:
+                    emp.tax_status = request.form.get('tax_status', '').strip()[:30] or None
                 emp.bank_name = request.form.get('bank_name', '').strip() or None
                 emp.bank_account_name = request.form.get('bank_account_name', '').strip() or None
                 emp.bank_account_number = request.form.get('bank_account_number', '').strip() or None
@@ -4961,6 +5444,92 @@ def payroll_attendance_records(employee, cutoff_start, cutoff_end):
     return list(records_by_date.values())
 
 
+ZERO_EMPLOYEE_CONTRIBUTIONS = {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+ZERO_EMPLOYER_CONTRIBUTIONS = {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
+
+
+def contribution_cutoff_basis(employee, cutoff_start):
+    """Basic pay actually earned in a cutoff: daily rate x worked hours / 8, no OT or Sundays."""
+    daily_rate = float(employee.daily_rate or 0)
+    return round(sum(
+        daily_rate * regular_attendance_hours(item) / 8.0
+        for item in payroll_attendance_records(employee, cutoff_start, cutoff_start + timedelta(days=7))
+        if item.date.weekday() != 6
+    ), 2)
+
+
+def saved_cutoff_contributions(employee_id, cutoff_start):
+    record = Payroll.query.filter_by(employee_id=employee_id, cutoff_start=cutoff_start).first()
+    if record is None:
+        return None
+    return {key: float(getattr(record, key) or 0) for key in GOV_AMOUNT_KEYS}
+
+
+def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_salary):
+    """Return employee/employer contributions for one weekly cutoff.
+
+    Cutoffs before RULES_START keep the legacy calculation exactly. Later months
+    use the database contribution tables with a last-cutoff monthly true-up.
+    """
+    if isinstance(cutoff_start, datetime):
+        cutoff_start = cutoff_start.date()
+    weeks = payroll_cutoffs_in_month(cutoff_start)
+    if getattr(employee, 'payroll_attendance_exempt', False):
+        statutory = manual_owner_contribution_deductions(employee, cutoff_start)
+        return {
+            'employee': statutory, 'employer': dict(ZERO_EMPLOYER_CONTRIBUTIONS),
+            'monthly_employee_total': sum(statutory.values()) * weeks,
+            'basis': legacy_contribution_salary, 'legacy': True,
+        }
+    if cutoff_start < GOV_RULES_START:
+        monthly_salary = legacy_contribution_salary * weeks
+        statutory = (
+            compute_weekly_deductions(monthly_salary, weeks=weeks)
+            if legacy_contribution_salary > 0 else dict(ZERO_EMPLOYEE_CONTRIBUTIONS)
+        )
+        employer = (
+            compute_weekly_employer_deductions(monthly_salary, weeks=weeks)
+            if legacy_contribution_salary > 0 else dict(ZERO_EMPLOYER_CONTRIBUTIONS)
+        )
+        return {
+            'employee': statutory, 'employer': employer,
+            'monthly_employee_total': sum(statutory.values()) * weeks,
+            'basis': legacy_contribution_salary, 'legacy': True,
+        }
+    cutoff_dates = payroll_cutoff_dates_in_month(cutoff_start)
+    if cutoff_start not in cutoff_dates:
+        raise ValueError('Payroll cutoff start must be a Saturday.')
+    index = cutoff_dates.index(cutoff_start)
+    calculator = GovernmentContributionCalculator.for_month(cutoff_start)
+    if index < len(cutoff_dates) - 1:
+        bases = [0.0] * len(cutoff_dates)
+        bases[index] = contribution_cutoff_basis(employee, cutoff_start)
+        prior = []
+    else:
+        bases = [contribution_cutoff_basis(employee, item) for item in cutoff_dates]
+        prior = [saved_cutoff_contributions(employee.id, item) for item in cutoff_dates[:-1]]
+    amounts, monthly_employee_total = GovPayrollService.allocate(
+        calculator, bases, index, prior, employee.daily_rate,
+        getattr(employee, 'contribution_workweek', None),
+    )
+    return {
+        'employee': {key: float(amounts[key]) for key in ('sss', 'philhealth', 'pagibig')},
+        'employer': {
+            'sss': float(amounts['employer_sss']), 'sss_ec': float(amounts['employer_sss_ec']),
+            'philhealth': float(amounts['employer_philhealth']),
+            'pagibig': float(amounts['employer_pagibig']),
+        },
+        'monthly_employee_total': float(monthly_employee_total),
+        'basis': bases[index], 'legacy': False,
+    }
+
+
+def contribution_taxable_month(contributions, gross, weeks):
+    if contributions['legacy']:
+        return (gross - sum(contributions['employee'].values())) * weeks
+    return gross * weeks - contributions['monthly_employee_total']
+
+
 def payroll_company_name(employee):
     if str(employee.company or '').lower().startswith('trece'):
         return 'TRECE-UNO AUTO SUPPLY'
@@ -5365,17 +5934,9 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         )
         gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + overtime_pay
         contribution_salary = basic_pay + rice_taxable
-        monthly_contribution_salary = contribution_salary * weeks_in_month
-        deductions = (
-            compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-            if contribution_salary > 0
-            else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
-        )
-        employer_deductions = (
-            compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-            if contribution_salary > 0
-            else {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
-        )
+        contributions = cutoff_statutory_contributions(emp, cutoff_start, contribution_salary)
+        deductions = contributions['employee']
+        employer_deductions = contributions['employer']
         payroll_record = Payroll.query.filter_by(
             employee_id=emp.id,
             cutoff_start=cutoff_start,
@@ -5392,9 +5953,8 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             and payroll_record.liability_deduction_override is not None
             else liability_cutoff_deduction(emp.id)
         )
-        monthly_taxable_income = (gross_income * weeks_in_month) - (
-            (deductions['sss'] + deductions['philhealth'] + deductions['pagibig'])
-            * weeks_in_month
+        monthly_taxable_income = contribution_taxable_month(
+            contributions, gross_income, weeks_in_month
         )
         withholding_tax = weekly_withholding_tax(
             emp, monthly_taxable_income, weeks_in_month
@@ -5414,7 +5974,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             'pagibig': deductions['pagibig'],
             'sss_loan': sss_loan,
             'pagibig_loan': pagibig_loan,
-            'contribution_salary_base': contribution_salary,
+            'contribution_salary_base': contributions['basis'],
             'employer_sss': employer_deductions['sss'],
             'employer_sss_ec': employer_deductions['sss_ec'],
             'employer_philhealth': employer_deductions['philhealth'],
@@ -7873,26 +8433,9 @@ def payroll(employee_id):
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
     )
     contribution_salary = cutoff_salary + rice_taxable
-    monthly_contribution_salary = contribution_salary * weeks_in_month
-    if emp.payroll_attendance_exempt:
-        deductions = manual_owner_contribution_deductions(emp, cutoff_start)
-        employer_deductions = {
-            "sss": 0.0,
-            "sss_ec": 0.0,
-            "philhealth": 0.0,
-            "pagibig": 0.0,
-        }
-    else:
-        deductions = (
-            compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-            if contribution_salary > 0
-            else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-        )
-        employer_deductions = (
-            compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-            if contribution_salary > 0
-            else {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-        )
+    contributions = cutoff_statutory_contributions(emp, cutoff_start, contribution_salary)
+    deductions = contributions['employee']
+    employer_deductions = contributions['employer']
 
     payroll_record = Payroll.query.filter_by(
         employee_id=emp.id,
@@ -7910,8 +8453,8 @@ def payroll(employee_id):
     liability_deduction = liability_cutoff_deduction(emp.id)
 
     gross_income = basic_pay + (emp.allowance or 0) + (emp.incentives or 0) + rice_taxable + approved_overtime_pay
-    monthly_taxable_income = (gross_income * weeks_in_month) - (
-        (sss + philhealth + pagibig) * weeks_in_month
+    monthly_taxable_income = contribution_taxable_month(
+        contributions, gross_income, weeks_in_month
     )
     withholding_tax = weekly_withholding_tax(
         emp, monthly_taxable_income, weeks_in_month
@@ -8176,22 +8719,11 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         employee, rice_days, weeks, rice_monthly_used=rice_used,
     )
     contribution_salary = basic_pay + rice_taxable
-    monthly_salary = contribution_salary * weeks
-    if employee.payroll_attendance_exempt:
-        statutory = manual_owner_contribution_deductions(employee, cutoff_start)
-        employer = {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
-    else:
-        statutory = (
-            compute_weekly_deductions(monthly_salary, weeks=weeks)
-            if contribution_salary > 0
-            else {'sss': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
-        )
+    contributions = cutoff_statutory_contributions(employee, cutoff_start, contribution_salary)
+    statutory = contributions['employee']
+    employer = contributions['employer']
+    if not employee.payroll_attendance_exempt:
         statutory = payroll_statutory_deductions(record, statutory)
-        employer = (
-            compute_weekly_employer_deductions(monthly_salary, weeks=weeks)
-            if contribution_salary > 0
-            else {'sss': 0.0, 'sss_ec': 0.0, 'philhealth': 0.0, 'pagibig': 0.0}
-        )
     gross = (
         basic_pay + float(employee.allowance or 0)
         + float(employee.incentives or 0) + rice_taxable + overtime_pay
@@ -8200,7 +8732,9 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         float(statutory.get(field, 0) or 0)
         for field in ('sss', 'philhealth', 'pagibig')
     )
-    tax = weekly_withholding_tax(employee, (gross - statutory_total) * weeks, weeks)
+    tax = weekly_withholding_tax(
+        employee, contribution_taxable_month(contributions, gross, weeks), weeks
+    )
     if record.withholding_tax_override is not None:
         tax = float(record.withholding_tax_override)
     liability = (
@@ -8219,7 +8753,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         'net_pay': gross + rice_exempt - total,
         'sss': statutory['sss'], 'philhealth': statutory['philhealth'],
         'pagibig': statutory['pagibig'], 'withholding_tax': tax,
-        'liability_deduction': liability, 'contribution_salary_base': contribution_salary,
+        'liability_deduction': liability, 'contribution_salary_base': contributions['basis'],
         'employer_sss': employer['sss'], 'employer_sss_ec': employer['sss_ec'],
         'employer_philhealth': employer['philhealth'], 'employer_pagibig': employer['pagibig'],
     }
@@ -8893,26 +9427,9 @@ def payroll_dashboard():
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
         )
         contribution_salary = cutoff_salary + rice_taxable
-        monthly_contribution_salary = contribution_salary * weeks_in_month
-        if emp.payroll_attendance_exempt:
-            deduction_values = manual_owner_contribution_deductions(emp, cutoff_start)
-            employer_deduction_values = {
-                "sss": 0.0,
-                "sss_ec": 0.0,
-                "philhealth": 0.0,
-                "pagibig": 0.0,
-            }
-        else:
-            deduction_values = (
-                compute_weekly_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-                if contribution_salary > 0
-                else {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-            )
-            employer_deduction_values = (
-                compute_weekly_employer_deductions(monthly_contribution_salary, weeks=weeks_in_month)
-                if contribution_salary > 0
-                else {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
-            )
+        contributions = cutoff_statutory_contributions(emp, cutoff_start, contribution_salary)
+        deduction_values = contributions['employee']
+        employer_deduction_values = contributions['employer']
         sss = deduction_values['sss']
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
@@ -8948,8 +9465,8 @@ def payroll_dashboard():
         philhealth = deduction_values['philhealth']
         pagibig = deduction_values['pagibig']
 
-        monthly_taxable_income = (gross_income * weeks_in_month) - (
-            (sss + philhealth + pagibig) * weeks_in_month
+        monthly_taxable_income = contribution_taxable_month(
+            contributions, gross_income, weeks_in_month
         )
         withholding_tax = weekly_withholding_tax(
             emp, monthly_taxable_income, weeks_in_month

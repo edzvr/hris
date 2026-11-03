@@ -41,6 +41,53 @@ class CalendarReminderDelivery(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
 
 
+class GovContributionSetting(db.Model):
+    """One effective-dated version of SSS, PhilHealth and Pag-IBIG rules."""
+    __tablename__ = "gov_contribution_settings"
+    id = db.Column(db.Integer, primary_key=True)
+    effective_month = db.Column(db.Date, nullable=False, unique=True)
+    philhealth_rate = db.Column(db.Float, nullable=False)
+    philhealth_floor = db.Column(db.Float, nullable=False)
+    philhealth_ceiling = db.Column(db.Float, nullable=False)
+    default_workweek = db.Column(db.Integer, nullable=False, default=5)
+    pagibig_low_threshold = db.Column(db.Float, nullable=False)
+    pagibig_employee_rate_low = db.Column(db.Float, nullable=False)
+    pagibig_employee_rate_high = db.Column(db.Float, nullable=False)
+    pagibig_employer_rate = db.Column(db.Float, nullable=False)
+    pagibig_max_fund_salary = db.Column(db.Float, nullable=False)
+    source_reference = db.Column(db.String(255), nullable=False, default="")
+    created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    sss_brackets = db.relationship(
+        "SSSContributionBracket", backref="setting", cascade="all, delete-orphan",
+        order_by="SSSContributionBracket.salary_from",
+    )
+
+
+class SSSContributionBracket(db.Model):
+    __tablename__ = "sss_contribution_table"
+    id = db.Column(db.Integer, primary_key=True)
+    setting_id = db.Column(db.Integer, db.ForeignKey("gov_contribution_settings.id"), nullable=False, index=True)
+    salary_from = db.Column(db.Float, nullable=False)
+    salary_to = db.Column(db.Float, nullable=True)
+    msc = db.Column(db.Float, nullable=False)
+    employee_share = db.Column(db.Float, nullable=False)
+    employer_share = db.Column(db.Float, nullable=False)
+    ec = db.Column(db.Float, nullable=False)
+
+
+class GovContributionAudit(db.Model):
+    __tablename__ = "gov_contribution_audit"
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(db.Integer, nullable=True)
+    actor_name = db.Column(db.String(120), nullable=False, default="")
+    action = db.Column(db.String(80), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=True)
+    details = db.Column(db.Text, nullable=False, default="{}")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
 # ------------------ EMPLOYEE ------------------
 class Employee(db.Model, UserMixin):
     __tablename__ = "employees"   # ✅ important para tugma sa foreign keys
@@ -70,6 +117,8 @@ class Employee(db.Model, UserMixin):
     manual_monthly_philhealth = db.Column(db.Float, nullable=False, default=0.0)
     manual_monthly_pagibig = db.Column(db.Float, nullable=False, default=0.0)
     manual_contribution_cutoff_start = db.Column(db.Date, nullable=True)
+    contribution_workweek = db.Column(db.Integer, nullable=True)
+    tax_status = db.Column(db.String(30), nullable=True)
     gender = db.Column(db.String(20), nullable=True)
     civil_status = db.Column(db.String(30), nullable=True)
     immediate_supervisor = db.Column(db.String(120), nullable=True)

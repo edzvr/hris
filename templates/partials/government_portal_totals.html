@@ -1,0 +1,32 @@
+<div class="employee-preview">
+    <h4>{{ label }} &middot; {{ totals.employees }} employee(s)</h4>
+    <div class="agency">
+        <table>
+            <tr><th colspan="2" class="left">SSS REMITTANCE</th></tr>
+            <tr><td>Total Employee Share</td><td>{{ peso.format(totals.sss.ee) }}</td></tr>
+            <tr><td>Total Employer Share</td><td>{{ peso.format(totals.sss.er) }}</td></tr>
+            <tr><td>Total EC</td><td>{{ peso.format(totals.sss.ec) }}</td></tr>
+            <tr class="total"><td>Grand Total SSS Payable</td><td>{{ peso.format(totals.sss.total) }}</td></tr>
+        </table>
+        <table>
+            <tr><th colspan="2" class="left">PHILHEALTH REMITTANCE</th></tr>
+            <tr><td>Total Employee Share</td><td>{{ peso.format(totals.philhealth.ee) }}</td></tr>
+            <tr><td>Total Employer Share</td><td>{{ peso.format(totals.philhealth.er) }}</td></tr>
+            <tr class="total"><td>Grand Total PhilHealth Payable</td><td>{{ peso.format(totals.philhealth.total) }}</td></tr>
+        </table>
+        <table>
+            <tr><th colspan="2" class="left">PAG-IBIG REMITTANCE</th></tr>
+            <tr><td>Total Employee Share</td><td>{{ peso.format(totals.pagibig.ee) }}</td></tr>
+            <tr><td>Total Employer Share</td><td>{{ peso.format(totals.pagibig.er) }}</td></tr>
+            <tr class="total"><td>Grand Total Pag-IBIG Payable</td><td>{{ peso.format(totals.pagibig.total) }}</td></tr>
+        </table>
+        <table>
+            <tr><th colspan="2" class="left">OVERALL GOVERNMENT REMITTANCE</th></tr>
+            <tr><td>Employee Shares (EE)</td><td>{{ peso.format(totals.employee_share) }}</td></tr>
+            <tr><td>Employer Shares (ER + EC)</td><td>{{ peso.format(totals.employer_share) }}</td></tr>
+            <tr class="total"><td>TOTAL TO PAY IN PORTALS</td><td>{{ peso.format(totals.overall) }}</td></tr>
+            <tr><td>EE already deducted in saved payroll</td><td>{{ peso.format(totals.deducted_ee) }}</td></tr>
+            <tr><td>EE still to deduct ({{ 'refund' if totals.ee_difference < 0 else 'last-cutoff true-up' }})</td><td>{{ peso.format(totals.ee_difference) }}</td></tr>
+        </table>
+    </div>
+</div>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contribution History</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
+        .section { background:#fff; padding:18px 20px; border-radius:8px; overflow:auto; }
+        table { width:100%; min-width:1100px; border-collapse:collapse; }
+        th, td { border:1px solid #ddd; padding:7px 8px; text-align:right; font-size:13px; }
+        th:first-child, td:first-child { text-align:left; }
+        th { background:#1f6f43; color:#fff; }
+        .btn { display:inline-block; padding:8px 12px; margin:3px; border-radius:4px; text-decoration:none; background:#e8ece9; color:#222; }
+        .muted { color:#5b6b60; font-size:13px; }
+    </style>
+</head>
+<body>
+{% set peso = '₱{:,.2f}' %}
+<main class="section">
+    <h2>Employee Contribution History &mdash; {{ employee.full_name() }}</h2>
+    <p class="muted">Employee No. {{ employee.id }} &middot; SSS {{ employee.sss or 'missing' }} &middot; PhilHealth {{ employee.philhealth or 'missing' }} &middot; Pag-IBIG {{ employee.pagibig or 'missing' }}</p>
+    <p>
+        <a class="btn" href="{{ url_for('government_contributions') }}">&larr; Back</a>
+        {% for fmt, name in [('xlsx','Excel'),('pdf','PDF'),('csv','CSV')] %}
+        <a class="btn" href="{{ url_for('government_contribution_export', report='history', format=fmt, employee_id=employee.id) }}">{{ name }}</a>
+        {% endfor %}
+    </p>
+    <table>
+        <tr>
+            <th>Month</th><th>Actual Earnings</th><th>SSS EE</th><th>SSS ER</th><th>EC</th>
+            <th>PhilHealth EE</th><th>PhilHealth ER</th><th>Pag-IBIG EE</th><th>Pag-IBIG ER</th>
+            <th>Total Remittance</th><th>EE Deducted in Payroll</th><th>EE Difference</th>
+        </tr>
+        {% for item in history %}
+        {% set row = item.row %}
+        <tr>
+            <td>{{ item.month.strftime('%B %Y') }}{% if item.legacy_month %} <small>(old calculation in payroll)</small>{% endif %}</td>
+            {% if row %}
+            <td>{{ peso.format(row.actual_earnings) }}</td>
+            <td>{{ peso.format(row.sss_ee) }}</td><td>{{ peso.format(row.sss_er) }}</td><td>{{ peso.format(row.sss_ec) }}</td>
+            <td>{{ peso.format(row.ph_ee) }}</td><td>{{ peso.format(row.ph_er) }}</td>
+            <td>{{ peso.format(row.pi_ee) }}</td><td>{{ peso.format(row.pi_er) }}</td>
+            <td>{{ peso.format(row.remittance_total) }}</td>
+            <td>{{ peso.format(row.deducted_ee) }}</td><td>{{ peso.format(row.ee_difference) }}</td>
+            {% else %}
+            <td colspan="11">{{ item.error or 'No data' }}</td>
+            {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="12">No payroll history yet.</td></tr>
+        {% endfor %}
+    </table>
+</main>
+</body>
+</html>
