@@ -53,6 +53,40 @@ def test_hr_template_migrations_seed_the_catalog_once():
     assert all(row.stored_filename is None and row.created_at and row.updated_at for row in rows)
 
 
+def test_hr_template_links_migration_imports_all_workbook_links():
+    migration_dir = Path(__file__).resolve().parents[1] / 'migrations' / 'versions'
+    seed_migration = runpy.run_path(
+        str(migration_dir / 'bc7d8e9f0a1b_seed_hr_template_catalog.py')
+    )
+    links_migration = runpy.run_path(
+        str(migration_dir / 'cd8e9f0a1b2c_add_hr_template_edit_links.py')
+    )
+    engine = create_engine('sqlite://')
+    with engine.begin() as connection:
+        connection.exec_driver_sql('CREATE TABLE employees (id INTEGER PRIMARY KEY)')
+        for filename in (
+            'af6b7c8d9e0f_add_hr_template_library.py',
+            'ba6c7d8e9f0a_add_hr_template_source_filename.py',
+            'bc7d8e9f0a1b_seed_hr_template_catalog.py',
+        ):
+            migration = runpy.run_path(str(migration_dir / filename))
+            with Operations.context(MigrationContext.configure(connection)):
+                migration['upgrade']()
+        with Operations.context(MigrationContext.configure(connection)):
+            links_migration['upgrade']()
+        rows = connection.execute(
+            text('SELECT source_filename, online_url FROM hr_templates')
+        ).all()
+    engine.dispose()
+
+    assert len(seed_migration['TEMPLATES']) == 45
+    assert len(links_migration['TEMPLATE_LINKS']) == 45
+    assert {row.source_filename: row.online_url for row in rows} == (
+        links_migration['TEMPLATE_LINKS']
+    )
+    assert all(url.startswith('https://docs.google.com/document/d/') and url.endswith('edit?usp=drive_link&ouid=112419035597301080727&rtpof=true&sd=true') for url in links_migration['TEMPLATE_LINKS'].values())
+
+
 def test_admin_hr_template_library_crud_and_access_control(tmp_path):
     with app.app_context():
         admin = Employee(first_name='Template', last_name='Admin', role='admin')
