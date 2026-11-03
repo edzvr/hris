@@ -1,6 +1,7 @@
 # ------------------ HRIS MAIN APP ------------------
 import os, random, logging, re, hashlib, csv, base64
 import secrets
+import json
 import sqlite3
 import tempfile
 from decimal import Decimal
@@ -276,6 +277,7 @@ from models import (
     JobDescriptionOption,
     Attendance,
     AttendanceCorrection,
+    AttendanceReconciliation,
     Holiday,
     LeaveRequest,
     LeaveHistory,
@@ -2549,6 +2551,20 @@ def can_manage_admin_payroll(user):
     return 'admin' in str(user.role or '').lower()
 
 
+def lock_attendance_employee(employee_id):
+    """Keep attendance check-and-write operations in one employee transaction."""
+    if db.session.get_bind().dialect.name == 'sqlite':
+        # SQLite has no row locks; acquire its write lock before checking attendance.
+        db.session.execute(
+            text('UPDATE employees SET id = id WHERE id = :employee_id'),
+            {'employee_id': employee_id},
+        )
+    else:
+        db.session.execute(
+            db.select(Employee.id).where(Employee.id == employee_id).with_for_update()
+        ).scalar_one()
+
+
 def can_review_payroll_loans(user):
     return (
         can_manage_admin_payroll(user)
@@ -2605,9 +2621,12 @@ def biometric_import():
         imported = 0
         duplicates_skipped = 0
         imported_employee_dates = set()
-        for row in preview_rows:
+        for row in sorted(
+            preview_rows, key=lambda row: (row['employee_id'] or 0, row['date'])
+        ):
             if row['status'] != 'Ready':
                 continue
+            lock_attendance_employee(row['employee_id'])
             employee_date = (
                 row['employee_id'],
                 date.fromisoformat(row['date']),
@@ -2989,6 +3008,16 @@ def delete_employee(employee_id):
         return 'Access denied', 403
     if current_user.id == employee_id:
         flash('❌ You cannot delete your own admin account.', 'danger')
+        return redirect(url_for('dashboard_admin'))
+    if AttendanceReconciliation.query.filter(
+        (AttendanceReconciliation.employee_id == employee_id)
+        | (AttendanceReconciliation.performed_by == employee_id)
+    ).first():
+        flash(
+            'This account has preserved attendance reconciliation history and cannot be deleted. '
+            'Deactivate the account instead.',
+            'danger',
+        )
         return redirect(url_for('dashboard_admin'))
 
     try:
@@ -6504,6 +6533,7 @@ def apply_ot():
                 'danger',
             )
             return redirect(url_for('apply_ot'))
+        lock_attendance_employee(current_user.id)
         existing = OTApplication.query.filter_by(
             employee_id=current_user.id, ot_date=ot_date, status='Pending'
         ).first()
@@ -6532,6 +6562,7 @@ def decide_ot_application(application_id, action):
     if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
         return 'Access denied', 403
     application = OTApplication.query.get_or_404(application_id)
+    lock_attendance_employee(application.employee_id)
     application.status = 'Approved' if action == 'approve' else 'Rejected'
     application.decision_note = request.form.get('decision_note', '').strip() or None
     application.decided_at = datetime.now()
@@ -6568,6 +6599,7 @@ def attendance_action(employee_id):
         flash("❌ Access denied.", "danger")
         return redirect(url_for('dashboard_staff'))
 
+    lock_attendance_employee(employee_id)
     if "clockin" in request.form:
         day_logs = Attendance.query.filter_by(
             employee_id=employee_id,
@@ -6643,6 +6675,7 @@ def attendance_api(employee_id):
         if current_user.id != employee_id and "admin" not in current_user.role.lower():
             return jsonify(status="error", message="❌ Access denied."), 403
 
+        lock_attendance_employee(employee_id)
         if "clockin" in request.form:
             day_logs = Attendance.query.filter_by(
                 employee_id=employee_id,
@@ -6717,8 +6750,220 @@ def attendance_api(employee_id):
 
         return jsonify(status="error", message="Invalid request")
     except Exception:
+        db.session.rollback()
         logger.exception("Error in attendance_api")
         return jsonify(status="error", message="Internal server error"), 500
+
+
+def reconciliation_snapshot(records):
+    return [
+        {
+            column.name: backup_cell_value(getattr(record, column.name))
+            for column in Attendance.__table__.columns
+        }
+        for record in records
+    ]
+
+
+def reconciliation_fingerprint(records):
+    return hashlib.sha256(
+        json.dumps(reconciliation_snapshot(records), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def validate_reconciliation_records(employee, attendance_date, records, clock_out):
+    if len(records) < 2:
+        raise ValueError('This tool requires at least two records for the selected date.')
+    if attendance_date.weekday() == 6 or Holiday.query.filter_by(date=attendance_date).first():
+        raise ValueError('Sunday and holiday records require a separate payroll review.')
+    if clock_out.time() >= time(18):
+        raise ValueError('Clock-out at or after 6 PM requires a separate overtime review.')
+    if any(
+        record.is_weekday_ot or record.is_restday_ot or record.is_holiday_ot
+        or record.overtime_hours or record.ot_status not in (None, '', 'Pending')
+        or (record.clock_out and record.clock_out.time() >= time(18))
+        for record in records
+    ) or OTApplication.query.filter_by(
+        employee_id=employee.id, ot_date=attendance_date
+    ).first():
+        raise ValueError('Records with overtime or OT applications require a separate review.')
+    if AttendanceCorrection.query.filter(
+        (AttendanceCorrection.attendance_id.in_([record.id for record in records]))
+        | (
+            (AttendanceCorrection.employee_id == employee.id)
+            & (AttendanceCorrection.correction_date == attendance_date)
+        )
+    ).first():
+        raise ValueError('Linked attendance correction requests must be reviewed separately.')
+
+
+def reconciliation_backup(backup_id=None):
+    query = AuditLog.query.filter(
+        AuditLog.employee_id == current_user.id,
+        AuditLog.action.in_([
+            'Downloaded full database backup',
+            'Downloaded complete backup with files',
+        ]),
+        AuditLog.created_at >= datetime.utcnow() - timedelta(minutes=30),
+    )
+    if backup_id is not None:
+        query = query.filter(AuditLog.id == backup_id)
+    return query.order_by(AuditLog.id.desc()).first()
+
+
+@app.route('/admin/attendance-reconciliation/<int:employee_id>', methods=['GET', 'POST'])
+@login_required
+def attendance_reconciliation(employee_id):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(employee_id)
+    csrf_token = session.setdefault('attendance_reconciliation_csrf', secrets.token_urlsafe(32))
+    preview = None
+    selected_date = request.values.get('attendance_date', '')
+    status_code = 200
+    if request.method == 'POST':
+        submitted_token = request.form.get('csrf_token', '')
+        if not secrets.compare_digest(csrf_token.encode(), submitted_token.encode()):
+            abort(400, description='Invalid reconciliation form. Reload and try again.')
+        try:
+            action = request.form.get('action')
+            if action == 'preview':
+                session.pop('attendance_reconciliation_preview', None)
+                attendance_date = date.fromisoformat(selected_date)
+                clock_in = datetime.fromisoformat(request.form.get('clock_in', ''))
+                clock_out = datetime.fromisoformat(request.form.get('clock_out', ''))
+                if (
+                    clock_in.tzinfo is not None or clock_out.tzinfo is not None
+                    or clock_in.date() != attendance_date
+                    or clock_out.date() != attendance_date or clock_out <= clock_in
+                ):
+                    raise ValueError('Enter same-day local times with clock-out after clock-in.')
+                reason = request.form.get('reason', '').strip()
+                if not reason or len(reason) > 500:
+                    raise ValueError('Enter a source/reason of 1 to 500 characters.')
+                backup = reconciliation_backup()
+                if backup is None:
+                    raise ValueError('Download and verify a fresh database backup before previewing.')
+                records = Attendance.query.filter_by(
+                    employee_id=employee.id, date=attendance_date
+                ).order_by(Attendance.id).all()
+                validate_reconciliation_records(employee, attendance_date, records, clock_out)
+                preview = {
+                    'employee_id': employee.id,
+                    'attendance_date': attendance_date.isoformat(),
+                    'clock_in': clock_in.isoformat(),
+                    'clock_out': clock_out.isoformat(),
+                    'hours': biometric_work_hours(clock_in, clock_out),
+                    'status': attendance_status(clock_in),
+                    'reason': reason,
+                    'fingerprint': reconciliation_fingerprint(records),
+                    'backup_id': backup.id,
+                    'expires_at': (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+                    'nonce': secrets.token_urlsafe(32),
+                }
+                session['attendance_reconciliation_preview'] = preview
+            elif action == 'confirm':
+                preview = session.get('attendance_reconciliation_preview')
+                if (
+                    not preview or preview['employee_id'] != employee.id
+                    or not secrets.compare_digest(
+                        preview['nonce'].encode(), request.form.get('preview_nonce', '').encode()
+                    )
+                    or datetime.fromisoformat(preview['expires_at']) < datetime.utcnow()
+                ):
+                    raise ValueError('Preview expired or invalid. Generate a new preview.')
+                if request.form.get('backup_verified') != 'yes':
+                    raise ValueError('Confirm that the downloaded backup was saved and verified.')
+                if reconciliation_backup(preview['backup_id']) is None:
+                    raise ValueError('Backup expired. Download a fresh backup and preview again.')
+                attendance_date = date.fromisoformat(preview['attendance_date'])
+                clock_in = datetime.fromisoformat(preview['clock_in'])
+                clock_out = datetime.fromisoformat(preview['clock_out'])
+                lock_attendance_employee(employee.id)
+                records = Attendance.query.filter_by(
+                    employee_id=employee.id, date=attendance_date
+                ).order_by(Attendance.id).populate_existing().with_for_update().all()
+                if reconciliation_fingerprint(records) != preview['fingerprint']:
+                    raise ValueError('Attendance changed after preview. Review a new preview.')
+                validate_reconciliation_records(employee, attendance_date, records, clock_out)
+                original_rows = reconciliation_snapshot(records)
+                retained = records[0]
+                retained.clock_in = clock_in
+                retained.clock_out = clock_out
+                retained.status = attendance_status(clock_in)
+                retained.hours = regular_attendance_hours(retained)
+                db.session.add(AttendanceReconciliation(
+                    employee_id=employee.id,
+                    attendance_date=attendance_date,
+                    performed_by=current_user.id,
+                    retained_attendance_id=retained.id,
+                    original_rows=json.dumps(original_rows, sort_keys=True),
+                    corrected_row=json.dumps(reconciliation_snapshot([retained])[0], sort_keys=True),
+                    reason=preview['reason'],
+                    backup_audit_id=preview['backup_id'],
+                ))
+                for duplicate in records[1:]:
+                    db.session.delete(duplicate)
+                db.session.add(AuditLog(
+                    employee_id=current_user.id,
+                    employee_name=current_user.full_name(),
+                    company=current_user.company,
+                    action=f'Reconciled attendance employee {employee.id} on {attendance_date}',
+                    path=request.path,
+                    ip_address=request.remote_addr,
+                    status_code=302,
+                ))
+                db.session.commit()
+                session.pop('attendance_reconciliation_preview', None)
+                flash(
+                    'Attendance reconciled; original rows preserved in history. '
+                    'Saved payroll was not changed. Review payroll and payslip separately.',
+                    'success',
+                )
+                return redirect(url_for(
+                    'attendance_reconciliation', employee_id=employee.id,
+                    attendance_date=attendance_date.isoformat(),
+                ))
+            else:
+                raise ValueError('Select preview or confirm.')
+        except ValueError as exc:
+            db.session.rollback()
+            preview = None
+            session.pop('attendance_reconciliation_preview', None)
+            flash(str(exc), 'danger')
+            status_code = 400
+        except SQLAlchemyError:
+            db.session.rollback()
+            preview = None
+            session.pop('attendance_reconciliation_preview', None)
+            logger.exception('Attendance reconciliation failed for employee %s', employee_id)
+            flash('Reconciliation failed. No attendance changes were saved. Try again after review.', 'danger')
+            status_code = 503
+
+    records = []
+    try:
+        target_date = date.fromisoformat(selected_date) if selected_date else None
+    except ValueError:
+        target_date = None
+        flash('Select a valid attendance date.', 'danger')
+        status_code = 400
+    if target_date:
+        records = Attendance.query.filter_by(
+            employee_id=employee.id, date=target_date
+        ).order_by(Attendance.id).all()
+    history = AttendanceReconciliation.query.filter_by(
+        employee_id=employee.id
+    ).order_by(AttendanceReconciliation.id.desc()).limit(10).all()
+    return render_template(
+        'attendance_reconciliation.html', emp=employee,
+        selected_date=selected_date, records=records,
+        preview=preview, csrf_token=csrf_token,
+        history=[
+            {'entry': entry, 'originals': json.loads(entry.original_rows),
+             'corrected': json.loads(entry.corrected_row)}
+            for entry in history
+        ],
+    ), status_code
 
 
 @app.route('/attendance/correction', methods=['GET', 'POST'])
@@ -6734,6 +6979,7 @@ def attendance_correction():
             requested_clock_in = datetime.fromisoformat(clock_in_value) if clock_in_value else None
             requested_clock_out = datetime.fromisoformat(clock_out_value) if clock_out_value else None
             reason = request.form.get('reason', '').strip()
+            lock_attendance_employee(current_user.id)
             attendance_record = Attendance.query.filter_by(
                 employee_id=current_user.id,
                 date=correction_date,
@@ -6798,6 +7044,7 @@ def review_attendance_correction(correction_id, action):
         flash('This correction request was already reviewed.', 'warning')
         return redirect(url_for('dashboard_admin'))
     if action == 'approve':
+        lock_attendance_employee(correction.employee_id)
         attendance_records = Attendance.query.filter_by(
             employee_id=correction.employee_id,
             date=correction.correction_date

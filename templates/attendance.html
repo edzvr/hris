@@ -24,6 +24,10 @@
         <a href="{{ url_for('dashboard_admin') if current_user.role and 'admin' in current_user.role.lower() else url_for('dashboard_staff') }}" class="dashboard-back-link">Back to Dashboard</a>
     </div>
 
+    {% if current_user.role and current_user.role.lower() == 'admin' %}
+    <p><a href="{{ url_for('attendance_reconciliation', employee_id=emp.id, attendance_date=selected_attendance_date or '') }}">Review Duplicate Attendance</a> (admin only; backup and preview required)</p>
+    {% endif %}
+
     <!-- Cutoff Filter -->
     <form method="get" class="row g-3 mb-4">
         <div class="col-md-6">
