@@ -4,6 +4,7 @@ import secrets
 import json
 import sqlite3
 import tempfile
+from urllib.parse import urlsplit
 from decimal import Decimal, InvalidOperation
 import struct
 from math import isfinite
@@ -131,6 +132,15 @@ if not os.path.isabs(app.config['HR_DOCUMENTS_FOLDER']):
         basedir, app.config['HR_DOCUMENTS_FOLDER']
     )
 os.makedirs(app.config['HR_DOCUMENTS_FOLDER'], exist_ok=True)
+app.config['HR_TEMPLATES_FOLDER'] = os.environ.get(
+    'HR_TEMPLATES_FOLDER',
+    os.path.join(instance_dir, 'hr_templates'),
+)
+if not os.path.isabs(app.config['HR_TEMPLATES_FOLDER']):
+    app.config['HR_TEMPLATES_FOLDER'] = os.path.join(
+        basedir, app.config['HR_TEMPLATES_FOLDER']
+    )
+os.makedirs(app.config['HR_TEMPLATES_FOLDER'], exist_ok=True)
 os.makedirs(os.path.join(basedir, app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 
@@ -275,6 +285,7 @@ from models import (
     MeritDemerit,
     EmployeeDocument,
     HRDocument,
+    HRTemplate,
     StaffConcern,
     StaffMessage,
     PasswordResetToken,
@@ -1621,6 +1632,7 @@ def inject_authenticated_sidebar(response):
             ('evaluation_dashboard', 'Evaluation Dashboard'),
             ('admin_quiz_upload', 'Quiz Questionnaire'),
             ('admin_files', 'Upload Company Files'),
+            ('admin_hr_templates', 'HR Templates'),
             ('employee_201_selector', 'Staff 201 Files'),
             ('admin_incidents', 'Incident Reports'),
             ('hr_documents', 'HR Documents'),
@@ -11918,6 +11930,183 @@ def download_file(company, filename):
     if not os.path.isfile(filepath):
         return 'File not found', 404
     return send_file(filepath, as_attachment=True, download_name=filename)
+
+
+HR_TEMPLATE_ALLOWED_EXTENSIONS = {'.doc', '.docx', '.xls', '.xlsx', '.pdf'}
+HR_TEMPLATE_MAX_FILE_BYTES = 20 * 1024 * 1024
+
+
+def save_hr_template_upload(upload):
+    original_filename = secure_filename(upload.filename or '')
+    extension = os.path.splitext(original_filename)[1].lower()
+    if not original_filename or extension not in HR_TEMPLATE_ALLOWED_EXTENSIONS:
+        raise ValueError('Upload a Word, Excel, or PDF file.')
+
+    upload.stream.seek(0, os.SEEK_END)
+    file_size = upload.stream.tell()
+    upload.stream.seek(0)
+    if file_size > HR_TEMPLATE_MAX_FILE_BYTES:
+        raise ValueError('Template files must be 20 MB or smaller.')
+
+    stored_filename = f'{secrets.token_hex(16)}{extension}'
+    try:
+        upload.save(os.path.join(app.config['HR_TEMPLATES_FOLDER'], stored_filename))
+    except OSError:
+        logger.exception('Could not save an HR template upload')
+        raise
+    return stored_filename, original_filename
+
+
+def validate_hr_template_url(value):
+    value = (value or '').strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+    except ValueError:
+        parsed = None
+        hostname = None
+    if (
+        not parsed
+        or parsed.scheme.lower() != 'https'
+        or not hostname
+        or any(character.isspace() for character in hostname)
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError('Online edit links must be valid HTTPS URLs.')
+    return value
+
+
+def remove_hr_template_file(filename):
+    if not filename:
+        return True
+    safe_filename = secure_filename(filename)
+    if safe_filename != filename:
+        logger.error('Refusing to remove an unsafe HR template filename')
+        return False
+    path = os.path.join(app.config['HR_TEMPLATES_FOLDER'], safe_filename)
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        return True
+    except OSError:
+        logger.exception('Could not remove stored HR template file %s', safe_filename)
+        return False
+
+
+@app.route('/admin/hr-templates', methods=['GET', 'POST'])
+@login_required
+def admin_hr_templates():
+    if 'admin' not in str(current_user.role or '').lower():
+        abort(403)
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'create')
+        template = None
+        if action in {'update', 'delete'}:
+            template = HRTemplate.query.get_or_404(request.form.get('template_id', type=int))
+
+        if action == 'delete':
+            old_filename = template.stored_filename
+            db.session.delete(template)
+            try:
+                db.session.commit()
+            except SQLAlchemyError:
+                db.session.rollback()
+                logger.exception('Could not delete HR template record %s', template.id)
+                flash('The template could not be deleted. Please try again.', 'danger')
+                return redirect(url_for('admin_hr_templates'))
+            if not remove_hr_template_file(old_filename):
+                flash('The template record was deleted, but its stored file could not be removed.', 'danger')
+            else:
+                flash('Template deleted.', 'success')
+            return redirect(url_for('admin_hr_templates'))
+
+        if action not in {'create', 'update'}:
+            flash('Choose a valid template action.', 'danger')
+            return redirect(url_for('admin_hr_templates'))
+
+        title = request.form.get('title', '').strip()
+        category = request.form.get('category', '').strip()
+        description = request.form.get('description', '').strip()
+        source_filename = secure_filename(request.form.get('source_filename', '').strip()) or None
+        upload = request.files.get('template_file')
+        has_upload = bool(upload and upload.filename)
+        try:
+            online_url = validate_hr_template_url(request.form.get('online_url'))
+            if not title or len(title) > 180 or not category or len(category) > 80:
+                raise ValueError('Enter a template name (up to 180 characters) and category (up to 80 characters).')
+            if len(description) > 4000:
+                raise ValueError('Description must be 4,000 characters or fewer.')
+            if source_filename and len(source_filename) > 255:
+                raise ValueError('Expected filename must be 255 characters or fewer.')
+            if not has_upload and not online_url and template is None:
+                raise ValueError('Upload a template file or provide an online edit link.')
+            new_filename, original_filename = save_hr_template_upload(upload) if has_upload else (None, None)
+        except ValueError as error:
+            flash(str(error), 'danger')
+            return redirect(url_for('admin_hr_templates'))
+        except OSError:
+            flash('The template file could not be saved. Please try again.', 'danger')
+            return redirect(url_for('admin_hr_templates'))
+
+        old_filename = template.stored_filename if template else None
+        if template is None:
+            template = HRTemplate(created_by=current_user.id)
+            db.session.add(template)
+        template.title = title
+        template.category = category
+        template.description = description or None
+        template.source_filename = source_filename
+        template.online_url = online_url
+        if new_filename:
+            template.stored_filename = new_filename
+            template.original_filename = original_filename
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            if new_filename:
+                remove_hr_template_file(new_filename)
+            logger.exception('Could not save HR template record')
+            flash('The template could not be saved. Please try again.', 'danger')
+            return redirect(url_for('admin_hr_templates'))
+
+        previous_file_removed = (
+            remove_hr_template_file(old_filename)
+            if new_filename and old_filename
+            else True
+        )
+        if previous_file_removed:
+            flash('Template saved.', 'success')
+        else:
+            flash('Template saved, but the previous file could not be removed.', 'warning')
+        return redirect(url_for('admin_hr_templates'))
+
+    templates = HRTemplate.query.order_by(HRTemplate.category, HRTemplate.title).all()
+    return render_template('admin_hr_templates.html', templates=templates)
+
+
+@app.route('/admin/hr-templates/<int:template_id>/download')
+@login_required
+def download_hr_template(template_id):
+    if 'admin' not in str(current_user.role or '').lower():
+        abort(403)
+    template = HRTemplate.query.get_or_404(template_id)
+    filename = template.stored_filename or ''
+    safe_filename = secure_filename(filename)
+    if not safe_filename or safe_filename != filename:
+        abort(404)
+    filepath = os.path.join(app.config['HR_TEMPLATES_FOLDER'], safe_filename)
+    if not os.path.isfile(filepath):
+        abort(404)
+    return send_file(
+        filepath,
+        as_attachment=True,
+        download_name=template.original_filename or template.title,
+    )
 
 
 # ------------------ BULLETIN MODULE ------------------

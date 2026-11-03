@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Templates</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+  <style>
+    body { font-family: Arial, sans-serif; background:#eef3f1; margin:0; padding:24px; color:#263238; }
+    main { max-width:1200px; margin:0 auto; }
+    .panel { background:#fff; padding:20px; margin-bottom:18px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end; }
+    label { display:block; font-weight:700; }
+    input, textarea { box-sizing:border-box; width:100%; padding:9px; margin-top:6px; font:inherit; }
+    textarea { min-height:80px; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; margin-top:14px; }
+    th, td { border:1px solid #d8e0dc; padding:10px; text-align:left; vertical-align:top; }
+    th { background:#2879ad; color:#fff; }
+    .btn { display:inline-block; padding:9px 13px; margin:3px; background:#2879ad; color:#fff; border:0; border-radius:6px; text-decoration:none; cursor:pointer; font:inherit; }
+    .btn-danger { background:#a33b3b; }
+    .actions { min-width:190px; }
+    details { margin-top:8px; }
+    summary { cursor:pointer; font-weight:700; }
+    .muted { color:#52615a; }
+    @media (max-width:700px) { body { padding:14px; } }
+  </style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>HR Templates</h1>
+    <p>Admin-only library. Uploaded files are private to HRIS admins. Download a file to edit in Word or Excel, then upload the revised file; alternatively, provide an HTTPS link to an online editable document.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="status {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+  </section>
+
+  <section class="panel">
+    <h2>Add template</h2>
+    <form method="POST" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="create">
+      <div class="grid">
+        <label>Template name
+          <input name="title" maxlength="180" required>
+        </label>
+        <label>Category
+          <input name="category" maxlength="80" placeholder="Recruitment, Policies, Leave..." required>
+        </label>
+        <label>Expected file name from the list
+          <input name="source_filename" maxlength="255" placeholder="Optional .docx or .xlsx file name">
+        </label>
+        <label>Template file (Word, Excel, or PDF; up to 20 MB)
+          <input type="file" name="template_file" accept=".doc,.docx,.xls,.xlsx,.pdf">
+        </label>
+        <label>Online edit link (HTTPS)
+          <input type="url" name="online_url" placeholder="https://..." maxlength="2048">
+        </label>
+      </div>
+      <label>Description
+        <textarea name="description" maxlength="4000"></textarea>
+      </label>
+      <p class="muted">Add at least a file or an online edit link. External sharing permissions are managed by the linked service.</p>
+      <button class="btn" type="submit">Add template</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Template library</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Template</th><th>Category</th><th>Description</th><th>Actions</th></tr></thead>
+        <tbody>
+        {% for template in templates %}
+          <tr>
+            <td><strong>{{ template.title }}</strong>{% if template.stored_filename and template.original_filename %}<br><small>Uploaded: {{ template.original_filename }}</small>{% elif template.source_filename %}<br><small>Expected file: {{ template.source_filename }}</small>{% endif %}</td>
+            <td>{{ template.category }}</td>
+            <td>{{ template.description or '' }}</td>
+            <td class="actions">
+              {% if template.stored_filename %}
+                <a class="btn" href="{{ url_for('download_hr_template', template_id=template.id) }}">Download to edit</a>
+              {% endif %}
+              {% if template.online_url %}
+                <a class="btn" href="{{ template.online_url }}" target="_blank" rel="noopener noreferrer">Open online editor</a>
+              {% endif %}
+              <details>
+                <summary>Edit details / replace file</summary>
+                <form method="POST" enctype="multipart/form-data">
+                  <input type="hidden" name="action" value="update">
+                  <input type="hidden" name="template_id" value="{{ template.id }}">
+                  <label>Template name
+                    <input name="title" maxlength="180" value="{{ template.title }}" required>
+                  </label>
+                  <label>Category
+                    <input name="category" maxlength="80" value="{{ template.category }}" required>
+                  </label>
+                  <label>Expected file name
+                    <input name="source_filename" maxlength="255" value="{{ template.source_filename or '' }}">
+                  </label>
+                  <label>Description
+                    <textarea name="description" maxlength="4000">{{ template.description or '' }}</textarea>
+                  </label>
+                  <label>Replace file (leave empty to keep current file)
+                    <input type="file" name="template_file" accept=".doc,.docx,.xls,.xlsx,.pdf">
+                  </label>
+                  <label>Online edit link (leave empty to remove)
+                    <input type="url" name="online_url" value="{{ template.online_url or '' }}" maxlength="2048">
+                  </label>
+                  <button class="btn" type="submit">Save changes</button>
+                </form>
+                <form method="POST" onsubmit="return confirm('Delete this template?')">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="template_id" value="{{ template.id }}">
+                  <button class="btn btn-danger" type="submit">Delete template</button>
+                </form>
+              </details>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">No templates have been added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -693,6 +693,22 @@ class HRDocument(db.Model):
     wet_signer = db.relationship("Employee", foreign_keys=[wet_signed_by])
 
 
+class HRTemplate(db.Model):
+    __tablename__ = "hr_templates"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(180), nullable=False)
+    category = db.Column(db.String(80), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    source_filename = db.Column(db.String(255), nullable=True)
+    stored_filename = db.Column(db.String(255), nullable=True)
+    original_filename = db.Column(db.String(255), nullable=True)
+    online_url = db.Column(db.String(2048), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class StaffConcern(db.Model):
     __tablename__ = "staff_concerns"
 
