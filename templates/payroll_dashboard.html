@@ -367,20 +367,30 @@
         const companyFilter = document.getElementById('company-filter');
         const employeeFilter = document.getElementById('employee-filter');
         const clearFilters = document.getElementById('clear-payroll-filters');
+        const employeeOptions = employeeFilter
+            ? Array.from(employeeFilter.children, option => option.cloneNode(true)) : [];
+        function updateEmployeeOptions() {
+            if (!employeeFilter) return;
+            const company = companyFilter ? companyFilter.value : 'all';
+            const selected = employeeFilter.value;
+            employeeFilter.replaceChildren();
+            employeeOptions.forEach(function (item) {
+                const copy = item.cloneNode(true);
+                if (copy.tagName === 'OPTGROUP') {
+                    copy.querySelectorAll('option').forEach(function (option) {
+                        if (company !== 'all' && option.dataset.company !== company) option.remove();
+                    });
+                    if (!copy.children.length) return;
+                }
+                employeeFilter.appendChild(copy);
+            });
+            employeeFilter.value = Array.from(employeeFilter.options).some(option => option.value === selected)
+                ? selected : 'all';
+        }
         function applyPayrollFilters() {
             const review = reviewFilter ? reviewFilter.value : 'all';
             const company = companyFilter ? companyFilter.value : 'all';
-            let employee = employeeFilter ? employeeFilter.value : 'all';
-            if (employeeFilter) {
-                employeeFilter.querySelectorAll('option[data-company]').forEach(function (option) {
-                    option.hidden = company !== 'all' && option.dataset.company !== company;
-                });
-                const selectedEmployee = employeeFilter.selectedOptions[0];
-                if (selectedEmployee && selectedEmployee.hidden) {
-                    employeeFilter.value = 'all';
-                    employee = 'all';
-                }
-            }
+            const employee = employeeFilter ? employeeFilter.value : 'all';
             document.querySelectorAll('.payroll-row').forEach(function (row) {
                 const matchesReview = review === 'all' || row.dataset.review === review;
                 const matchesCompany = company === 'all' || row.dataset.company === company;
@@ -405,7 +415,10 @@
             reviewFilter.addEventListener('change', applyPayrollFilters);
         }
         if (companyFilter) {
-            companyFilter.addEventListener('change', applyPayrollFilters);
+            companyFilter.addEventListener('change', function () {
+                updateEmployeeOptions();
+                applyPayrollFilters();
+            });
         }
         if (employeeFilter) {
             employeeFilter.addEventListener('change', applyPayrollFilters);
@@ -415,10 +428,12 @@
                 reviewFilter.value = 'all';
                 companyFilter.value = 'all';
                 employeeFilter.value = 'all';
+                updateEmployeeOptions();
                 applyPayrollFilters();
             });
         }
-        updateSelectionCount();
+        updateEmployeeOptions();
+        applyPayrollFilters();
     });
 </script>
 </body>

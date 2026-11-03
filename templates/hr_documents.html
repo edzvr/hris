@@ -161,21 +161,19 @@
   const liabilityField = document.getElementById('liability-link-field');
   const liabilitySelect = document.getElementById('hr-document-liability');
   const employeeSelect = document.getElementById('hr-document-employee');
+  const liabilityOptions = liabilitySelect
+    ? [...liabilitySelect.options].map(option => option.cloneNode(true)) : [];
   function updateLiabilityChoices() {
     if (!documentTypeSelect || !liabilityField || !liabilitySelect) return;
     const requiresLiability = documentTypeSelect.value === 'Liability Agreement';
     liabilityField.hidden = !requiresLiability;
     liabilitySelect.required = requiresLiability;
-    [...liabilitySelect.options].forEach(option => {
-      if (!option.dataset.employee) return;
-      const matches = option.dataset.employee === employeeSelect.value;
-      option.hidden = !matches;
-      option.disabled = !matches;
-    });
-    const selected = liabilitySelect.selectedOptions[0];
-    if (selected && selected.dataset.employee && selected.dataset.employee !== employeeSelect.value) {
-      liabilitySelect.value = '';
-    }
+    const selected = liabilitySelect.value;
+    liabilitySelect.replaceChildren(...liabilityOptions
+      .filter(option => !option.dataset.employee || option.dataset.employee === employeeSelect.value)
+      .map(option => option.cloneNode(true)));
+    liabilitySelect.value = [...liabilitySelect.options].some(option => option.value === selected)
+      ? selected : '';
   }
   documentTypeSelect?.addEventListener('change', updateLiabilityChoices);
   employeeSelect?.addEventListener('change', updateLiabilityChoices);
