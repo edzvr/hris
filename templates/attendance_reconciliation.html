@@ -14,7 +14,7 @@
     <p role="alert" class="alert alert-{{ category }}">{{ message }}</p>
     {% endfor %}
     <p>Admin only. Use verified biometric/DTR times, not guessed times. This tool handles
-        duplicate same-day, non-Sunday, non-holiday records without overtime or linked correction requests.</p>
+        duplicate same-day, non-Sunday, non-holiday records without overtime or pending correction requests.</p>
     <ol>
         <li><a href="{{ url_for('download_database_backup') }}">Download a fresh database backup</a>.
             Save it securely and verify it opens before continuing. Backup download must be within 30 minutes.</li>
@@ -22,7 +22,9 @@
         <li>Confirm only after checking the preview. It expires in 10 minutes.</li>
     </ol>
     <p><strong>Original rows are archived permanently before duplicate rows are removed from active attendance.
-        The lowest record ID is retained. Saved payroll, paid status, loans and notifications are not changed.
+        A record linked to reviewed corrections is retained without changing those requests.
+        If there are no links, the lowest record ID is retained. Conflicting links are blocked.
+        Saved payroll, paid status, loans and notifications are not changed.
         Attendance-based views may change immediately; review payroll/payslip discrepancies separately.
         Do not import or edit attendance for this employee during reconciliation.</strong></p>
     <form method="get">
@@ -43,6 +45,7 @@
     <h3>Preview - No Attendance Changes Saved Yet</h3>
     <p>Replace {{ records|length }} active records with one:
         {{ preview.clock_in }} to {{ preview.clock_out }}.</p>
+    <p>Retain attendance ID: {{ preview.retained_id }}. Existing reviewed correction requests remain unchanged.</p>
     <p>Source/reason: {{ preview.reason }}</p>
     <p>Regular hours: {{ preview.hours }}. Status: {{ preview.status }}.
         Undertime hours: {{ (8 - preview.hours)|round(2) }}. Overtime hours: 0.</p>

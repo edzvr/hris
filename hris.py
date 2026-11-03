@@ -6787,14 +6787,30 @@ def validate_reconciliation_records(employee, attendance_date, records, clock_ou
         employee_id=employee.id, ot_date=attendance_date
     ).first():
         raise ValueError('Records with overtime or OT applications require a separate review.')
-    if AttendanceCorrection.query.filter(
+    corrections = AttendanceCorrection.query.filter(
         (AttendanceCorrection.attendance_id.in_([record.id for record in records]))
         | (
             (AttendanceCorrection.employee_id == employee.id)
             & (AttendanceCorrection.correction_date == attendance_date)
         )
-    ).first():
-        raise ValueError('Linked attendance correction requests must be reviewed separately.')
+    ).all()
+    if any(
+        correction.status not in ('Approved', 'Rejected')
+        or correction.employee_id != employee.id
+        or correction.correction_date != attendance_date
+        for correction in corrections
+    ):
+        raise ValueError('Pending or inconsistent correction requests must be reviewed separately.')
+    linked_ids = {
+        correction.attendance_id for correction in corrections
+        if correction.attendance_id is not None
+    }
+    if len(linked_ids) > 1:
+        raise ValueError('Reviewed corrections link to different duplicate records. Review separately.')
+    retained_id = next(iter(linked_ids), records[0].id)
+    if retained_id not in {record.id for record in records}:
+        raise ValueError('A correction links to a record outside this date. Review separately.')
+    return next(record for record in records if record.id == retained_id)
 
 
 def reconciliation_backup(backup_id=None):
@@ -6847,7 +6863,9 @@ def attendance_reconciliation(employee_id):
                 records = Attendance.query.filter_by(
                     employee_id=employee.id, date=attendance_date
                 ).order_by(Attendance.id).all()
-                validate_reconciliation_records(employee, attendance_date, records, clock_out)
+                retained = validate_reconciliation_records(
+                    employee, attendance_date, records, clock_out
+                )
                 preview = {
                     'employee_id': employee.id,
                     'attendance_date': attendance_date.isoformat(),
@@ -6855,6 +6873,7 @@ def attendance_reconciliation(employee_id):
                     'clock_out': clock_out.isoformat(),
                     'hours': biometric_work_hours(clock_in, clock_out),
                     'status': attendance_status(clock_in),
+                    'retained_id': retained.id,
                     'reason': reason,
                     'fingerprint': reconciliation_fingerprint(records),
                     'backup_id': backup.id,
@@ -6885,9 +6904,12 @@ def attendance_reconciliation(employee_id):
                 ).order_by(Attendance.id).populate_existing().with_for_update().all()
                 if reconciliation_fingerprint(records) != preview['fingerprint']:
                     raise ValueError('Attendance changed after preview. Review a new preview.')
-                validate_reconciliation_records(employee, attendance_date, records, clock_out)
+                retained = validate_reconciliation_records(
+                    employee, attendance_date, records, clock_out
+                )
+                if retained.id != preview['retained_id']:
+                    raise ValueError('Correction links changed after preview. Review a new preview.')
                 original_rows = reconciliation_snapshot(records)
-                retained = records[0]
                 retained.clock_in = clock_in
                 retained.clock_out = clock_out
                 retained.status = attendance_status(clock_in)
@@ -6902,8 +6924,9 @@ def attendance_reconciliation(employee_id):
                     reason=preview['reason'],
                     backup_audit_id=preview['backup_id'],
                 ))
-                for duplicate in records[1:]:
-                    db.session.delete(duplicate)
+                for duplicate in records:
+                    if duplicate.id != retained.id:
+                        db.session.delete(duplicate)
                 db.session.add(AuditLog(
                     employee_id=current_user.id,
                     employee_name=current_user.full_name(),

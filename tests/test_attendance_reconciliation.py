@@ -423,3 +423,69 @@ def test_logged_out_users_cannot_access_reconciliation(case):
     assert client.get(case["url"]).status_code == 302
     assert client.post(case["url"], data={"action": "confirm"}).status_code == 302
     assert_originals_unchanged(case)
+
+
+def test_reviewed_corrections_keep_their_original_link_and_all_fields(case):
+    with app.app_context():
+        corrections = [
+            AttendanceCorrection(
+                employee_id=case["staff"], correction_date=DAY,
+                attendance_id=case["ids"][1], reason="Reviewed source correction",
+                status=status, reviewed_by=case["admin"], reviewed_at=datetime.utcnow(),
+                requested_clock_in=datetime(2026, 10, 24, 7, 30),
+                requested_clock_out=datetime(2026, 10, 24, 5, 20),
+            )
+            for status in ("Approved", "Rejected")
+        ]
+        db.session.add_all(corrections)
+        db.session.commit()
+        originals = [
+            {column.name: getattr(correction, column.name)
+             for column in AttendanceCorrection.__table__.columns}
+            for correction in corrections
+        ]
+    response = preview(case)
+    assert response.status_code == 200
+    assert f'Retain attendance ID: {case["ids"][1]}'.encode() in response.data
+    assert confirm(case).status_code == 302
+    with app.app_context():
+        retained = Attendance.query.filter_by(employee_id=case["staff"]).one()
+        assert retained.id == case["ids"][1]
+        assert retained.clock_in == datetime(2026, 10, 24, 7, 40)
+        assert retained.clock_out == datetime(2026, 10, 24, 17, 20)
+        for original in originals:
+            correction = db.session.get(AttendanceCorrection, original["id"])
+            assert {column.name: getattr(correction, column.name)
+                    for column in AttendanceCorrection.__table__.columns} == original
+        archive = AttendanceReconciliation.query.filter_by(employee_id=case["staff"]).one()
+        assert json.loads(archive.original_rows) == case["originals"]
+
+
+@pytest.mark.parametrize("after_preview", [False, True])
+def test_conflicting_reviewed_correction_links_block_cleanup(case, after_preview):
+    if after_preview:
+        assert preview(case).status_code == 200
+    with app.app_context():
+        db.session.add_all([
+            AttendanceCorrection(
+                employee_id=case["staff"], correction_date=DAY,
+                attendance_id=record_id, reason="Conflicting reviewed correction", status="Approved",
+            )
+            for record_id in case["ids"]
+        ])
+        db.session.commit()
+    response = confirm(case) if after_preview else preview(case)
+    assert response.status_code == 400
+    assert_originals_unchanged(case)
+
+
+def test_new_reviewed_link_cannot_change_retained_record_after_preview(case):
+    assert preview(case).status_code == 200
+    with app.app_context():
+        db.session.add(AttendanceCorrection(
+            employee_id=case["staff"], correction_date=DAY,
+            attendance_id=case["ids"][1], reason="New reviewed link", status="Approved",
+        ))
+        db.session.commit()
+    assert confirm(case).status_code == 400
+    assert_originals_unchanged(case)
