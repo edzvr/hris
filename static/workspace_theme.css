@@ -1,5 +1,5 @@
 :root {
-  --workspace-sidebar:#42586b; --workspace-sidebar-text:#f5f7fa;
+  --workspace-sidebar:#42586b; --workspace-sidebar-text:#fff;
   --workspace-button:#486581; --workspace-button-text:#fff;
   --workspace-nav-active:#536c80; --workspace-nav-active-text:#fff;
 }
@@ -11,14 +11,14 @@
 body.hris-admin-sidebar-page, body.hris-staff-navigation-page { background:#f1f3f6 !important; color:#243247; }
 body.hris-staff-navigation-page[data-company-theme="autoxpert"],
 body.hris-admin-sidebar-page[data-company-theme="autoxpert"] {
-  --workspace-sidebar:#eee15b; --workspace-sidebar-text:#30384d;
+  --workspace-sidebar:#eee15b; --workspace-sidebar-text:#fff;
   --workspace-button:#3937ad; --workspace-button-text:#fff;
   --workspace-nav-active:#4b5059; --workspace-nav-active-text:#fff;
 }
 body.hris-staff-navigation-page[data-company-theme="trece-uno"],
 body.hris-admin-sidebar-page[data-company-theme="trece-uno"] {
   --workspace-sidebar:#4642b4; --workspace-sidebar-text:#fff;
-  --workspace-button:#eee15b; --workspace-button-text:#30384d;
+  --workspace-button:#eee15b; --workspace-button-text:#fff;
   --workspace-nav-active:#353195; --workspace-nav-active-text:#fff;
 }
 #hris-global-sidebar { background:var(--workspace-sidebar) !important; color:var(--workspace-sidebar-text) !important; }
