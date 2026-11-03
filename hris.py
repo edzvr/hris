@@ -2248,6 +2248,13 @@ def manage_job_descriptions():
 
 
 # ------------------ PROFILE (SELF / ADMIN) ------------------
+def attendance_scheduled_hours(employee, record_date):
+    """Reporting schedule only; Sunday earnings remain in the rest-day OT calculation."""
+    if record_date.weekday() == 6:
+        return 4.0 if is_trece_sunday(employee, record_date) else 0.0
+    return 8.0
+
+
 def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
     history = Attendance.query.filter(
         Attendance.employee_id == employee.id,
@@ -2259,10 +2266,8 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
     for offset in range((cutoff_end - cutoff_start).days):
         record_date = cutoff_start + timedelta(days=offset)
         log = attendance_by_date.get(record_date)
-        is_rest_day = (
-            record_date.weekday() == 6
-            and not str(employee.company or '').lower().startswith('trece')
-        )
+        scheduled_hours = attendance_scheduled_hours(employee, record_date)
+        is_rest_day = scheduled_hours == 0
         if log is None:
             rows.append({
                 "date": record_date.strftime('%Y-%m-%d'),
@@ -2275,21 +2280,17 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
                 "branch": "N/A",
             })
             continue
-        is_trece_sunday = (
-            log.date.weekday() == 6
-            and str(employee.company or '').lower().startswith('trece')
-        )
-        scheduled_hours = 4.0 if is_trece_sunday else 8.0
         hours_worked = (
             regular_attendance_hours(log)
             if log.clock_in and log.clock_out else 0.0
         )
+        half_day = bool(scheduled_hours and hours_worked <= scheduled_hours / 2)
         attendance_status = (
             "No In / No Out" if not log.clock_in and not log.clock_out
             else "No In" if not log.clock_in
             else "No Out" if not log.clock_out
-            else f"{log.status} / Half-day" if log.status == "Late" and hours_worked <= 4
-            else "Half-day" if hours_worked <= 4
+            else f"{log.status} / Half-day" if log.status == "Late" and half_day
+            else "Half-day" if half_day
             else log.status
         )
         overtime_hours = payroll_overtime_hours(log)
@@ -3178,10 +3179,7 @@ def attendance(employee_id):
     for log in history:
         if not log.clock_out:
             continue
-        scheduled_hours = 4.0 if (
-            log.date.weekday() == 6
-            and str(emp.company or '').lower().startswith('trece')
-        ) else 8.0
+        scheduled_hours = attendance_scheduled_hours(emp, log.date)
         total_undertime_hours += max(
             scheduled_hours - regular_attendance_hours(log),
             0.0,
@@ -8460,6 +8458,9 @@ def holiday_ot_dashboard():
         regular_hours = (
             regular_attendance_hours(attendance) if complete_punches else 0.0
         )
+        scheduled_hours = attendance_scheduled_hours(
+            attendance.employee, attendance.date
+        )
         late_minutes = 0
         if clock_in and attendance_status(clock_in) == "Late":
             late_minutes = max(
@@ -8477,9 +8478,13 @@ def holiday_ot_dashboard():
             "regular_hours": regular_hours,
             "late_minutes": late_minutes,
             "undertime_hours": (
-                max(8.0 - regular_hours, 0.0) if complete_punches else 0.0
+                max(scheduled_hours - regular_hours, 0.0) if complete_punches else 0.0
             ),
-            "half_day": complete_punches and regular_hours <= 4.0,
+            "half_day": bool(
+                complete_punches
+                and scheduled_hours
+                and regular_hours <= scheduled_hours / 2
+            ),
             "overtime_hours": payroll_overtime_hours(attendance),
             "ot_status": attendance_overtime_status(attendance),
             "missing_clock_in": clock_in is None,
