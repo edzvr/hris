@@ -7,6 +7,40 @@ from utils.names import format_person_name, format_suffix_name
 
 db = SQLAlchemy()
 
+
+class CalendarReminder(db.Model):
+    __tablename__ = "calendar_reminders"
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(150), nullable=False)
+    notes = db.Column(db.Text, nullable=False, default="")
+    company = db.Column(db.String(50), nullable=False)
+    scheduled_at = db.Column(db.DateTime, nullable=False)
+    recurrence = db.Column(db.String(20), nullable=False, default="once")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    created_by = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class CalendarReminderDelivery(db.Model):
+    __tablename__ = "calendar_reminder_deliveries"
+    __table_args__ = (
+        db.UniqueConstraint("reminder_id", "occurrence_at", "stage", "employee_id",
+                            name="uq_reminder_occurrence_recipient_stage"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    reminder_id = db.Column(db.Integer, db.ForeignKey("calendar_reminders.id"), nullable=False)
+    occurrence_at = db.Column(db.DateTime, nullable=False)
+    stage = db.Column(db.String(20), nullable=False)
+    employee_id = db.Column(db.Integer, nullable=False)
+    revision = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    detail = db.Column(db.String(255), nullable=False, default="")
+    attempted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+
 # ------------------ EMPLOYEE ------------------
 class Employee(db.Model, UserMixin):
     __tablename__ = "employees"   # ✅ important para tugma sa foreign keys

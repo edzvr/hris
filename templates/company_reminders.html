@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Company Reminders</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; color:#23352a; }
+        .card { background:white; padding:20px; margin-bottom:18px; border:1px solid #d5dfd8; border-radius:8px; }
+        .scroll { overflow-x:auto; }
+        .calendar { display:grid; grid-template-columns:repeat(7,minmax(120px,1fr)); min-width:840px; }
+        .day { border:1px solid #d5dfd8; padding:8px; min-height:110px; }
+        .outside { background:#eee; }
+        .event { background:#e4efe5; padding:8px; overflow-wrap:anywhere; margin:6px 0; }
+        .event p { white-space:pre-wrap; }
+        a, button, input { min-height:44px; padding:8px; box-sizing:border-box; }
+        table { border-collapse:collapse; width:100%; }
+        td, th { text-align:left; padding:10px; border:1px solid #d5dfd8; }
+        .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+        .warning { color:#8b3600; }
+    </style>
+</head>
+<body>
+<main>
+    <header class="card">
+        <h1>Company Reminders — {{ month.strftime('%B %Y') }}</h1>
+        <p>Philippine time. {% if is_admin %}All companies; admin-only editing.{% else %}Only your assigned company's reminders are visible.{% endif %}</p>
+        {% for category, message in get_flashed_messages(with_categories=true) %}<p role="alert">{{ message }}</p>{% endfor %}
+        <div class="actions">
+            <a href="{{ url_for('company_reminders', month=previous) }}">Previous month</a>
+            <a href="{{ url_for('company_reminders') }}">Today</a>
+            <a href="{{ url_for('company_reminders', month=next_month) }}">Next month</a>
+            {% if is_admin %}<a href="{{ url_for('company_reminder_edit') }}">Add reminder</a>{% endif %}
+        </div>
+        <form method="get">
+            <label>Month <input type="month" name="month" value="{{ month.strftime('%Y-%m') }}" min="1901-01" max="9998-12" required></label>
+            <button type="submit">Go</button>
+        </form>
+    </header>
+    <section class="card">
+        <h2>Reminder calendar</h2>
+        <div class="scroll" tabindex="0" role="region" aria-label="Company reminder calendar">
+            <div class="calendar">
+                {% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<strong>{{ day }}</strong>{% endfor %}
+                {% for week in weeks %}{% for day in week %}
+                <section class="day{% if day.month != month.month %} outside{% endif %}" aria-label="{{ day.isoformat() }}">
+                    <time datetime="{{ day.isoformat() }}">{{ day.day }}</time>
+                    {% for event in events.get(day, []) %}
+                    <div class="event">
+                        <strong>{{ event.at.strftime('%I:%M %p') }} — {{ event.reminder.title }}</strong>
+                        {% if is_admin %}<p>{{ event.reminder.company }}</p>{% endif %}
+                        <p>{{ event.reminder.notes }}</p>
+                        {% if is_admin %}<a href="{{ url_for('company_reminder_edit', reminder_id=event.reminder.id) }}">Edit reminder</a>{% endif %}
+                    </div>
+                    {% endfor %}
+                </section>
+                {% endfor %}{% endfor %}
+            </div>
+        </div>
+    </section>
+    {% if is_admin %}
+    <section class="card">
+        <h2>All schedules</h2>
+        <p>Editing updates future sends. Already queued/accepted emails cannot be recalled.
+            Each employee gets at most one attempt per occurrence and stage, even after edits.
+            Company staff and all admins receive separate emails; recipient addresses are not shared.</p>
+        {% for reminder in reminders %}
+        <article class="card">
+            <h3>{{ reminder.title }} — {{ reminder.company }}</h3>
+            <p>{{ 'Active' if reminder.active else 'Cancelled' }} /
+                {{ 'Monthly' if reminder.recurrence == 'monthly' else 'One-time' }} /
+                starts {{ local_time(reminder.scheduled_at).strftime('%Y-%m-%d %I:%M %p') }} PHT</p>
+            <div class="actions">
+                <a href="{{ url_for('company_reminder_edit', reminder_id=reminder.id) }}">Edit / reschedule</a>
+                {% if reminder.active %}
+                <form method="post" action="{{ url_for('company_reminder_cancel', reminder_id=reminder.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="revision" value="{{ reminder.revision }}">
+                    <button type="submit">Cancel reminder</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}<p>No reminders have been created.</p>{% endfor %}
+    </section>
+    <section class="card">
+        <h2>Email delivery status (latest 100 attempts)</h2>
+        {% if not email_worker_enabled %}
+        <p class="warning" role="alert">Reminder email worker is disabled or not running in this instance.
+            Calendar reminders remain visible, but scheduled emails are not being processed here.</p>
+        {% endif %}
+        <p>Emails are checked every minute: one day before and at the scheduled time. Monthly dates beyond
+            the month's length use its last day. New/edited schedules do not send stages whose trigger has
+            already passed. After downtime, eligible sends catch up for up to 24 hours; older missed stages
+            are not sent. Local email-disabled runs do not send.</p>
+        <p class="warning">Accepted means the provider accepted the email, not confirmed inbox delivery.
+            Unconfirmed (including missing email, failure, or an interrupted send) is not retried automatically
+            to avoid duplicate emails. Check employee email and provider logs; create a separately titled
+            follow-up reminder if needed. Historical attempts remain unchanged.</p>
+        <div class="scroll" tabindex="0" role="region" aria-label="Reminder email attempts">
+            <table><tr><th>Reminder ID</th><th>Employee ID</th><th>Occurrence (PHT)</th><th>Stage</th><th>Status</th><th>Detail</th></tr>
+                {% for delivery in deliveries %}
+                <tr><td>{{ delivery.reminder_id }}</td><td>{{ delivery.employee_id }}</td>
+                    <td>{{ local_time(delivery.occurrence_at).strftime('%Y-%m-%d %I:%M %p') }}</td>
+                    <td>{{ delivery.stage|replace('_',' ') }}</td><td>{{ delivery.status }}</td><td>{{ delivery.detail }}</td></tr>
+                {% else %}<tr><td colspan="6">No email attempts yet.</td></tr>{% endfor %}
+            </table>
+        </div>
+    </section>
+    {% endif %}
+    <a href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a>
+</main>
+</body>
+</html>

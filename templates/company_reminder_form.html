@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ 'Edit' if reminder and reminder.id else 'Add' }} Company Reminder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family:Arial,sans-serif; background:#f4f7f6; padding:20px; }
+        main { max-width:700px; margin:auto; padding:24px; background:white; border-radius:8px; }
+        label { display:grid; gap:8px; margin:18px 0; } input, select, textarea, button { padding:10px; min-height:44px; box-sizing:border-box; width:100%; }
+        textarea { min-height:120px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>{{ 'Edit' if reminder and reminder.id else 'Add' }} Company Reminder</h1>
+    {% for category, message in get_flashed_messages(with_categories=true) %}<p role="alert">{{ message }}</p>{% endfor %}
+    <p>Visible to the selected company's staff and all admins. Emails: one day before and at the scheduled
+        Philippine time. Monthly reminders keep the original day/time, clamping to month-end when needed.</p>
+    <p>New/edited reminders skip any email trigger already passed. Already queued or accepted emails cannot
+        be recalled; editing does not resend a previously attempted occurrence/stage.</p>
+    {% if reminder and not reminder.active %}<p role="alert">This reminder is cancelled. Saving will reactivate it.</p>{% endif %}
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ reminder.revision if reminder and reminder.id else '' }}">
+        <label>Title <input name="title" maxlength="150" value="{{ values.get('title', reminder.title if reminder else '') }}" required></label>
+        <label>Company
+            <select name="company" required>
+                {% for company in companies %}<option{% if values.get('company', reminder.company if reminder else '') == company %} selected{% endif %}>{{ company }}</option>{% endfor %}
+            </select>
+        </label>
+        <label>Date and time (Philippine time)
+            <input type="datetime-local" name="scheduled_at" value="{{ values.get('scheduled_at', local_time(reminder.scheduled_at).strftime('%Y-%m-%dT%H:%M') if reminder and reminder.scheduled_at else '') }}" required>
+        </label>
+        <label>Repeat
+            <select name="recurrence">
+                <option value="once"{% if values.get('recurrence', reminder.recurrence if reminder else 'once') == 'once' %} selected{% endif %}>One-time</option>
+                <option value="monthly"{% if values.get('recurrence', reminder.recurrence if reminder else 'once') == 'monthly' %} selected{% endif %}>Monthly until cancelled</option>
+            </select>
+        </label>
+        <label>Notes <textarea name="notes" maxlength="5000">{{ values.get('notes', reminder.notes if reminder else '') }}</textarea></label>
+        <button type="submit">Save reminder</button>
+    </form>
+    <p><a href="{{ url_for('company_reminders') }}">Cancel / Back to Reminders</a></p>
+</main>
+</body>
+</html>
