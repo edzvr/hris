@@ -208,6 +208,7 @@ def test_dashboard_preview_portal_and_validations(people):
     assert "Duplicate SSS number shared with Juan Remit" in body
     assert "Missing PhilHealth number" in body
     assert "Missing payroll data" in body
+    assert body.index("Employer Payment Monitor") < body.index("<h3>Contribution Reminders")
 
     preview = client.get("/admin/government-contributions/preview?month=2026-10&employee_id=%d" % people["worker"])
     text = preview.get_data(as_text=True)
@@ -215,6 +216,7 @@ def test_dashboard_preview_portal_and_validations(people):
     assert "₱14,028.75" in text and "₱350.72" in text and "TRUE COST TO COMPANY" in text
     assert "<h4>Pedro Twin" not in text
     assert "Duplicate SSS number shared with Pedro Twin" in text
+    assert text.index("TRUE COST TO COMPANY") < text.index("<h3>Contribution Reminders")
 
     portal = client.get("/admin/government-contributions/portal?month=2026-10&company=Trece-Uno")
     text = portal.get_data(as_text=True)
@@ -228,6 +230,9 @@ def test_dashboard_preview_portal_and_validations(people):
     assert "monthly compensation and SSS number" in text
     assert "Daily-paid MBS / EMR rule" in text
     assert "agency-generated payment amount as the final payable" in text
+    assert text.index("TOTAL TO PAY IN PORTALS") < text.index("Reminders &amp; Portal Payment Instructions")
+    assert text.index("Download CSV") < text.index("SSS &mdash; PRN and e-CL")
+    assert text.index("TOTAL TO PAY IN PORTALS") < text.index("<h3>Contribution Reminders")
     assert "Pedro Twin" not in text
 
     selected_portal = client.get(

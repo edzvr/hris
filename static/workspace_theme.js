@@ -33,4 +33,21 @@
   window.applyWorkspaceTheme = applyWorkspaceTheme;
   window.applyWorkspaceAccent = applyWorkspaceTheme;
   window.workspaceThemeButtonColor = () => defaultTheme.button;
+  const settingsKey = document.body.classList.contains('hris-admin-sidebar-page')
+    ? 'hrisAdminSettings' : 'hrisStaffDashboardSettings';
+  let savedColor = null;
+  try {
+    const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+    savedColor = settings && settings.buttonColor;
+    if (savedColor && !/^#[0-9a-f]{6}$/i.test(savedColor)) {
+      throw new Error('Invalid saved workspace accent color');
+    }
+  } catch (error) {
+    console.error('Could not restore saved workspace color:', error);
+    savedColor = null;
+  }
+  const customColor = savedColor
+    && !['#2563eb', defaultTheme.button.toLowerCase()].includes(savedColor.toLowerCase())
+    ? savedColor : null;
+  applyWorkspaceTheme(customColor);
 })();

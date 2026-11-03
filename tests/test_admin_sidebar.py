@@ -127,6 +127,18 @@ def test_workspace_theme_follows_each_staff_and_admin_company():
     assert 'document.body.dataset.companyTheme = "trece-uno"' in trece_admin
 
 
+def test_workspace_theme_loader_is_included_on_other_routes():
+    for role, path in (
+        ('admin', '/admin/government-contributions/portal'),
+        ('admin', '/payroll_dashboard'),
+        ('staff', '/attendance/123'),
+    ):
+        html = navigation_response(role, path)
+        assert html.count('src="/static/workspace_theme.js"') == 1
+        assert html.index('document.body.dataset.companyTheme') < html.index('src="/static/workspace_theme.js"')
+        assert "const storedAccent" not in html
+
+
 def test_login_and_non_html_do_not_receive_admin_sidebar():
     user = SimpleNamespace(id=123, role="admin", is_authenticated=True)
     for path, mimetype in (("/login", "text/html"), ("/dashboard_admin", "application/json")):

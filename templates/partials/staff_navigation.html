@@ -91,9 +91,5 @@
     openSettings();
     const sizes = { small:'14px', medium:'16px', large:'18px' };
     document.body.style.setProperty('--hris-topbar-font-size', sizes[localStorage.getItem('hrisTopbarSize')] || '16px');
-    const dashboardSettings = JSON.parse(localStorage.getItem('hrisStaffDashboardSettings') || '{}');
-    const storedAccent = dashboardSettings.buttonColor;
-    const customAccent = storedAccent && storedAccent.toLowerCase() !== '#2563eb' ? storedAccent : null;
-    applyWorkspaceTheme(customAccent);
   })();
 </script>

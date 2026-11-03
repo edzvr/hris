@@ -122,19 +122,6 @@
 {% set portal = data.portal %}
 {% set labor = data.labor %}
 
-<section class="section">
-    <div class="warning">
-        <strong>PhilHealth uses EMR (Equivalent Monthly Rate).</strong>
-        Absences, undertime, tardiness, and leave without pay do not reduce the PhilHealth Monthly Basic Salary.
-        Actual earnings may differ from the PhilHealth contribution basis.
-    </div>
-    <p class="muted">
-        Rules effective {{ data.setting.effective_month.strftime('%B %Y') }}. Source: {{ data.setting.source_reference or 'Not recorded' }}.
-        Payroll cutoffs this month: {% for item in data.cutoff_dates %}{{ item.strftime('%b %d') }}{{ ', ' if not loop.last }}{% endfor %}.
-        {% if data.legacy_month %}<br><strong>Note:</strong> payroll for this month was deducted under the old calculation; amounts below are the official-rate recomputation for reference only.{% endif %}
-    </p>
-</section>
-
 {% if view == 'dashboard' %}
 <section class="section">
     <h3>Labor Cost Dashboard &mdash; {{ month.strftime('%B %Y') }}</h3>
@@ -296,6 +283,23 @@
 {% if view == 'portal' %}
 <section class="section">
     <h3>Monthly Government Dues Guide &mdash; {{ month.strftime('%B %Y') }}</h3>
+    {% for label, totals in portal.companies.items() %}
+    {% include 'partials/government_portal_totals.html' %}
+    {% endfor %}
+    {% if portal.companies|length > 1 %}
+    {% set label = 'OVERALL GOVERNMENT REMITTANCE (all employers)' %}
+    {% set totals = portal.overall %}
+    {% include 'partials/government_portal_totals.html' %}
+    {% endif %}
+    {% if not data.rows %}<p>No employees with attendance or payroll for this month.</p>{% endif %}
+    <p>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='pdf', **q) }}">Download PDF</a>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='xlsx', **q) }}">Download Excel</a>
+        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='csv', **q) }}">Download CSV</a>
+    </p>
+</section>
+<section class="section">
+    <h3>Reminders &amp; Portal Payment Instructions</h3>
     <p class="muted">Pay each employer's amounts under that employer's own SSS / PhilHealth / Pag-IBIG employer number. Totals are computed from the configured rates and attendance; saved payslips are not changed.</p>
     <div class="warning">
         <strong>Use the agency-generated payment amount as the final payable.</strong>
@@ -343,22 +347,21 @@
             <div class="agency-source"><a href="https://www.pagibigfund.gov.ph/" target="_blank" rel="noopener noreferrer">Official Pag-IBIG Fund site &mdash; Online Services for Employers</a></div>
         </article>
     </div>
-    {% for label, totals in portal.companies.items() %}
-    {% include 'partials/government_portal_totals.html' %}
-    {% endfor %}
-    {% if portal.companies|length > 1 %}
-    {% set label = 'OVERALL GOVERNMENT REMITTANCE (all employers)' %}
-    {% set totals = portal.overall %}
-    {% include 'partials/government_portal_totals.html' %}
-    {% endif %}
-    {% if not data.rows %}<p>No employees with attendance or payroll for this month.</p>{% endif %}
-    <p>
-        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='pdf', **q) }}">Download PDF</a>
-        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='xlsx', **q) }}">Download Excel</a>
-        <a class="btn light" href="{{ url_for('government_contribution_export', report='payment', format='csv', **q) }}">Download CSV</a>
-    </p>
 </section>
 {% endif %}
+<section class="section">
+    <h3>Contribution Reminders</h3>
+    <div class="warning">
+        <strong>PhilHealth uses EMR (Equivalent Monthly Rate).</strong>
+        Absences, undertime, tardiness, and leave without pay do not reduce the PhilHealth Monthly Basic Salary.
+        Actual earnings may differ from the PhilHealth contribution basis.
+    </div>
+    <p class="muted">
+        Rules effective {{ data.setting.effective_month.strftime('%B %Y') }}. Source: {{ data.setting.source_reference or 'Not recorded' }}.
+        Payroll cutoffs this month: {% for item in data.cutoff_dates %}{{ item.strftime('%b %d') }}{{ ', ' if not loop.last }}{% endfor %}.
+        {% if data.legacy_month %}<br><strong>Note:</strong> payroll for this month was deducted under the old calculation; amounts above are the official-rate recomputation for reference only.{% endif %}
+    </p>
+</section>
 {% endif %}
 </body>
 </html>
