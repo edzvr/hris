@@ -196,7 +196,7 @@ def test_weekly_payslip_table_is_itemized():
         "Basic Pay", "Other Earnings / Adjustment", "Rest Day Pay",
         "Special Holiday Pay", "Regular Holiday Pay", "Regular OT",
         "De Minimis", "Rest Day OT",
-        "Late/Undertime/Half-day", "SSS", "PhilHealth", "Pag-IBIG",
+        "Attendance reduction*", "SSS", "PhilHealth", "Pag-IBIG",
         "SSS Loan", "Pag-IBIG Loan",
         "Withholding Tax", "Company Loan", "GROSS PAY", "NET PAY",
     } <= labels
@@ -250,7 +250,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
     assert ["GROSS PAY", "", "4,823.81", "TOTAL DEDUCTIONS", "", "0.00"] in rows
 
 
-def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
+def test_weekly_payslip_marks_half_day_reduction_as_already_in_basic_pay():
     payslip = {
         key: 0.0 for key in (
             "basic_pay", "allowance", "incentives", "rest_day_pay",
@@ -272,10 +272,10 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
     payslip.update({
         "actual_worked_days": 2,
         "basic_hours": 12,
-        "basic_pay": 1200,
+        "basic_pay": 900,
         "late_ut_hours": 4,
         "late_ut": 300,
-        "payslip_adjustment": -300,
+        "payslip_adjustment": 0,
         "rice_allowance": 190,
         "rice_allowance_per_day": 95,
         "rice_allowance_exempt": 190,
@@ -287,11 +287,11 @@ def test_weekly_payslip_keeps_half_day_deduction_separate_from_basic_pay():
     rows = weekly_payslip_table_data(payslip)
 
     assert [
-        "Basic Pay", "2 / 12.00", "1,200.00",
-        "Late/Undertime/Half-day", "4.00 hrs", "300.00",
+        "Basic Pay", "2 / 12.00", "900.00",
+        "Attendance reduction*", "4.00 hrs", "Included in earnings",
     ] in rows
     assert [
-        "Other Earnings / Adjustment", "", "-300.00",
+        "Other Earnings / Adjustment", "", "0.00",
         "Other Deductions", "", "0.00",
     ] in rows
     assert ["De Minimis", "", "190.00", "SSS", "", "0.00"] in rows

@@ -76,7 +76,7 @@
             <tr>
                 <td style="padding: 6px 0; font-weight: 700;">Position:</td>
                 <td style="padding: 6px 0;">{{ emp.job_description or 'N/A' }}</td>
-                <td style="padding: 6px 0; font-weight: 700;">Daily Rate:</td>
+                <td style="padding: 6px 0; font-weight: 700;">Current Daily Rate:</td>
                 <td style="padding: 6px 0;">₱{{ "%.2f"|format(emp.daily_rate or 0) }}</td>
             </tr>
         </table>
@@ -189,6 +189,25 @@
 <div class="section">
     <h3>Detailed Payslip</h3>
     {% if can_manage_payroll %}
+    <p><a href="{{ url_for('recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Preview Draft Recalculation</a> (unpaid payroll only; approval required)</p>
+    {% endif %}
+    {% if payslip.legacy %}
+    {% include 'payroll_legacy_summary.html' %}
+    {% if can_manage_payroll and loan_editable %}
+    <form method="post">
+        <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+        <input type="hidden" name="save_payroll" value="1">
+        <label>Company loan <input name="loan_deduction" type="number" step="0.01" min="0" value="{{ payroll_record.loan or 0 }}"></label>
+        <label>SSS loan <input name="sss_loan" type="number" step="0.01" min="0" value="{{ payroll_record.sss_loan or 0 }}"></label>
+        <label>Pag-IBIG loan <input name="pagibig_loan" type="number" step="0.01" min="0" value="{{ payroll_record.pagibig_loan or 0 }}"></label>
+        <button type="submit">Save Inputs & Preview Recalculation</button>
+    </form>
+    {% elif can_manage_payroll %}
+    <p>Reopen this finalized payroll to edit and save deductions.</p>
+    {% endif %}
+    {% else %}
+    <p>Attendance reductions are already reflected in hours-adjusted earnings, not deducted again.</p>
+    {% if can_manage_payroll %}
     <form method="POST" action="{{ url_for('payroll', employee_id=emp.id) }}">
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
         <input type="hidden" name="save_payroll" value="1">
@@ -210,9 +229,9 @@
             <td>Basic Pay</td>
             <td>{{ payslip.actual_worked_days }} days / {{ "%.2f"|format(payslip.basic_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.basic_pay) }}</td>
-            <td>Late / Undertime / Half-day</td>
+            <td>Attendance reduction (already in earnings; informational)</td>
             <td>{{ "%.2f"|format(payslip.late_ut_hours) }} hrs</td>
-            <td>₱{{ "%.2f"|format(payslip.late_ut) }}</td>
+            <td>Included in earnings ({{ "%.2f"|format(payslip.late_ut) }} informational)</td>
         </tr>
         <tr>
             <td>
@@ -413,6 +432,7 @@
         <li>{{ issue.date.strftime('%Y-%m-%d') }} — {{ issue.issues|join(', ') }}</li>
         {% endfor %}
     </ul>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Draft Payroll Recalculation</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}"></head>
+<body><main>
+<h1>Draft Payroll Recalculation Preview</h1>
+<h2>{{ emp.full_name() }} - {{ cutoff_start }}</h2>
+{% for category, message in get_flashed_messages(with_categories=true) %}
+<p role="alert">{{ message }}</p>
+{% endfor %}
+<p>No recalculated totals have been saved. Preview expires in 10 minutes.
+Changes to payroll, attendance or calculation inputs require a new preview.</p>
+{% if original %}
+<p>Saved totals: Gross Income {{ original.gross_income|currency }},
+    Deductions {{ original.total_deductions|currency }}, Net {{ original.net_pay|currency }}.</p>
+{% else %}<p>No saved payroll exists for this cutoff.</p>{% endif %}
+<p>Proposed: Gross Income {{ projected.gross_income|currency }},
+    Deductions {{ projected.total_deductions|currency }}, Net {{ projected.net_pay|currency }}.</p>
+<table>{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</table>
+<form method="post">
+<input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label><input type="checkbox" name="approved" value="yes" required>
+I approve replacing this unpaid draft's totals with this preview and saving its itemized snapshot.
+This does not finalize payroll or deduct loan/liability balances.</label>
+<button type="submit">Approve and Save Draft</button>
+</form>
+<a href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Cancel / Back to Payroll</a>
+</main></body></html>

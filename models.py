@@ -454,6 +454,7 @@ class Payroll(db.Model):
     confirmation_status = db.Column(db.String(30), nullable=True)
     confirmation_note = db.Column(db.Text, nullable=True)
     confirmed_at = db.Column(db.DateTime, nullable=True)
+    payslip_snapshot = db.Column(db.Text, nullable=True)
 
 
 class EmployeeLiability(db.Model):

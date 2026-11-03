@@ -201,8 +201,12 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
         end_time=datetime(2026, 10, 5, 21, 0).time(),
     )
 
+    employee.full_name = lambda: "Test Staff"
+    employee.job_description = None
+    payroll_record.other_deductions = 0
     with (
         app.app_context(),
+        patch("hris.payroll_attendance_records", return_value=attendance_records),
         patch("hris.Attendance.query") as attendance_query,
         patch("hris.OTApplication.query") as applications,
         patch("hris.Holiday.query") as holidays,
@@ -213,9 +217,8 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
             application, application, application,
         ]
         holidays.filter_by.return_value.first.return_value = None
-        payslip = build_payslip_breakdown(
-            employee, payroll_record, worked_days_count=6
-        )
+        from hris import calculate_payslip_breakdown
+        payslip = calculate_payslip_breakdown(employee, payroll_record)
 
     assert payslip["basic_pay"] == 3600
     assert payslip["basic_hours"] == 48
@@ -230,7 +233,7 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
     assert payslip["adjustment"] == 0
 
 
-def test_payslip_shows_halfday_as_separate_deduction_and_includes_rice_subsidy():
+def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy():
     employee = SimpleNamespace(
         id=5,
         company="Trece-Uno",
@@ -284,18 +287,23 @@ def test_payslip_shows_halfday_as_separate_deduction_and_includes_rice_subsidy()
         cash_advance=0,
     )
 
+    employee.full_name = lambda: "Test Staff"
+    employee.job_description = None
+    payroll_record.other_deductions = 0
     with (
         app.app_context(),
+        patch("hris.payroll_attendance_records", return_value=attendance_records),
         patch("hris.Attendance.query") as attendance_query,
         patch("hris.Holiday.query") as holidays,
     ):
         attendance_query.filter.return_value.all.return_value = attendance_records
         holidays.filter_by.return_value.first.return_value = None
-        payslip = build_payslip_breakdown(employee, payroll_record)
+        from hris import calculate_payslip_breakdown
+        payslip = calculate_payslip_breakdown(employee, payroll_record)
 
     assert payslip["actual_worked_days"] == 2
     assert payslip["basic_hours"] == 12
-    assert payslip["basic_pay"] == 1200
+    assert payslip["basic_pay"] == 900
     assert payslip["late_ut_hours"] == 4
     assert payslip["late_ut"] == 300
     assert payslip["rice_allowance_per_day"] == 95
@@ -730,7 +738,7 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
     payroll_record = SimpleNamespace(
         cutoff_start=date(2026, 9, 12),
         cutoff_end=date(2026, 9, 18),
-        gross_income=3853.5,
+        gross_income=4233.75,
         sss=0,
         philhealth=0,
         pagibig=0,
@@ -739,15 +747,19 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
         liability_deduction=0,
         cash_advance=0,
         total_deductions=0,
-        net_pay=3853.5,
+        net_pay=4233.75,
     )
 
     application = SimpleNamespace(
         start_time=datetime(2026, 9, 13, 17, 0).time(),
         end_time=datetime(2026, 9, 13, 19, 30).time(),
     )
+    employee.full_name = lambda: "Test Staff"
+    employee.job_description = None
+    payroll_record.other_deductions = 0
     with (
         app.app_context(),
+        patch("hris.payroll_attendance_records", return_value=[attendance, *weekday_attendances]),
         patch("hris.Attendance.query") as attendance_query,
         patch("hris.OTApplication.query") as applications,
         patch("hris.Holiday.query") as holidays,
@@ -756,13 +768,8 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
         applications.filter_by.return_value.first.return_value = application
         attendance_query.filter.return_value.all.return_value = [attendance, *weekday_attendances]
         holidays.filter_by.return_value.first.return_value = None
-        payslip = build_payslip_breakdown(
-            employee,
-            payroll_record,
-            worked_days_count=payroll_worked_days_count(
-                employee, [attendance, *weekday_attendances]
-            ),
-        )
+        from hris import calculate_payslip_breakdown
+        payslip = calculate_payslip_breakdown(employee, payroll_record)
 
     assert payslip["rest_day_pay"] == 633.75
     assert payslip["rest_day_hours"] == 6.5

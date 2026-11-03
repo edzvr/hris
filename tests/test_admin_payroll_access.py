@@ -208,7 +208,7 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         assert b'name="loan_deduction"' in response.data
         assert b'name="sss_loan"' in response.data
         assert b'name="pagibig_loan"' in response.data
-        assert b'Save & Recalculate Payroll' in response.data
+        assert b'Save Inputs & Preview Recalculation' in response.data
 
         response = client.post(
             f'/payroll/{staff_id}',
@@ -222,6 +222,14 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
             follow_redirects=True,
         )
         assert response.status_code == 200
+        assert b'Draft Payroll Recalculation Preview' in response.data
+        with client.session_transaction() as session:
+            token = session['payroll_recalculation_csrf']
+        response = client.post(
+            f'/payroll/{staff_id}/recalculate',
+            data={'cutoff_start': cutoff_start.isoformat(), 'csrf_token': token, 'approved': 'yes'},
+        )
+        assert response.status_code == 302
         with app.app_context():
             payroll = db.session.get(Payroll, payroll_id)
             assert payroll.loan == 300
@@ -231,8 +239,9 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
             assert payroll.net_pay == -345
             assert payroll.is_paid is False
 
-        response = client.get(
-            f'/payroll/{staff_id}?finalize=true&cutoff_start={cutoff_start.isoformat()}'
+        response = client.post(
+            f'/payroll/{staff_id}/finalize',
+            data={'cutoff_start': cutoff_start.isoformat()}, follow_redirects=True,
         )
         assert response.status_code == 200
         assert b'name="loan_deduction"' not in response.data
@@ -259,6 +268,12 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
                 'loan_deduction': '450',
             },
             follow_redirects=True,
+        )
+        with client.session_transaction() as session:
+            token = session['payroll_recalculation_csrf']
+        client.post(
+            f'/payroll/{staff_id}/recalculate',
+            data={'cutoff_start': cutoff_start.isoformat(), 'csrf_token': token, 'approved': 'yes'},
         )
         with app.app_context():
             payroll = db.session.get(Payroll, payroll_id)

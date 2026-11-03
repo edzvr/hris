@@ -1,0 +1,8 @@
+<div role="alert">
+    <strong>{{ payslip.warning }}</strong>
+    <p>Saved Gross Income: {{ payslip.gross_income|currency }}</p>
+    <p>Saved Total Deductions: {{ payslip.total_deductions|currency }}</p>
+    <p>Saved Net Pay: {{ payslip.net_pay|currency }}</p>
+    <p>Historical exempt benefits and itemized earnings were not fully stored.
+        No balancing adjustment or current attendance calculation is presented as historical fact.</p>
+</div>

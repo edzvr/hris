@@ -848,6 +848,8 @@ def ensure_evaluation_tracking_columns():
 def ensure_payroll_columns():
     payroll_columns = {column["name"] for column in inspect(db.engine).get_columns("payrolls")}
     statements = []
+    if "payslip_snapshot" not in payroll_columns:
+        statements.append("ALTER TABLE payrolls ADD COLUMN payslip_snapshot TEXT")
     if "withholding_tax" not in payroll_columns:
         statements.append("ALTER TABLE payrolls ADD COLUMN withholding_tax FLOAT DEFAULT 0")
     if "withholding_tax_override" not in payroll_columns:
@@ -7247,20 +7249,42 @@ def de_minimis_allowance_breakdown(
 
 
 def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_pay=0.0):
+    if payroll_record.payslip_snapshot:
+        data = json.loads(payroll_record.payslip_snapshot)
+        if data.get('snapshot_version') != 1:
+            raise ValueError('Unsupported payslip snapshot version.')
+        for issue in data['attendance_issues']:
+            issue['date'] = date.fromisoformat(issue['date'])
+        data['employee'] = emp
+        return data
+    if payroll_record.id is not None:
+        # Legacy totals are authoritative; missing historical earnings cannot be reconstructed.
+        return {
+            'employee': emp,
+            'legacy': True,
+            'warning': 'Legacy payroll: complete historical breakdown was not recorded. '
+                       'Saved totals are preserved; current attendance/rates are not substituted.',
+            'gross_income': float(payroll_record.gross_income or 0),
+            'total_deductions': float(payroll_record.total_deductions or 0),
+            'net_pay': float(payroll_record.net_pay or 0),
+            'attendance_issues': [],
+        }
+    return calculate_payslip_breakdown(emp, payroll_record)
+
+
+def calculate_payslip_breakdown(emp, payroll_record):
     """Return an itemized weekly payslip that reconciles to the payroll record."""
-    cutoff_attendance = Attendance.query.filter(
+    duplicate_date = db.session.query(Attendance.date).filter(
         Attendance.employee_id == emp.id,
         Attendance.date >= payroll_record.cutoff_start,
         Attendance.date <= payroll_record.cutoff_end,
-    ).order_by(Attendance.date).all()
-    attendance_records = Attendance.query.filter(
-        Attendance.employee_id == emp.id,
-        Attendance.date >= payroll_record.cutoff_start,
-        Attendance.date <= payroll_record.cutoff_end,
-        Attendance.clock_out != None
-    ).all()
-    if not worked_days_count:
-        worked_days_count = payroll_worked_days_count(emp, attendance_records)
+    ).group_by(Attendance.date).having(db.func.count(Attendance.id) > 1).first()
+    if duplicate_date:
+        raise ValueError('Reconcile duplicate attendance before recalculating payroll.')
+    attendance_records = payroll_attendance_records(
+        emp, payroll_record.cutoff_start, payroll_record.cutoff_end + timedelta(days=1)
+    )
+    worked_days_count = payroll_worked_days_count(emp, attendance_records)
 
     attendance_issues = attendance_issue_rows(
         emp, payroll_record.cutoff_start, payroll_record.cutoff_end
@@ -7292,19 +7316,19 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         shortfall_hours = max(8.0 - attendance_hours, 0.0)
         trece_sunday = is_trece_sunday(emp, attendance.date)
         if holiday and holiday.holiday_type == "Regular Holiday":
-            regular_holiday += full_day_pay
+            regular_holiday += day_pay
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         elif holiday:
-            special_holiday += full_day_pay
+            special_holiday += day_pay
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         elif attendance.date.weekday() == 6 and not trece_sunday:
-            rest_day_pay += full_day_pay
+            rest_day_pay += day_pay
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         else:
-            basic_pay += full_day_pay
+            basic_pay += day_pay
             if not trece_sunday:
                 basic_hours += attendance_hours
                 late_ut += daily_shortfall
@@ -7333,9 +7357,6 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         overtime_hours[key] += hours
 
     calculated_overtime_pay = sum(overtime_amounts.values())
-    if overtime_pay and not calculated_overtime_pay and not rest_day_pay:
-        overtime_amounts["regular_overtime"] = float(overtime_pay)
-        calculated_overtime_pay = float(overtime_pay)
 
     gross_income = float(payroll_record.gross_income or 0)
     sss = float(payroll_record.sss or 0)
@@ -7375,24 +7396,36 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         + night_differential
     )
     gross_pay = round(gross_income + rice_exempt, 2)
-    adjustment = round(gross_pay - (itemized_earnings - late_ut), 2)
+    adjustment = 0.0
+    if abs(round(gross_pay - itemized_earnings, 2)) > 0.01:
+        raise ValueError('Calculated earnings do not reconcile to payroll totals.')
     known_deductions = (
-        late_ut + sss + philhealth + pagibig + company_loan + sss_loan
+        sss + philhealth + pagibig + company_loan + sss_loan
         + pagibig_loan + liability_deduction + cash_advance + withholding_tax
     )
     total_deductions = float(
         payroll_record.total_deductions
         if payroll_record.total_deductions is not None
-        else max(known_deductions - late_ut, 0.0)
+        else known_deductions + float(payroll_record.other_deductions or 0)
     )
-    other_deductions = max(round(total_deductions - known_deductions, 2), 0.0)
+    other_deductions = float(payroll_record.other_deductions or 0)
+    if abs(round(total_deductions - known_deductions - other_deductions, 2)) > 0.01:
+        raise ValueError('Calculated deductions do not reconcile to payroll totals.')
     net_pay = float(
         payroll_record.net_pay
         if payroll_record.net_pay is not None
         else gross_pay - total_deductions
     )
 
+    if abs(round(gross_pay - total_deductions - net_pay, 2)) > 0.01:
+        raise ValueError('Calculated gross, deductions and net pay do not reconcile.')
     return {
+        "snapshot_version": 1,
+        "legacy": False,
+        "daily_rate": daily_rate,
+        "company": emp.company,
+        "employee_name": emp.full_name(),
+        "job_description": emp.job_description,
         "employee": emp,
         "actual_worked_days": worked_days_count,
         "attendance_issues": attendance_issues,
@@ -7408,7 +7441,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         "incentives": incentives,
         "adjustment": adjustment,
         "payslip_adjustment": round(
-            adjustment + allowance + incentives + sunday_overtime - late_ut, 2
+            allowance + incentives + sunday_overtime, 2
         ),
         "night_differential": night_differential,
         "regular_overtime": regular_overtime,
@@ -7445,10 +7478,18 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
 
 def weekly_payslip_table_data(payslip):
     """Return the shared earnings and deductions rows for weekly payslip PDFs."""
+    if payslip.get('legacy'):
+        return [
+            ['LEGACY PAYROLL', '', '', 'Saved totals only', '', ''],
+            ['Breakdown not recorded', '', '', 'No reconstruction', '', ''],
+            ['Saved Gross Income', '', f'{payslip["gross_income"]:,.2f}',
+             'Saved Deductions', '', f'{payslip["total_deductions"]:,.2f}'],
+            ['Exempt benefits detail', '', 'Not recorded', 'Saved Net Pay', '', f'{payslip["net_pay"]:,.2f}'],
+        ]
     amount = lambda key: f"{payslip[key]:,.2f}"
     return [
         ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
-        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Late/Undertime/Half-day", f'{payslip["late_ut_hours"]:.2f} hrs', amount("late_ut")],
+        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Attendance reduction*", f'{payslip["late_ut_hours"]:.2f} hrs', "Included in earnings"],
         ["De Minimis", "", amount("rice_allowance"), "SSS", "", amount("sss")],
         ["Rest Day Pay", "", amount("rest_day_pay"), "PhilHealth", "", amount("philhealth")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Pag-IBIG", "", amount("pagibig")],
@@ -7461,6 +7502,7 @@ def weekly_payslip_table_data(payslip):
         ["Other Earnings / Adjustment", "", amount("payslip_adjustment"), "Other Deductions", "", amount("other_deductions")],
         ["GROSS PAY", "", amount("gross_pay"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
         ["", "", "", "NET PAY", "", amount("net_pay")],
+        ["*Already in basic pay", "", "", "Not deducted again", "", ""],
     ]
 
 
@@ -7511,6 +7553,15 @@ def payroll(employee_id):
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
     end_cutoff = start_cutoff + timedelta(days=7)
+
+    cutoff_record_count = Payroll.query.filter_by(
+        employee_id=emp.id, cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1),
+    ).count()
+    if cutoff_record_count > 1:
+        flash('Multiple saved payroll records exist for this cutoff. Review individual history records; editing is blocked.', 'danger')
+        if request.method == 'POST':
+            return redirect(url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start))
 
     if request.method == 'POST':
         # Update payroll fields
@@ -7589,6 +7640,7 @@ def payroll(employee_id):
                 if key == "loan":
                     value = loan_cutoff_deduction(emp.loan_balance, value)
                 setattr(payroll_record, key, value)
+            payroll_record.payslip_snapshot = None
 
         sil_eligible_input = request.form.get('sil_eligible')
         if sil_eligible_input is not None:
@@ -7597,10 +7649,9 @@ def payroll(employee_id):
         db.session.commit()
         if save_payroll:
             return redirect(url_for(
-                'payroll',
+                'recalculate_payroll',
                 employee_id=employee_id,
                 cutoff_start=cutoff_start.isoformat(),
-                save='true',
             ))
         flash("✅ Payroll updated successfully!", "success")
         return redirect(url_for(
@@ -7656,7 +7707,6 @@ def payroll(employee_id):
             else {"sss": 0.0, "sss_ec": 0.0, "philhealth": 0.0, "pagibig": 0.0}
         )
 
-    finalize = request.args.get("finalize") == "true"
     payroll_record = Payroll.query.filter_by(
         employee_id=emp.id,
         cutoff_start=start_cutoff.date(),
@@ -7695,7 +7745,7 @@ def payroll(employee_id):
             cutoff_start=start_cutoff.date(),
             cutoff_end=(end_cutoff - timedelta(days=1)).date()
         )
-    if not payroll_record.is_paid:
+    if payroll_record.id is None:
         save_payroll_snapshot(
             payroll_record,
             calculate_payroll_snapshot(emp, payroll_record, cutoff_start, cutoff_end),
@@ -7704,26 +7754,18 @@ def payroll(employee_id):
     total_deductions = payroll_record.total_deductions
     net_pay = payroll_record.net_pay
     if request.args.get('save') == 'true':
-        if payroll_record.is_paid or payroll_record.loan_deduction_applied:
-            flash(
-                "Reopen this payroll before saving deduction changes.",
-                "warning",
-            )
-        else:
-            if payroll_record.id is None:
-                db.session.add(payroll_record)
-            db.session.commit()
-            flash("Deductions and payroll totals were saved.", "success")
-    if finalize and not payroll_record.is_paid:
-        if payroll_record.id is None:
-            db.session.add(payroll_record)
-        finalize_payroll_record(emp, payroll_record, cutoff_start, cutoff_end)
-        db.session.commit()
+        return redirect(url_for(
+            'recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start
+        ))
+    if request.args.get('finalize') == 'true':
+        flash('Use the explicit Finalize Payroll action; a page visit cannot finalize payroll.', 'warning')
 
     # Verification QR codes require a stable payroll record reference.
     if request.args.get("download") == "true" and payroll_record.id is None:
-        db.session.add(payroll_record)
-        db.session.commit()
+        flash('Preview and save the draft before downloading an official payslip.', 'warning')
+        return redirect(url_for(
+            'recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start
+        ))
 
     payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
     verification = None
@@ -7743,7 +7785,11 @@ def payroll(employee_id):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
 
-    company_display = payroll_company_name(emp)
+    snapshot_company = payslip.get('company', emp.company)
+    company_display = (
+        'TRECE-UNO AUTO SUPPLY' if str(snapshot_company or '').lower().startswith('trece')
+        else 'AUTO-EXPERT AUTO SUPPLY'
+    )
     company_brand = "TRECE-UNO" if company_display.startswith("TRECE") else "AUTO-EXPERT"
 
     # Header
@@ -7753,11 +7799,12 @@ def payroll(employee_id):
     c.drawString(50, 760, "Official Payslip")
 
     c.setFont("Helvetica", 9)
-    c.drawString(50, 730, f"Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})")
+    c.drawString(50, 730, f'Employee: {payslip.get("employee_name", emp.full_name())} (ID: {emp.id})')
     c.drawString(50, 714, f"Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
-    c.drawString(50, 698, f"Position: {emp.job_description or 'N/A'}")
-    c.drawString(300, 714, f"Daily Rate: PHP {float(emp.daily_rate or 0):.2f}")
-    c.drawString(300, 698, f"Department: {emp.company}")
+    c.drawString(50, 698, f'Position: {payslip.get("job_description", emp.job_description) or "N/A"}')
+    rate_label = 'Current rate' if payslip.get('legacy') else 'Snapshot rate'
+    c.drawString(300, 714, f'{rate_label}: PHP {float(payslip.get("daily_rate", emp.daily_rate) or 0):.2f}')
+    c.drawString(300, 698, f"Department: {snapshot_company or 'N/A'}")
     c.drawString(
         50,
         682,
@@ -7843,6 +7890,7 @@ def payroll(employee_id):
          emp=emp,
          history=history,
          payslip=payslip,
+         payroll_record=payroll_record,
             loan_deduction=loan,
          cutoff_start=cutoff_start,
          can_manage_payroll=has_payroll_access,
@@ -7893,6 +7941,8 @@ def monthly_payroll(employee_id):
         pdf.setFont('Helvetica', 10)
         pdf.drawString(50, 750, f'Employee: {emp.first_name} {emp.last_name} (ID: {emp.id})')
         pdf.drawString(50, 735, f'Month: {month_start.strftime("%B %Y")}')
+        pdf.setFont('Helvetica', 8)
+        pdf.drawString(50, 718, 'Saved values; Gross Income excludes exempt benefits. Legacy benefits breakdown may be incomplete.')
         y = 690
         for label, key in [
             ('Gross Income', 'gross_income'),
@@ -7992,11 +8042,125 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
 
 
 def save_payroll_snapshot(record, snapshot):
+    with db.session.no_autoflush:
+        proposed = Payroll(**{
+            column.name: getattr(record, column.name)
+            for column in Payroll.__table__.columns
+            if column.name not in ('id', 'payslip_snapshot')
+        })
+        for field, value in snapshot.items():
+            setattr(proposed, field, value)
+        employee = db.session.get(Employee, record.employee_id)
+        breakdown = calculate_payslip_breakdown(employee, proposed)
+        serializable = {key: value for key, value in breakdown.items() if key != 'employee'}
+        serialized = json.dumps(
+            serializable, default=lambda value: value.isoformat(), allow_nan=False
+        )
     for field, value in snapshot.items():
         setattr(record, field, value)
+    record.payslip_snapshot = serialized
+
+
+def draft_payroll_preview(employee, record, cutoff_start, cutoff_end):
+    projected = Payroll(
+        employee_id=employee.id, cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1),
+    )
+    if record:
+        for column in Payroll.__table__.columns:
+            if column.name not in ('id', 'payslip_snapshot'):
+                setattr(projected, column.name, getattr(record, column.name))
+    snapshot = calculate_payroll_snapshot(employee, projected, cutoff_start, cutoff_end)
+    save_payroll_snapshot(projected, snapshot)
+    original = {
+        column.name: backup_cell_value(getattr(record, column.name))
+        for column in Payroll.__table__.columns
+    } if record else None
+    fingerprint = hashlib.sha256(json.dumps(
+        {'original': original, 'snapshot': snapshot, 'detail': projected.payslip_snapshot},
+        sort_keys=True, allow_nan=False,
+    ).encode()).hexdigest()
+    return projected, snapshot, fingerprint
+
+
+@app.route('/payroll/<int:employee_id>/recalculate', methods=['GET', 'POST'])
+@login_required
+def recalculate_payroll(employee_id):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(employee_id)
+    try:
+        start, end = payroll_cutoff_from_request(request.values.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
+    csrf_token = session.setdefault('payroll_recalculation_csrf', secrets.token_urlsafe(32))
+    if request.method == 'POST':
+        if not secrets.compare_digest(
+            csrf_token.encode(), request.form.get('csrf_token', '').encode()
+        ):
+            abort(400, description='Invalid recalculation form.')
+        lock_attendance_employee(employee.id)
+    records = Payroll.query.filter_by(
+        employee_id=employee.id, cutoff_start=start, cutoff_end=end - timedelta(days=1)
+    ).all()
+    if len(records) > 1:
+        flash('Multiple payroll records exist for this cutoff. Review them separately; no totals were changed.', 'danger')
+        return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=start))
+    record = records[0] if records else None
+    if record and (
+        record.is_paid or record.loan_deduction_applied or record.liability_deduction_applied
+    ):
+        flash('Only unpaid, unapplied drafts may be recalculated. Historical totals were not changed.', 'warning')
+        return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=start))
+    try:
+        projected, snapshot, fingerprint = draft_payroll_preview(employee, record, start, end)
+        if request.method == 'POST':
+            preview = session.pop('payroll_recalculation_preview', None)
+            if (
+                not preview or preview['employee_id'] != employee.id
+                or preview['start'] != start.isoformat()
+                or preview['fingerprint'] != fingerprint
+                or datetime.fromisoformat(preview['expires_at']) < datetime.utcnow()
+                or request.form.get('approved') != 'yes'
+            ):
+                db.session.rollback()
+                flash('Preview expired, changed, or not approved. Review the new preview before saving.', 'danger')
+                return redirect(url_for('recalculate_payroll', employee_id=employee.id, cutoff_start=start))
+            if record is None:
+                record = Payroll(employee_id=employee.id, cutoff_start=start, cutoff_end=end - timedelta(days=1))
+                db.session.add(record)
+            for key, value in snapshot.items():
+                setattr(record, key, value)
+            record.payslip_snapshot = projected.payslip_snapshot
+            db.session.add(AuditLog(
+                employee_id=current_user.id, employee_name=current_user.full_name(),
+                action=f'Approved draft recalculation employee {employee.id}',
+                company=current_user.company, path=request.path,
+                ip_address=request.remote_addr, status_code=302,
+            ))
+            db.session.commit()
+            flash('Approved draft saved with itemized snapshot. Payroll was not finalized and balances were not deducted.', 'success')
+            return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=start))
+        session['payroll_recalculation_preview'] = {
+            'employee_id': employee.id, 'start': start.isoformat(),
+            'fingerprint': fingerprint,
+            'expires_at': (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+        }
+    except (ValueError, SQLAlchemyError):
+        db.session.rollback()
+        logger.exception('Could not preview or save payroll recalculation employee %s', employee_id)
+        flash('Payroll could not be reconciled. No recalculated totals were saved. Review the source records.', 'danger')
+        return redirect(url_for('payroll_dashboard', cutoff_start=start))
+    return render_template(
+        'payroll_recalculation.html', emp=employee, original=record, projected=projected,
+        cutoff_start=start, csrf_token=csrf_token,
+        rows=weekly_payslip_table_data(build_payslip_breakdown(employee, projected)),
+    )
 
 
 def finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
+    lock_attendance_employee(employee.id)
     if record.is_paid:
         return False
     save_payroll_snapshot(
@@ -8068,6 +8232,18 @@ def finalize_payroll(employee_id):
     except ValueError:
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('payroll_dashboard'))
+    lock_attendance_employee(employee.id)
+    existing_records = Payroll.query.filter_by(
+        employee_id=employee.id, cutoff_start=cutoff_start,
+        cutoff_end=cutoff_end - timedelta(days=1)
+    ).all()
+    if len(existing_records) > 1:
+        flash('Multiple payroll records exist for this cutoff. Finalization was blocked; review separately.', 'danger')
+        return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=cutoff_start))
+    existing = existing_records[0] if existing_records else None
+    if existing and existing.is_paid:
+        flash('Payroll is already finalized. Its saved totals and snapshot were not changed.', 'warning')
+        return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=cutoff_start))
     field_values = {
         'daily_rate': request.form.get(f'daily_rate_{employee_id}'),
         'allowance': request.form.get(f'allowance_{employee_id}'),
@@ -8100,14 +8276,21 @@ def finalize_payroll(employee_id):
                 else loan_cutoff_deduction(employee.loan_balance, float(loan_deduction))
             )
         update_manual_owner_contribution_settings(employee, request.form, cutoff_start)
+        record = Payroll.query.filter_by(
+            employee_id=employee.id, cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end - timedelta(days=1)
+        ).first()
+        if record is None:
+            record = Payroll(employee_id=employee.id, cutoff_start=cutoff_start, cutoff_end=cutoff_end - timedelta(days=1))
+            db.session.add(record)
+        finalize_payroll_record(employee, record, cutoff_start, cutoff_end)
         db.session.commit()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, SQLAlchemyError):
         db.session.rollback()
-        flash('Please enter valid non-negative payroll values.', 'danger')
+        logger.exception('Could not finalize payroll employee %s', employee_id)
+        flash('Payroll could not be finalized. Check the inputs and source records; no changes were saved.', 'danger')
         return redirect(url_for('payroll_dashboard'))
-    return redirect(url_for(
-        'payroll', employee_id=employee_id, finalize='true', cutoff_start=cutoff_start
-    ))
+    return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=cutoff_start))
 
 
 @app.route('/payroll/bulk-finalize', methods=['POST'])
@@ -8127,24 +8310,34 @@ def bulk_finalize_payroll():
         return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
 
     finalized = 0
-    for employee_id in selected_ids:
-        employee = db.session.get(Employee, int(employee_id))
-        if employee is None or employee.payroll_attendance_exempt:
-            continue
-        payroll_record = Payroll.query.filter_by(
-            employee_id=int(employee_id),
-            cutoff_start=cutoff_start,
-            cutoff_end=cutoff_end - timedelta(days=1)
-        ).first()
-        if payroll_record is None:
-            payroll_record = Payroll(
-                employee_id=employee.id, cutoff_start=cutoff_start,
-                cutoff_end=cutoff_end - timedelta(days=1),
-            )
-            db.session.add(payroll_record)
-        if finalize_payroll_record(employee, payroll_record, cutoff_start, cutoff_end):
-            finalized += 1
-    db.session.commit()
+    try:
+        for employee_id in sorted(selected_ids, key=int):
+            employee = db.session.get(Employee, int(employee_id))
+            if employee is None or employee.payroll_attendance_exempt:
+                continue
+            lock_attendance_employee(employee.id)
+            records = Payroll.query.filter_by(
+                employee_id=int(employee_id),
+                cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1)
+            ).all()
+            if len(records) > 1:
+                raise ValueError(f'Multiple payroll records for employee {employee.id}.')
+            payroll_record = records[0] if records else None
+            if payroll_record is None:
+                payroll_record = Payroll(
+                    employee_id=employee.id, cutoff_start=cutoff_start,
+                    cutoff_end=cutoff_end - timedelta(days=1),
+                )
+                db.session.add(payroll_record)
+            if finalize_payroll_record(employee, payroll_record, cutoff_start, cutoff_end):
+                finalized += 1
+        db.session.commit()
+    except (TypeError, ValueError, SQLAlchemyError):
+        db.session.rollback()
+        logger.exception('Could not bulk finalize payroll cutoff %s', cutoff_start)
+        flash('Bulk finalization failed. Review the inputs and source records; no changes were saved.', 'danger')
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
     flash(f'{finalized} payroll records finalized for this cutoff.', 'success')
     return redirect(url_for('payroll_dashboard'))
 
@@ -8239,16 +8432,21 @@ def download_payslip(emp_id, payroll_id):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setFont('Helvetica-Bold', 16)
-    pdf.drawString(50, 780, payroll_company_name(employee))
+    snapshot_company = payslip.get('company', employee.company)
+    pdf.drawString(50, 780, (
+        'TRECE-UNO AUTO SUPPLY' if str(snapshot_company or '').lower().startswith('trece')
+        else 'AUTO-EXPERT AUTO SUPPLY'
+    ))
     pdf.setFont('Helvetica-Bold', 14)
     pdf.drawString(50, 760, 'PAYSLIP')
     pdf.setFont('Helvetica', 9)
-    pdf.drawString(50, 730, f'Employee: {employee.first_name} {employee.last_name} (ID: {employee.id})')
+    pdf.drawString(50, 730, f'Employee: {payslip.get("employee_name", employee.full_name())} (ID: {employee.id})')
     pdf.drawString(50, 714, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
-    pdf.drawString(50, 698, f'Position: {employee.job_description or "N/A"}')
-    pdf.drawString(300, 714, f'Daily Rate: PHP {float(employee.daily_rate or 0):,.2f}')
+    pdf.drawString(50, 698, f'Position: {payslip.get("job_description", employee.job_description) or "N/A"}')
+    rate_label = 'Current rate' if payslip.get('legacy') else 'Snapshot rate'
+    pdf.drawString(300, 714, f'{rate_label}: PHP {float(payslip.get("daily_rate", employee.daily_rate) or 0):,.2f}')
     pdf.drawString(300, 698, f'Reference: {verification["document_id"]}')
-    pdf.drawString(50, 682, f'Department: {employee.company or "N/A"}')
+    pdf.drawString(50, 682, f'Department: {snapshot_company or "N/A"}')
     pdf.drawString(300, 682, 'Prepared by: Admin')
     pdf.drawString(50, 666, f'Generated: {generated_at:%Y-%m-%d %I:%M %p} PHT')
     data = weekly_payslip_table_data(payslip)
@@ -8434,6 +8632,7 @@ def payroll_dashboard():
                         payroll_record.cash_advance = max(float(cash_advance), 0)
                     if other_deductions is not None and other_deductions.strip() != "":
                         payroll_record.other_deductions = max(float(other_deductions), 0)
+                    payroll_record.payslip_snapshot = None
                 update_manual_owner_contribution_settings(
                     emp, request.form, cutoff_start
                 )
