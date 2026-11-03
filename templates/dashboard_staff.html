@@ -207,6 +207,27 @@
         <p>This is your Staff dashboard.</p>
     </header>
 
+    <section class="container card" aria-label="My Analytics">
+        <h2>My Analytics</h2>
+        <p>View your own attendance, saved payroll trends, approved OT, quiz and approved evaluation summaries,
+            and reporting merit/demerit. Other employees' records are not included.</p>
+        <a href="{{ url_for('my_analytics') }}" class="btn">View My Analytics</a>
+    </section>
+
+    <section class="container card" aria-label="Company reminders">
+        <h2>Company reminders</h2>
+        <p>Scheduled by admins for your company. Times shown in Philippine time.</p>
+        <ul>
+        {% for event in upcoming_company_reminders %}
+            <li><strong>{{ event.at.strftime('%b %d, %Y %I:%M %p') }} PHT — {{ event.reminder.title }}</strong>
+                <p style="white-space:pre-wrap;">{{ event.reminder.notes }}</p></li>
+        {% else %}
+            <li>No company reminders scheduled in the next 31 days.</li>
+        {% endfor %}
+        </ul>
+        <a href="{{ url_for('company_reminders') }}" class="btn">View company reminder calendar</a>
+    </section>
+
     <!-- Clock In/Out Buttons + Real-time clock -->
     <div class="container card" style="text-align:center;">
       <aside class="monthly-action-reminder {{ 'complete' if not monthly_reminder.quiz_pending and not monthly_reminder.peer_evaluation_pending else '' }}" role="status" aria-live="polite">

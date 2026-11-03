@@ -87,7 +87,7 @@ def test_staff_navigation_groups_preserve_routes():
         assert f'href="{path}"' in html
     with app.test_request_context():
         from flask import url_for
-        for endpoint in ("leave", "loan", "staff_help", "monthly_reminders", "thirteenth_month",
+        for endpoint in ("leave", "loan", "staff_help", "monthly_reminders", "thirteenth_month", "my_analytics",
                          "assessment", "peer_evaluation", "submit_incident", "attendance_correction",
                          "apply_ot", "employee_liabilities", "hr_documents", "staff_concerns",
                          "bulletin", "company_files", "staff_guide"):

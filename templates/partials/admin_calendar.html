@@ -8,6 +8,10 @@
     </div>
   </div>
   <p>Leave dates and loan date-needed are shown with request status. Blue entries are existing payroll review and month-end reminders, not statutory filing deadlines.</p>
+  <p>
+    <a class="btn" href="{{ url_for('company_reminder_edit') }}">Add company reminder</a>
+    <a class="btn" href="{{ url_for('company_reminders', month=request_calendar.month.strftime('%Y-%m')) }}">Manage reminders / email status</a>
+  </p>
   <form method="GET" class="calendar-toolbar">
     <label>Choose month <input type="month" name="calendar_month" value="{{ request_calendar.month.strftime('%Y-%m') }}" min="1901-01" max="9998-12" required></label>
     <button type="submit" class="btn">Go</button>

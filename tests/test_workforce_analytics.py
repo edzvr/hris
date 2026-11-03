@@ -214,6 +214,84 @@ def test_staff_cannot_access_analytics_or_other_merit_reports(people):
     assert app.test_client().get("/admin/analytics").status_code == 302
 
 
+def test_personal_analytics_and_csv_are_own_account_only_and_read_only(people):
+    with app.app_context():
+        other = db.session.get(Employee, people[2])
+        other.first_name = "Confidential"
+        other.last_name = "Coworker"
+        other.company = "Private Company"
+        evaluation = Evaluation.query.filter_by(employee_id=people[1], category="peer_1").one()
+        evaluation.remarks = "PRIVATE EVALUATOR COMMENT"
+        db.session.add(Payroll(
+            employee_id=other.id, cutoff_start=date(2026, 10, 3), cutoff_end=date(2026, 10, 9),
+            gross_income=9876543, total_deductions=0, net_pay=9876543, is_paid=True,
+        ))
+        db.session.commit()
+        original = source_state(people)
+    client = client_for(people[1])
+    url = "/my-analytics?start=2026-10-01&end=2026-10-31"
+    response = client.get(url)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "<h1>My Analytics</h1>" in html
+    assert "My saved payroll" in html
+    assert "16 reporting merit / 2 reporting demerit" in html
+    assert 'name="company"' not in html
+    assert 'name="employee_id"' not in html
+    assert "Current workforce breakdown" not in html
+    for private in ("Confidential Coworker", "Private Company", "9876543", "PRIVATE EVALUATOR COMMENT"):
+        assert private not in html
+    export = client.get(url + "&export=csv")
+    assert export.status_code == 200
+    assert "my_analytics_" in export.headers["Content-Disposition"]
+    text = export.get_data(as_text=True)
+    for private in ("Confidential Coworker", "Private Company", "9876543", "PRIVATE EVALUATOR COMMENT"):
+        assert private not in text
+    assert "Current workforce:" not in text
+    rows = list(csv.reader(io.StringIO(text)))
+    assert ["paid", "1", "111.0", "20.0", "150.0"] in rows
+    assert b"View My Analytics" in client.get("/dashboard_staff").data
+    with app.app_context():
+        assert source_state(people) == original
+
+
+@pytest.mark.parametrize("query", [
+    "employee_id=999999", "employee_id=bad", "company=Another",
+    "employee_id=&employee_id=999999", "company=&company=Another",
+])
+def test_personal_analytics_rejects_scope_tampering(people, query):
+    client = client_for(people[1])
+    assert client.get("/my-analytics?" + query).status_code == 403
+    assert client.get("/my-analytics?export=csv&" + query).status_code == 403
+
+
+def test_personal_analytics_empty_filters_and_authentication(people):
+    client = client_for(people[1])
+    assert client.get("/my-analytics?start=invalid").status_code == 400
+    assert client.get("/my-analytics?export=pdf").status_code == 400
+    assert client.get("/my-analytics?start=2026-11-02&end=2026-11-01").status_code == 400
+    assert app.test_client().get("/my-analytics").status_code == 302
+    with app.app_context():
+        db.session.get(Employee, people[1]).company = None
+        db.session.commit()
+    response = client.get("/my-analytics?start=2027-01-01&end=2027-01-31")
+    assert response.status_code == 200
+    assert b"No recorded activity in this range." in response.data
+    assert b"Unassigned" in response.data
+
+
+def test_admin_personal_route_stays_personal(people):
+    response = client_for(people[0]).get(
+        "/my-analytics?start=2026-10-01&end=2026-10-31&export=csv"
+    )
+    assert response.status_code == 200
+    assert b"Snapshot Staff" not in response.data
+    assert b"Analytics Staff" not in response.data
+    assert ["paid", "0", "0.0", "0.0", "0.0"] in list(csv.reader(io.StringIO(
+        response.get_data(as_text=True)
+    )))
+
+
 def test_employee_filter_rejects_mismatched_company_and_handles_empty_range(people):
     client = client_for(people[0])
     assert client.get(

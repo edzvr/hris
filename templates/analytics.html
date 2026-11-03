@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Workforce Analytics</title>
+    <title>{{ 'My Analytics' if personal else 'Workforce Analytics' }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7f6; color: #23352a; }
@@ -29,7 +29,9 @@
 <body>
 <main>
     <header class="card">
-        <h1>Workforce Analytics</h1>
+        <h1>{{ 'My Analytics' if personal else 'Workforce Analytics' }}</h1>
+        {% if personal %}<p>Only your account is included. No other employee records, evaluator identities,
+            evaluation comments, or company-wide totals are shown.</p>{% endif %}
         <p>Read-only factual summaries. No employee ranking, automatic performance rating, or payroll recalculation.</p>
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}<p role="alert">{{ message }}</p>{% endfor %}
@@ -37,6 +39,7 @@
         <form class="filters" method="get">
             <label>From <input type="date" name="start" value="{{ start }}" required></label>
             <label>Through <input type="date" name="end" value="{{ end }}" required></label>
+            {% if not personal %}
             <label>Company
                 <select name="company"><option value="">All companies</option>
                     {% for name in companies %}<option{% if company == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
@@ -47,6 +50,7 @@
                     {% for emp in employees %}<option value="{{ emp.id }}"{% if employee_id == emp.id %} selected{% endif %}>{{ emp.full_name() }}</option>{% endfor %}
                 </select>
             </label>
+            {% endif %}
             <button type="submit">Apply filters</button>
             {% if data %}<button type="submit" name="export" value="csv">Export filtered CSV</button>{% endif %}
         </form>
@@ -60,13 +64,14 @@
         <p>Payroll includes saved records whose <strong>cutoff start</strong> is in this range, without prorating.
             Finalized and saved drafts are separate. Gross Income excludes exempt benefits;
             legacy exempt-benefit/OT details may be unavailable. No totals are recalculated.</p>
-        <p>Headcount, company, employment status, and OT estimate rates reflect <strong>current profiles</strong>,
-            not historical staffing. Includes all roles. Evaluation reporting uses full approved monthly groups
+        <p>{% if personal %}Your company and OT estimate rates reflect your <strong>current profile</strong>.
+            {% else %}Headcount, company, employment status, and OT estimate rates reflect <strong>current profiles</strong>,
+            not historical staffing. Includes all roles.{% endif %} Evaluation reporting uses full approved monthly groups
             per evaluator/type, attributed to the last approved answer's submission date. Partial date ranges never
             recalculate a score from only some answers.</p>
     </section>
     <section class="metrics" aria-label="Key metrics">
-        <div class="card">Current selected employees<strong>{{ data.rows|length }}</strong></div>
+        {% if not personal %}<div class="card">Current selected employees<strong>{{ data.rows|length }}</strong></div>{% endif %}
         <div class="card">Recorded Present<strong>{{ data.totals.present }}</strong></div>
         <div class="card">Recorded Absent (leave excluded)<strong>{{ data.totals.absent }}</strong></div>
         <div class="card">Late days<strong>{{ data.totals.late }}</strong></div>
@@ -74,7 +79,7 @@
         <div class="card">OT / Sunday hours<strong>{{ "%.2f"|format(data.totals.ot_hours) }}</strong></div>
     </section>
     <section class="card">
-        <h2>Saved payroll</h2>
+        <h2>{{ 'My saved payroll' if personal else 'Saved payroll' }}</h2>
         <div class="table-scroll" tabindex="0" role="region" aria-label="Saved payroll totals">
             <table>
                 <tr><th>Status</th><th>Records</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th></tr>
@@ -102,6 +107,7 @@
             </table>
         </div>
     </section>
+    {% if not personal %}
     <section class="card">
         <h2>Current workforce breakdown</h2>
         {% for title, groups in [('Company', data.companies), ('Employment status', data.statuses)] %}
@@ -109,15 +115,17 @@
         <ul>{% for name, count in groups.items() %}<li>{{ name }}: {{ count }}</li>{% else %}<li>No matching employees.</li>{% endfor %}</ul>
         {% endfor %}
     </section>
+    {% endif %}
     {% include 'partials/performance_rules.html' %}
     <section class="card">
-        <h2>Employee performance overview</h2>
-        <p>Expand an employee for source categories and data-quality notes. Reporting points are not cash entitlement or stored balances.</p>
+        <h2>{{ 'My performance overview' if personal else 'Employee performance overview' }}</h2>
+        <p>{{ 'Expand your summary' if personal else 'Expand an employee' }} for source categories and data-quality notes.
+            Reporting points are not cash entitlement or stored balances.</p>
         <p>OT extra-pay estimates use current daily rates and existing OT rules, including automatic Trece Sunday/rest-day pay.
             They are not historical payroll costs or productivity scores.</p>
         {% for row in data.rows %}
         {% set emp = row.employee %}{% set report = row.report %}
-        <details class="card">
+        <details class="card"{% if personal %} open{% endif %}>
             <summary>{{ emp.full_name() }} / {{ emp.company or 'Unassigned' }} —
                 {{ report.merit }} reporting merit / {{ report.demerit }} reporting demerit</summary>
             <div class="table-scroll" tabindex="0" role="region" aria-label="Employee attendance and hours">
@@ -148,7 +156,7 @@
         {% else %}<p>No employees match the filters.</p>{% endfor %}
     </section>
     {% endif %}
-    <a class="button" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a>
+    <a class="button" href="{{ url_for('dashboard_staff') if personal and 'admin' not in (current_user.role or '')|lower else url_for('dashboard_admin') }}">Back to Dashboard</a>
 </main>
 </body>
 </html>

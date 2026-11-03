@@ -280,7 +280,13 @@ from models import (
     PasswordResetToken,
     OTApplication,
     AuditLog,
-    PayslipVerification
+    PayslipVerification,
+    CalendarReminder,
+    CalendarReminderDelivery,
+)
+from utils.calendar_reminders import (
+    MANILA, dispatch_reminders, local_time as reminder_local_time,
+    reminder_events, visible_reminders, _lock_reminder,
 )
 
 from utils.helpers import (
@@ -1300,6 +1306,29 @@ def run_scheduled_auto_quiz(category):
         generate_auto_quiz(category)
 
 
+def calendar_reminder_email_configured():
+    if app.config.get('TESTING') or app.config.get('MAIL_SUPPRESS_SEND'):
+        return False
+    if app.config.get('MAIL_PROVIDER') == 'brevo':
+        return bool(app.config.get('BREVO_API_KEY') and app.config.get('MAIL_DEFAULT_SENDER'))
+    return bool(
+        app.config.get('MAIL_PROVIDER') == 'smtp' and mail
+        and app.config.get('MAIL_SERVER') and app.config.get('MAIL_DEFAULT_SENDER')
+    )
+
+
+def send_calendar_reminder_emails():
+    with app.app_context():
+        if not calendar_reminder_email_configured():
+            logger.warning('Calendar email dispatcher disabled: mail provider is not configured.')
+            return
+        try:
+            dispatch_reminders(send_notification_email)
+        except (SQLAlchemyError, OSError, ValueError):
+            db.session.rollback()
+            logger.exception('Calendar email dispatcher failed; review reminder delivery status.')
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler()
@@ -1331,6 +1360,10 @@ try:
             logger.exception('Failed to register monthly peer-eval reminder job')
 
     if scheduler:
+        scheduler.add_job(
+            send_calendar_reminder_emails, 'interval', seconds=60,
+            id='company_calendar_reminders', replace_existing=True, max_instances=1,
+        )
         scheduler.start()
         logger.info("Scheduler started. Auto quiz jobs registered for all categories.")
 except Exception:
@@ -1540,6 +1573,7 @@ def inject_authenticated_sidebar(response):
             ('thirteenth_month', '13th-Month Pay'),
         ]
         links.extend([
+            ('my_analytics', 'My Analytics'),
             ('assessment', 'Performance'),
             ('peer_evaluation', 'Peer Evaluation'),
             ('merit_demerit', 'Merit / Demerit'),
@@ -1583,7 +1617,7 @@ def inject_authenticated_sidebar(response):
     )
     if not is_admin:
         navigation_groups = [
-            ('Attendance', {'attendance', 'attendance_correction', 'apply_ot'}),
+            ('Attendance', {'attendance', 'attendance_correction', 'apply_ot', 'my_analytics'}),
             ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'payroll_summary', 'payroll_loan_review', 'thirteenth_month', 'employee_liabilities'}),
             ('Loan & Leave', {'loan', 'leave'}),
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
@@ -3410,6 +3444,14 @@ def admin_request_calendar(month_start):
         if day.weekday() == 4:
             add_event(day, '10 PM - Payroll / approved OT review reminder', 'payroll_dashboard', 'deadline')
     add_event(month_end, 'Month-end - Staff quiz and peer evaluation deadline', 'evaluation_dashboard', 'deadline')
+    if current_user.is_authenticated:
+        for event in reminder_events(current_user, month_start, month_end):
+            reminder = event['reminder']
+            events.setdefault(event['at'].date(), []).append({
+                'label': f"{event['at']:%I:%M %p} - {reminder.title} ({reminder.company})",
+                'url': url_for('company_reminder_edit', reminder_id=reminder.id),
+                'kind': 'reminder',
+            })
     return {
         'month': month_start, 'weeks': calendar.Calendar().monthdatescalendar(month_start.year, month_start.month),
         'events': events,
@@ -3417,6 +3459,158 @@ def admin_request_calendar(month_start):
         'next': (month_end + timedelta(days=1)).strftime('%Y-%m'),
         'today': datetime.now(ZoneInfo('Asia/Manila')).date(),
     }
+
+
+def calendar_reminder_csrf():
+    return session.setdefault('calendar_reminder_csrf', secrets.token_urlsafe(32))
+
+
+def check_calendar_reminder_csrf():
+    if not secrets.compare_digest(
+        calendar_reminder_csrf().encode(), request.form.get('csrf_token', '').encode()
+    ):
+        abort(400, description='Invalid reminder form. Reload the page and try again.')
+
+
+def reminder_month():
+    value = request.args.get('month') or datetime.now(MANILA).strftime('%Y-%m')
+    month = datetime.strptime(value, '%Y-%m').date().replace(day=1)
+    if not 1901 <= month.year <= 9998:
+        raise ValueError('Calendar month out of range')
+    return month
+
+
+@app.route('/calendar/reminders')
+@login_required
+def company_reminders():
+    import calendar
+    try:
+        month = reminder_month()
+    except ValueError:
+        flash('Select a valid calendar month between 1901 and 9998.', 'danger')
+        return redirect(url_for('company_reminders'))
+    end = month.replace(day=calendar.monthrange(month.year, month.month)[1])
+    is_admin = 'admin' in str(current_user.role or '').lower()
+    reminders = visible_reminders(current_user).order_by(CalendarReminder.scheduled_at, CalendarReminder.id).all()
+    events = reminder_events(current_user, month, end)
+    events_by_day = {}
+    for event in events:
+        events_by_day.setdefault(event['at'].date(), []).append(event)
+    deliveries = CalendarReminderDelivery.query.order_by(
+        CalendarReminderDelivery.attempted_at.desc(), CalendarReminderDelivery.id.desc()
+    ).limit(100).all() if is_admin else []
+    return render_template(
+        'company_reminders.html', month=month, events=events_by_day,
+        weeks=calendar.Calendar().monthdatescalendar(month.year, month.month),
+        previous=(month - timedelta(days=1)).strftime('%Y-%m'),
+        next_month=(end + timedelta(days=1)).strftime('%Y-%m'),
+        reminders=reminders, deliveries=deliveries, is_admin=is_admin,
+        csrf_token=calendar_reminder_csrf(), local_time=reminder_local_time,
+        email_worker_enabled=scheduler is not None and scheduler.running
+        and scheduler.get_job('company_calendar_reminders') is not None
+        and calendar_reminder_email_configured(),
+    )
+
+
+@app.route('/calendar/reminders/new', methods=['GET', 'POST'])
+@app.route('/calendar/reminders/<int:reminder_id>/edit', methods=['GET', 'POST'])
+@login_required
+def company_reminder_edit(reminder_id=None):
+    if 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    reminder = db.session.get(CalendarReminder, reminder_id) if reminder_id is not None else None
+    if reminder_id is not None and reminder is None:
+        abort(404)
+    companies = ['Trece-Uno', 'Auto Expert']
+    if request.method == 'POST':
+        check_calendar_reminder_csrf()
+        if reminder:
+            reminder = _lock_reminder(reminder.id)
+            if request.form.get('revision') != str(reminder.revision):
+                db.session.rollback()
+                flash('This reminder changed in another session. Reload and review before editing.', 'danger')
+                return redirect(url_for('company_reminder_edit', reminder_id=reminder_id))
+        try:
+            title = request.form.get('title', '').strip()
+            notes = request.form.get('notes', '').strip()
+            company = request.form.get('company', '')
+            recurrence = request.form.get('recurrence', '')
+            local = datetime.strptime(request.form.get('scheduled_at', ''), '%Y-%m-%dT%H:%M')
+            scheduled_at = local.replace(tzinfo=MANILA).astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+            if not title or len(title) > 150 or len(notes) > 5000 or '\n' in title or '\r' in title:
+                raise ValueError('Enter a title (1–150 characters) and notes (up to 5000 characters).')
+            if company not in companies or recurrence not in {'once', 'monthly'}:
+                raise ValueError('Choose a valid company and recurrence.')
+            if not 1901 <= local.year <= 9998:
+                raise ValueError('Reminder year must be between 1901 and 9998.')
+            if scheduled_at <= datetime.utcnow() and not (
+                reminder and reminder.active and reminder.recurrence == recurrence == 'monthly'
+                and scheduled_at == reminder.scheduled_at
+            ):
+                raise ValueError('Choose a future reminder time in Philippine time.')
+            if reminder is None:
+                reminder = CalendarReminder(created_by=current_user.id)
+                db.session.add(reminder)
+            else:
+                reminder.revision += 1
+            reminder.title, reminder.notes, reminder.company = title, notes, company
+            reminder.scheduled_at, reminder.recurrence = scheduled_at, recurrence
+            reminder.active = True
+            reminder.updated_at = datetime.utcnow()
+            db.session.add(AuditLog(
+                employee_id=current_user.id, employee_name=current_user.full_name(),
+                action='Created company reminder' if reminder_id is None else 'Edited company reminder',
+                company=company, path=request.path, status_code=302,
+            ))
+            db.session.commit()
+        except ValueError as error:
+            db.session.rollback()
+            flash(str(error), 'danger')
+            return render_template('company_reminder_form.html', reminder=reminder,
+                                   companies=companies, csrf_token=calendar_reminder_csrf(),
+                                   local_time=reminder_local_time, values=request.form), 400
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception('Could not save company calendar reminder')
+            flash('Reminder could not be saved. No changes were applied.', 'danger')
+            return redirect(url_for('company_reminders'))
+        flash('Reminder saved. Calendar updated; emails are scheduled, not sent immediately.', 'success')
+        return redirect(url_for('company_reminders', month=local.strftime('%Y-%m')))
+    return render_template(
+        'company_reminder_form.html', reminder=reminder, companies=companies,
+        csrf_token=calendar_reminder_csrf(), local_time=reminder_local_time, values={},
+    )
+
+
+@app.route('/calendar/reminders/<int:reminder_id>/cancel', methods=['POST'])
+@login_required
+def company_reminder_cancel(reminder_id):
+    if 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    check_calendar_reminder_csrf()
+    try:
+        reminder = _lock_reminder(reminder_id)
+        if reminder is None:
+            abort(404)
+        if request.form.get('revision') != str(reminder.revision):
+            db.session.rollback()
+            flash('Reminder changed. Reload before cancelling.', 'danger')
+            return redirect(url_for('company_reminders'))
+        reminder.active = False
+        reminder.revision += 1
+        reminder.updated_at = datetime.utcnow()
+        db.session.add(AuditLog(
+            employee_id=current_user.id, employee_name=current_user.full_name(),
+            action=f'Cancelled company reminder #{reminder.id}', company=reminder.company,
+            path=request.path, status_code=302,
+        ))
+        db.session.commit()
+        flash('Reminder cancelled. Already queued or accepted emails cannot be recalled.', 'success')
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Could not cancel company reminder %s', reminder_id)
+        flash('Reminder could not be cancelled. Reload and try again.', 'danger')
+    return redirect(url_for('company_reminders'))
 
 
 @app.route('/dashboard_admin', methods=['GET','POST'])
@@ -3673,6 +3867,10 @@ def dashboard_staff():
 
     # ✅ Render staff dashboard template
     return render_template("dashboard_staff.html",
+        upcoming_company_reminders=reminder_events(
+            current_user, datetime.now(MANILA).date(),
+            (datetime.now(MANILA) + timedelta(days=31)).date(),
+        )[:8],
         attendance_records=Attendance.query.filter_by(employee_id=current_user.id).all(),
         leaves=LeaveRequest.query.filter_by(employee_id=current_user.id).all(),
         payrolls=Payroll.query.filter_by(employee_id=current_user.id).all(),
@@ -10787,14 +10985,24 @@ def workforce_analytics(start, end, company='', employee_id=None):
     }
 
 
+@app.route('/my-analytics', endpoint='my_analytics')
 @app.route('/admin/analytics')
 @login_required
 def analytics():
-    if 'admin' not in str(current_user.role or '').lower():
+    personal = request.endpoint == 'my_analytics'
+    if not personal and 'admin' not in str(current_user.role or '').lower():
         return 'Access denied', 403
+    if personal:
+        supplied_employee = request.args.getlist('employee_id')
+        supplied_company = request.args.getlist('company')
+        if (
+            any(value and value != str(current_user.id) for value in supplied_employee)
+            or any(value and value != (current_user.company or '') for value in supplied_company)
+        ):
+            abort(403, description='My Analytics only permits your own account.')
     today = datetime.now(ZoneInfo('Asia/Manila')).date()
-    company = request.args.get('company', '').strip()
-    companies = [
+    company = '' if personal else request.args.get('company', '').strip()
+    companies = [] if personal else [
         row[0] for row in db.session.query(Employee.company).distinct().order_by(Employee.company)
         if row[0]
     ]
@@ -10805,7 +11013,7 @@ def analytics():
             raise ValueError('Invalid date range')
         if company and company not in companies:
             raise ValueError('Unknown company')
-        employee_value = request.args.get('employee_id', '').strip()
+        employee_value = str(current_user.id) if personal else request.args.get('employee_id', '').strip()
         employee_id = int(employee_value) if employee_value else None
         if employee_id is not None:
             employee = db.session.get(Employee, employee_id)
@@ -10817,6 +11025,7 @@ def analytics():
     except ValueError:
         flash('Select a valid date range, company, employee and export format.', 'danger')
         return render_template('analytics.html', data=None, companies=companies,
+                               personal=personal,
                                start=request.args.get('start', ''), end=request.args.get('end', ''),
                                company=company, employee_id=None, employees=[]), 400
     data = workforce_analytics(start, end, company, employee_id)
@@ -10830,7 +11039,8 @@ def analytics():
                 else value for value in values
             ])
 
-        write_row(['Workforce analytics', start.isoformat(), end.isoformat(), company or 'All companies'])
+        write_row(['My analytics' if personal else 'Workforce analytics', start.isoformat(), end.isoformat(),
+                   (current_user.company or 'Unassigned') if personal else company or 'All companies'])
         write_row(['Scope', 'Attendance dates inclusive; payroll by cutoff start; current workforce; reporting points are not cash or balances.'])
         write_row(['OT estimate', 'Current rate estimate includes automatic Sunday/rest-day pay; not historical OT cost.'])
         write_row(['Employee ID', 'Employee', 'Company', 'Present', 'Recorded absent excluding approved leave',
@@ -10863,18 +11073,25 @@ def analytics():
                    'Saved draft gross', 'Saved draft deductions', 'Saved draft net'])
         for month, values in data['monthly'].items():
             write_row([month, *values.values()])
-        for label in ('companies', 'statuses'):
-            write_row([f'Current workforce: {label}', 'Headcount'])
-            for name, count in sorted(data[label].items()):
-                write_row([name, count])
+        if not personal:
+            for label in ('companies', 'statuses'):
+                write_row([f'Current workforce: {label}', 'Headcount'])
+                for name, count in sorted(data[label].items()):
+                    write_row([name, count])
         response = make_response(output.getvalue())
         response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-        response.headers['Content-Disposition'] = f'attachment; filename=workforce_analytics_{start}_{end}.csv'
+        filename = 'my_analytics' if personal else 'workforce_analytics'
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}_{start}_{end}.csv'
         return response
+    if personal:
+        return render_template('analytics.html', data=data, start=start, end=end,
+                               personal=True, company='', employee_id=current_user.id,
+                               companies=[], employees=[])
     employees_query = Employee.query
     if company:
         employees_query = employees_query.filter(Employee.company == company)
     return render_template('analytics.html', data=data, start=start, end=end,
+                           personal=False,
                            company=company, employee_id=employee_id, companies=companies,
                            employees=employees_query.order_by(Employee.last_name, Employee.first_name).all())
 
