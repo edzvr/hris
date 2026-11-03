@@ -2,20 +2,20 @@
     <h4>{{ label }} &middot; {{ totals.employees }} employee(s)</h4>
     <div class="agency">
         <table>
-            <tr><th colspan="2" class="left">SSS REMITTANCE</th></tr>
+            <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--sss" aria-hidden="true">SSS</span> SSS REMITTANCE</span></th></tr>
             <tr><td>Total Employee Share</td><td>{{ peso.format(totals.sss.ee) }}</td></tr>
             <tr><td>Total Employer Share</td><td>{{ peso.format(totals.sss.er) }}</td></tr>
             <tr><td>Total EC</td><td>{{ peso.format(totals.sss.ec) }}</td></tr>
             <tr class="total"><td>Grand Total SSS Payable</td><td>{{ peso.format(totals.sss.total) }}</td></tr>
         </table>
         <table>
-            <tr><th colspan="2" class="left">PHILHEALTH REMITTANCE</th></tr>
+            <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--philhealth" aria-hidden="true">PHILHEALTH</span> PHILHEALTH REMITTANCE</span></th></tr>
             <tr><td>Total Employee Share</td><td>{{ peso.format(totals.philhealth.ee) }}</td></tr>
             <tr><td>Total Employer Share</td><td>{{ peso.format(totals.philhealth.er) }}</td></tr>
             <tr class="total"><td>Grand Total PhilHealth Payable</td><td>{{ peso.format(totals.philhealth.total) }}</td></tr>
         </table>
         <table>
-            <tr><th colspan="2" class="left">PAG-IBIG REMITTANCE</th></tr>
+            <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--pagibig" aria-hidden="true">PAG-IBIG</span> PAG-IBIG REMITTANCE</span></th></tr>
             <tr><td>Total Employee Share</td><td>{{ peso.format(totals.pagibig.ee) }}</td></tr>
             <tr><td>Total Employer Share</td><td>{{ peso.format(totals.pagibig.er) }}</td></tr>
             <tr class="total"><td>Grand Total Pag-IBIG Payable</td><td>{{ peso.format(totals.pagibig.total) }}</td></tr>

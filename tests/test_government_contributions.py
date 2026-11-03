@@ -220,6 +220,14 @@ def test_dashboard_preview_portal_and_validations(people):
     text = portal.get_data(as_text=True)
     assert portal.status_code == 200
     assert "Grand Total SSS Payable" in text and "TOTAL TO PAY IN PORTALS" in text
+    assert "SSS &mdash; PRN and e-CL" in text
+    assert "PhilHealth &mdash; EPRS and SPA" in text
+    assert "Open official EPRS employer portal" in text
+    assert "Pag-IBIG &mdash; employer eSRS" in text
+    assert "agency-logo--sss" in text and "agency-logo--philhealth" in text and "agency-logo--pagibig" in text
+    assert "monthly compensation and SSS number" in text
+    assert "Daily-paid MBS / EMR rule" in text
+    assert "agency-generated payment amount as the final payable" in text
     assert "Pedro Twin" not in text
 
     selected_portal = client.get(

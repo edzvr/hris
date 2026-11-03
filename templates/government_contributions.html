@@ -43,6 +43,20 @@
         .issue { color:#b42318; font-size:12px; text-align:left; }
         .agency { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
         .agency table td:first-child { width:60%; }
+        .agency-guides { display:grid; grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:12px; margin-top:16px; }
+        .agency-guide { padding:16px; border:1px solid #dfe7e1; border-radius:12px; background:#fbfdfb; }
+        .agency-guide-heading { display:flex; align-items:center; gap:11px; margin:0 0 10px; }
+        .agency-guide-heading h4 { margin:0; font-size:16px; }
+        .agency-logo { display:inline-flex; flex:0 0 auto; align-items:center; justify-content:center; min-width:62px; height:40px; box-sizing:border-box; padding:0 8px; border-radius:8px; color:#fff; font-size:14px; font-weight:800; letter-spacing:.03em; }
+        .agency-logo--sss { background:#0757a6; }
+        .agency-logo--philhealth { background:#1477a8; font-size:11px; }
+        .agency-logo--pagibig { background:#4d327e; font-size:12px; }
+        .agency-guide ol { padding-left:20px; margin:8px 0 12px; }
+        .agency-guide li { margin:0 0 8px; font-size:13px; line-height:1.45; }
+        .agency-source { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12px; }
+        .agency-source a { color:#145c94; font-weight:700; }
+        .agency-name { display:inline-flex; align-items:center; gap:8px; }
+        .agency-name .agency-logo { min-width:42px; height:27px; padding:0 5px; border-radius:6px; font-size:11px; }
         .muted { color:#5b6b60; font-size:13px; }
         .employee-preview { border:1px solid #dfe7e1; border-radius:8px; padding:12px; margin-bottom:14px; }
         .employee-preview h4 { margin:4px 0 10px; }
@@ -140,9 +154,9 @@
     <h3>Contribution Basis Breakdown</h3>
     <table>
         <tr><th class="left">Agency</th><th class="left">Basis used</th></tr>
-        <tr><td>SSS</td><td class="left">Actual Monthly Compensation = Daily Rate &times; actual days/hours worked (no OT, allowances or Sunday rest-day pay) &rarr; salary bracket &rarr; MSC</td></tr>
-        <tr><td>PhilHealth</td><td class="left">Equivalent Monthly Rate (EMR) = Daily Rate &times; 261 &divide; 12 (5-day) or Daily Rate &times; 313 &divide; 12 (6-day), within floor/ceiling</td></tr>
-        <tr><td>Pag-IBIG</td><td class="left">Monthly Compensation (actual), capped at the maximum fund salary</td></tr>
+        <tr><td><span class="agency-name"><span class="agency-logo agency-logo--sss" aria-hidden="true">SSS</span> SSS</span></td><td class="left">Actual Monthly Compensation = Daily Rate &times; actual days/hours worked (no OT, allowances or Sunday rest-day pay) &rarr; salary bracket &rarr; MSC</td></tr>
+        <tr><td><span class="agency-name"><span class="agency-logo agency-logo--philhealth" aria-hidden="true">PHILHEALTH</span> PhilHealth</span></td><td class="left">Equivalent Monthly Rate (EMR) = Daily Rate &times; 261 &divide; 12 (5-day) or Daily Rate &times; 313 &divide; 12 (6-day), within floor/ceiling</td></tr>
+        <tr><td><span class="agency-name"><span class="agency-logo agency-logo--pagibig" aria-hidden="true">PAG-IBIG</span> Pag-IBIG</span></td><td class="left">Monthly Compensation (actual), capped at the maximum fund salary</td></tr>
     </table>
 </section>
 
@@ -234,7 +248,7 @@
                 <tr><td>Actual Earnings</td><td>{{ peso.format(row.actual_earnings) }}</td></tr>
             </table>
             <table>
-                <tr><th colspan="2" class="left">SSS</th></tr>
+                <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--sss" aria-hidden="true">SSS</span> SSS</span></th></tr>
                 <tr><td>Salary Bracket</td><td>{{ row.result.sss.bracket_label if row.result else 'Manual' }}</td></tr>
                 <tr><td>MSC</td><td>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</td></tr>
                 <tr><td>Employee Share</td><td>{{ peso.format(row.sss_ee) }}</td></tr>
@@ -243,7 +257,7 @@
                 <tr class="total"><td>Total SSS Contribution</td><td>{{ peso.format(row.sss_ee + row.sss_er + row.sss_ec) }}</td></tr>
             </table>
             <table>
-                <tr><th colspan="2" class="left">PhilHealth</th></tr>
+                <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--philhealth" aria-hidden="true">PHILHEALTH</span> PhilHealth</span></th></tr>
                 {% if row.result %}
                 <tr><td>Work Schedule</td><td>{{ row.result.philhealth.workweek }}-day (&times;{{ row.result.philhealth.factor }} &divide; 12)</td></tr>
                 <tr><td>Daily Rate</td><td>{{ peso.format(row.daily_rate) }}</td></tr>
@@ -256,7 +270,7 @@
                 <tr class="total"><td>Total PhilHealth Contribution</td><td>{{ peso.format(row.ph_ee + row.ph_er) }}</td></tr>
             </table>
             <table>
-                <tr><th colspan="2" class="left">Pag-IBIG</th></tr>
+                <tr><th colspan="2" class="left"><span class="agency-name"><span class="agency-logo agency-logo--pagibig" aria-hidden="true">PAG-IBIG</span> Pag-IBIG</span></th></tr>
                 <tr><td>Employee Share</td><td>{{ peso.format(row.pi_ee) }}</td></tr>
                 <tr><td>Employer Share</td><td>{{ peso.format(row.pi_er) }}</td></tr>
                 <tr class="total"><td>Total Contribution</td><td>{{ peso.format(row.pi_ee + row.pi_er) }}</td></tr>
@@ -282,7 +296,53 @@
 {% if view == 'portal' %}
 <section class="section">
     <h3>Monthly Government Dues Guide &mdash; {{ month.strftime('%B %Y') }}</h3>
-    <p class="muted">Pay each employer's amounts under that employer's own SSS / PhilHealth / Pag-IBIG employer number. Totals are computed from official rates and actual attendance; saved payslips are not changed.</p>
+    <p class="muted">Pay each employer's amounts under that employer's own SSS / PhilHealth / Pag-IBIG employer number. Totals are computed from the configured rates and attendance; saved payslips are not changed.</p>
+    <div class="warning">
+        <strong>Use the agency-generated payment amount as the final payable.</strong>
+        This HRIS page is a preparation and cross-check guide, not a payment reference. Confirm each employee's details in the agency system and resolve any mismatch before paying.
+    </div>
+    <div class="agency-guides" aria-label="Official employer portal payment steps">
+        <article class="agency-guide">
+            <header class="agency-guide-heading">
+                <span class="agency-logo agency-logo--sss" role="img" aria-label="SSS logo mark">SSS</span>
+                <h4>SSS &mdash; PRN and e-CL</h4>
+            </header>
+            <ol>
+                <li>Use the Staff member filter and Employee Preview to check that employee's HRIS compensation, SSS bracket, and MSC.</li>
+                <li>In the My.SSS Employer Portal, review the employee-level electronic Contribution Collection List (e-CL) under PRN Contributions. Match the employee's reported monthly compensation and SSS number; the bracket is per employee, not one bracket for the company total.</li>
+                <li>Prepare the collection list, generate the SSS PRN, then pay using that PRN and its displayed payment instructions. Use the generated PRN amount for payment.</li>
+            </ol>
+            <div class="agency-source"><a href="https://www.sss.gov.ph/pay-contribution/" target="_blank" rel="noopener noreferrer">Official SSS contribution / PRN guide</a></div>
+        </article>
+        <article class="agency-guide">
+            <header class="agency-guide-heading">
+                <span class="agency-logo agency-logo--philhealth" role="img" aria-label="PhilHealth logo mark">PHILHEALTH</span>
+                <h4>PhilHealth &mdash; EPRS and SPA</h4>
+            </header>
+            <ol>
+                <li>In EPRS, check employee membership data and Monthly Basic Salary (MBS). For daily-paid employees, the official EMR formula is the applicable daily rate &times; 261 &divide; 12 (5-day week) or &times; 313 &divide; 12 (6-day week); absences and undertime do not reduce the MBS.</li>
+                <li>Review the employee premiums and prepare the remittance report / Statement of Premium Accounts (SPA). Compare the EPRS result with this HRIS preview before submission.</li>
+                <li>Pay through EPRS or an accredited payment channel, then keep the SPA and payment confirmation. Use the agency-generated SPA amount as the final payable.</li>
+            </ol>
+            <div class="agency-source">
+                <a href="https://epoaf.philhealth.gov.ph/employer/" target="_blank" rel="noopener noreferrer">Open official EPRS employer portal</a>
+                <a href="https://www.philhealth.gov.ph/partners/employers/pay_procedures.php" target="_blank" rel="noopener noreferrer">Official employer payment procedure</a>
+                <a href="https://www.philhealth.gov.ph/circulars/2018/circ2018-0001.pdf" target="_blank" rel="noopener noreferrer">Daily-paid MBS / EMR rule</a>
+            </div>
+        </article>
+        <article class="agency-guide">
+            <header class="agency-guide-heading">
+                <span class="agency-logo agency-logo--pagibig" role="img" aria-label="Pag-IBIG Fund logo mark">PAG-IBIG</span>
+                <h4>Pag-IBIG &mdash; employer eSRS</h4>
+            </header>
+            <ol>
+                <li>Use the employer Electronic Submission of Remittance Schedule (eSRS) service to prepare and submit the monthly employee remittance schedule.</li>
+                <li>Check each employee's Pag-IBIG MID and the employee / employer savings amounts against the HRIS preview.</li>
+                <li>Follow the payment instructions available through the official employer service or its accredited collecting channel, and retain the payment confirmation. This HRIS summary is not a Pag-IBIG payment reference.</li>
+            </ol>
+            <div class="agency-source"><a href="https://www.pagibigfund.gov.ph/" target="_blank" rel="noopener noreferrer">Official Pag-IBIG Fund site &mdash; Online Services for Employers</a></div>
+        </article>
+    </div>
     {% for label, totals in portal.companies.items() %}
     {% include 'partials/government_portal_totals.html' %}
     {% endfor %}
