@@ -35,18 +35,22 @@ def test_hr_template_migrations_seed_the_catalog_once():
         with Operations.context(MigrationContext.configure(connection)):
             migrations[-1]['upgrade']()
         rows = connection.execute(
-            text('SELECT category, title, source_filename, stored_filename FROM hr_templates ORDER BY id')
+            text(
+                'SELECT category, title, source_filename, stored_filename, created_at, updated_at '
+                'FROM hr_templates ORDER BY id'
+            )
         ).all()
     engine.dispose()
 
     assert len(rows) == 45
-    assert rows[0] == (
+    assert rows[0][:4] == (
         'a.) HR Essentials',
         'Employee Handbook',
         '1_Employee_Handbook.docx',
         None,
     )
-    assert all(row.stored_filename is None for row in rows)
+    assert rows[0].created_at and rows[0].updated_at
+    assert all(row.stored_filename is None and row.created_at and row.updated_at for row in rows)
 
 
 def test_admin_hr_template_library_crud_and_access_control(tmp_path):

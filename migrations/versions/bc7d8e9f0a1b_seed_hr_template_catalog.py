@@ -70,12 +70,17 @@ def upgrade():
         sa.column("category", sa.String),
         sa.column("description", sa.Text),
         sa.column("source_filename", sa.String),
+        sa.column("created_at", sa.DateTime),
+        sa.column("updated_at", sa.DateTime),
     )
     connection = op.get_bind()
     if connection.execute(sa.select(sa.func.count()).select_from(templates)).scalar_one():
         return
     connection.execute(
-        templates.insert(),
+        templates.insert().values(
+            created_at=sa.func.now(),
+            updated_at=sa.func.now(),
+        ),
         [
             {
                 "category": category,
