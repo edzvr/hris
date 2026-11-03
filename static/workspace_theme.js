@@ -4,6 +4,14 @@
     'trece-uno': { sidebar: '#4642b4', button: '#eee15b', active: '#353195', activeText: '#ffffff' },
     neutral: { sidebar: '#42586b', button: '#486581', active: '#536c80', activeText: '#ffffff' }
   };
+  function readableText(background) {
+    const linear = [1, 3, 5].map(index => {
+      const channel = parseInt(background.slice(index, index + 2), 16) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+    });
+    const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    return 1.05 / (luminance + 0.05) >= 4.5 ? '#ffffff' : '#000000';
+  }
   function applyWorkspaceTheme(customColor) {
     const themeName = document.body.dataset.companyTheme;
     const theme = themes[themeName] || themes.neutral;
@@ -15,9 +23,9 @@
       : theme;
     for (const [variable, color] of [
       ['--workspace-sidebar', colors.sidebar],
-      ['--workspace-sidebar-text', '#ffffff'],
+      ['--workspace-sidebar-text', readableText(colors.sidebar)],
       ['--workspace-button', colors.button],
-      ['--workspace-button-text', '#ffffff'],
+      ['--workspace-button-text', readableText(colors.button)],
       ['--workspace-nav-active', colors.active],
       ['--workspace-nav-active-text', colors.activeText]
     ]) document.body.style.setProperty(variable, color);
