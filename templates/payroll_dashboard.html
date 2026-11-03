@@ -85,6 +85,9 @@
     <header class="page-header">
         <div>
             <h1>Payroll Dashboard</h1>
+            <p class="muted">Unpaid amounts are current calculation previews, not saved historical payslips.
+                Use Preview Draft Recalculation on the employee payroll page to approve and save a draft.
+                Finalized payroll retains its saved totals.</p>
             <p class="page-subtitle">Cutoff: {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} (Saturday–Friday)</p>
         </div>
         <a class="btn" href="{{ url_for('admin_payroll_history') }}">View Payroll History</a>
