@@ -21,6 +21,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.http import dump_options_header, parse_options_header
 from utils.email_delivery import send_brevo_email
 from utils.names import format_person_name, format_suffix_name
+from utils.performance import actual_evaluation_points, evaluation_points, merit_report, unique_attendance
 
 try:
     from dotenv import load_dotenv
@@ -66,29 +67,6 @@ def has_strong_password(password):
         and re.search(r"\d", password)
         and re.search(r"[^A-Za-z0-9]", password)
     )
-
-
-def evaluation_points(average_rating):
-    if average_rating >= 4.5:
-        return 2, 0
-    if average_rating >= 3.5:
-        return 1, 0
-    if average_rating < 1.5:
-        return 0, 2
-    if average_rating < 2.5:
-        return 0, 1
-    return 0, 0
-
-def actual_evaluation_points(average_rating):
-    if average_rating >= 4.5:
-        return 5, 0
-    if average_rating >= 3.5:
-        return 3, 0
-    if average_rating < 1.5:
-        return 0, 5
-    if average_rating < 2.5:
-        return 0, 3
-    return 0, 0
 
 
 def manila_datetime(value, format_string="%Y-%m-%d %I:%M %p"):
@@ -3902,18 +3880,27 @@ def submit_incident():
 def review_incident(report_id):
     if "admin" not in current_user.role.lower():
         return "Access denied", 403
-    report = IncidentReport.query.get_or_404(report_id)
+    if db.session.get_bind().dialect.name == 'sqlite':
+        lock_attendance_employee(current_user.id)
+    report = IncidentReport.query.filter_by(id=report_id).with_for_update().first_or_404()
     action = request.form.get('action')
     admin_signature = request.form.get('admin_signature', '').strip()
     if action not in {'approve', 'reject'} or not admin_signature:
         flash("❌ Review action and admin signature are required.", "danger")
         return redirect(url_for('dashboard_admin'))
 
-    report.status = action + 'd'
+    if report.status != 'pending':
+        flash('This incident has already been reviewed. No additional points were applied.', 'warning')
+        return redirect(url_for('dashboard_admin'))
+    employee = db.session.get(Employee, report.reported_employee_id) if report.reported_employee_id else None
+    if action == 'approve' and employee is None:
+        flash('Select a valid reported employee before approving this legacy incident. No points were applied.', 'danger')
+        return redirect(url_for('dashboard_admin'))
+    report.status = 'approved' if action == 'approve' else 'rejected'
     report.reviewed_by = current_user.id
     report.admin_signature = admin_signature
     if action == 'approve':
-        employee = Employee.query.get(report.employee_id)
+        lock_attendance_employee(employee.id)
         points = 5
         if report.category.lower() == 'compliment':
             employee.merit_points = (employee.merit_points or 0) + points
@@ -3927,6 +3914,8 @@ def review_incident(report_id):
             merit = None
             message = "✅ Incident approved."
         if merit:
+            merit.source = 'incident'
+            merit.reference = f'Incident #{report.id}: {report.category}'
             db.session.add(merit)
         flash(message, "success")
     else:
@@ -10710,57 +10699,236 @@ def quiz(employee_id):
         quiz_duration_seconds=300
     )
 
+# ------------------ WORKFORCE ANALYTICS ------------------
+def workforce_analytics(start, end, company='', employee_id=None):
+    from collections import Counter, defaultdict
+
+    query = Employee.query
+    if company:
+        query = query.filter(Employee.company == company)
+    if employee_id is not None:
+        query = query.filter(Employee.id == employee_id)
+    employees = query.order_by(Employee.last_name, Employee.first_name, Employee.id).all()
+    monthly = defaultdict(lambda: {
+        'present': 0, 'absent': 0, 'late': 0, 'ot_hours': 0.0,
+        'paid_gross': 0.0, 'paid_deductions': 0.0, 'paid_net': 0.0,
+        'draft_gross': 0.0, 'draft_deductions': 0.0, 'draft_net': 0.0,
+    })
+    rows = []
+    for employee in employees:
+        logs, leaves, report = employee_performance_sources(employee.id, start, end)
+        row = {
+            'employee': employee, 'report': report, 'present': 0, 'absent': 0,
+            'late': 0, 'late_minutes': 0, 'undertime': 0.0, 'regular_hours': 0.0,
+            'ot_hours': 0.0, 'ot_estimate': 0.0, 'incomplete': 0,
+        }
+        for log in unique_attendance(logs):
+            month = monthly[log.date.strftime('%Y-%m')]
+            on_leave = any(leave.start_date <= log.date <= leave.end_date for leave in leaves)
+            present = log.status == 'Present'
+            absent = log.status == 'Absent' and not on_leave
+            late = bool(log.clock_in and attendance_status(log.clock_in) == 'Late')
+            for key, value in (('present', present), ('absent', absent), ('late', late)):
+                row[key] += value
+                month[key] += value
+            if late:
+                row['late_minutes'] += max(int((
+                    log.clock_in - datetime.combine(log.date, time(8, 10))
+                ).total_seconds() // 60), 0)
+            if log.clock_in and log.clock_out:
+                hours = regular_attendance_hours(log)
+                row['regular_hours'] += hours
+                row['undertime'] += max(attendance_scheduled_hours(employee, log.date) - hours, 0)
+            elif log.status in {'Present', 'Late'} or log.clock_in or log.clock_out:
+                row['incomplete'] += 1
+            ot_hours = payroll_overtime_hours(log) if attendance_overtime_is_payable(log) else 0.0
+            row['ot_hours'] += ot_hours
+            month['ot_hours'] += ot_hours
+            if ot_hours:
+                row['ot_estimate'] += payroll_extra_pay(log, employee.daily_rate or 0)
+        rows.append(row)
+    employee_ids = [employee.id for employee in employees]
+    payrolls = Payroll.query.filter(
+        Payroll.employee_id.in_(employee_ids),
+        Payroll.cutoff_start >= start, Payroll.cutoff_start <= end,
+    ).order_by(Payroll.id).all() if employee_ids else []
+    totals = {
+        key: sum(row[key] for row in rows) for key in (
+            'present', 'absent', 'late', 'late_minutes', 'undertime',
+            'regular_hours', 'ot_hours', 'ot_estimate', 'incomplete',
+        )
+    }
+    paid = {'count': 0, 'gross': 0.0, 'deductions': 0.0, 'net': 0.0}
+    draft = dict(paid)
+    snapshot_ot = 0.0
+    legacy_payrolls = 0
+    for record in payrolls:
+        bucket = paid if record.is_paid else draft
+        prefix = 'paid' if record.is_paid else 'draft'
+        bucket['count'] += 1
+        month = monthly[record.cutoff_start.strftime('%Y-%m')]
+        for label, field in (('gross', 'gross_income'), ('deductions', 'total_deductions'), ('net', 'net_pay')):
+            value = float(getattr(record, field) or 0)
+            bucket[label] += value
+            month[f'{prefix}_{label}'] += value
+        if record.payslip_snapshot and record.is_paid:
+            detail = build_payslip_breakdown(record.employee, record)
+            snapshot_ot += sum(detail[key] for key in (
+                'regular_overtime', 'rest_day', 'special_holiday_ot', 'regular_holiday_ot',
+            ))
+        elif record.is_paid:
+            legacy_payrolls += 1
+    return {
+        'rows': rows, 'totals': totals, 'paid': paid, 'draft': draft,
+        'monthly': dict(sorted(monthly.items())), 'snapshot_ot': snapshot_ot,
+        'legacy_payrolls': legacy_payrolls,
+        'companies': Counter(emp.company or 'Unassigned' for emp in employees),
+        'statuses': Counter(emp.employment_status or 'Not recorded' for emp in employees),
+    }
+
+
+@app.route('/admin/analytics')
+@login_required
+def analytics():
+    if 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    company = request.args.get('company', '').strip()
+    companies = [
+        row[0] for row in db.session.query(Employee.company).distinct().order_by(Employee.company)
+        if row[0]
+    ]
+    try:
+        start = date.fromisoformat(request.args.get('start', today.replace(day=1).isoformat()))
+        end = date.fromisoformat(request.args.get('end', today.isoformat()))
+        if start > end or end == date.max:
+            raise ValueError('Invalid date range')
+        if company and company not in companies:
+            raise ValueError('Unknown company')
+        employee_value = request.args.get('employee_id', '').strip()
+        employee_id = int(employee_value) if employee_value else None
+        if employee_id is not None:
+            employee = db.session.get(Employee, employee_id)
+            if employee is None or (company and employee.company != company):
+                raise ValueError('Employee does not match company')
+        export = request.args.get('export', '')
+        if export not in {'', 'csv'}:
+            raise ValueError('Unknown export format')
+    except ValueError:
+        flash('Select a valid date range, company, employee and export format.', 'danger')
+        return render_template('analytics.html', data=None, companies=companies,
+                               start=request.args.get('start', ''), end=request.args.get('end', ''),
+                               company=company, employee_id=None, employees=[]), 400
+    data = workforce_analytics(start, end, company, employee_id)
+    if export == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        def write_row(values):
+            writer.writerow([
+                "'" + value if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@'))
+                else value for value in values
+            ])
+
+        write_row(['Workforce analytics', start.isoformat(), end.isoformat(), company or 'All companies'])
+        write_row(['Scope', 'Attendance dates inclusive; payroll by cutoff start; current workforce; reporting points are not cash or balances.'])
+        write_row(['OT estimate', 'Current rate estimate includes automatic Sunday/rest-day pay; not historical OT cost.'])
+        write_row(['Employee ID', 'Employee', 'Company', 'Present', 'Recorded absent excluding approved leave',
+                   'Late days', 'Late minutes', 'Undertime hours', 'Regular hours', 'OT hours',
+                   'Estimated extra pay at current rate', 'Incomplete punches', 'Reporting merit', 'Reporting demerit',
+                   'Admin average /5', 'Peer average /5', 'Official quiz average %',
+                   'Excluded evaluations', 'Ignored duplicate attendance', 'Unattributed awards',
+                   'Invalid official quiz records'])
+        for row in data['rows']:
+            emp, report = row['employee'], row['report']
+            write_row([emp.id, emp.full_name(), emp.company or 'Unassigned',
+                       *[row[key] for key in ('present', 'absent', 'late', 'late_minutes', 'undertime',
+                                              'regular_hours', 'ot_hours', 'ot_estimate', 'incomplete')],
+                       *[report[key] if report[key] is not None else '' for key in (
+                           'merit', 'demerit', 'admin_average', 'peer_average', 'quiz_average',
+                           'excluded_evaluations', 'duplicate_attendance', 'legacy_awards', 'invalid_quizzes')]])
+        write_row([])
+        write_row(['Employee ID', 'Point category', 'Reporting merit', 'Reporting demerit'])
+        for row in data['rows']:
+            for category, points in row['report']['categories'].items():
+                write_row([row['employee'].id, category, *points])
+        write_row([])
+        write_row(['Saved payroll status', 'Record count', 'Gross income', 'Deductions', 'Net pay'])
+        for name in ('paid', 'draft'):
+            write_row([name, *[data[name][key] for key in ('count', 'gross', 'deductions', 'net')]])
+        write_row(['Finalized snapshot OT cost only', data['snapshot_ot'], 'Finalized legacy records without OT breakdown', data['legacy_payrolls']])
+        write_row([])
+        write_row(['Month', 'Present', 'Recorded absent', 'Late', 'OT hours',
+                   'Finalized gross', 'Finalized deductions', 'Finalized net',
+                   'Saved draft gross', 'Saved draft deductions', 'Saved draft net'])
+        for month, values in data['monthly'].items():
+            write_row([month, *values.values()])
+        for label in ('companies', 'statuses'):
+            write_row([f'Current workforce: {label}', 'Headcount'])
+            for name, count in sorted(data[label].items()):
+                write_row([name, count])
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        response.headers['Content-Disposition'] = f'attachment; filename=workforce_analytics_{start}_{end}.csv'
+        return response
+    employees_query = Employee.query
+    if company:
+        employees_query = employees_query.filter(Employee.company == company)
+    return render_template('analytics.html', data=data, start=start, end=end,
+                           company=company, employee_id=employee_id, companies=companies,
+                           employees=employees_query.order_by(Employee.last_name, Employee.first_name).all())
+
+
 # ------------------ MERIT / DEMERIT ------------------
+def employee_performance_sources(employee_id, start=None, end=None):
+    models_and_dates = (
+        (Attendance, Attendance.date), (Evaluation, Evaluation.date),
+        (QuizResult, QuizResult.date_taken), (MeritDemerit, MeritDemerit.date),
+    )
+    sources = []
+    for model, column in models_and_dates:
+        query = model.query.filter(model.employee_id == employee_id)
+        if start is not None:
+            query = query.filter(column >= (start.replace(day=1) if model == Evaluation else start))
+        if end is not None:
+            if model == Evaluation:
+                from calendar import monthrange
+                month_end = end.replace(day=monthrange(end.year, end.month)[1])
+                query = query.filter(column <= datetime.combine(month_end, time.max))
+            else:
+                query = query.filter(column < end + timedelta(days=1))
+        sources.append(query.order_by(column, model.id).all())
+    leave_query = LeaveRequest.query.filter_by(employee_id=employee_id, status='Approved')
+    if start is not None:
+        leave_query = leave_query.filter(LeaveRequest.end_date >= start)
+    if end is not None:
+        leave_query = leave_query.filter(LeaveRequest.start_date <= end)
+    attendance, evaluations, quizzes, awards = sources
+    leaves = leave_query.all()
+    return attendance, leaves, merit_report(attendance, evaluations, quizzes, awards, leaves, start, end)
+
+
 @app.route('/merit_demerit/<int:employee_id>')
 @login_required
 def merit_demerit(employee_id):
+    if current_user.id != employee_id and 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
     emp = Employee.query.get_or_404(employee_id)
 
-    # Attendance records
-    attendance_logs = Attendance.query.filter_by(employee_id=employee_id).order_by(Attendance.date.desc()).all()
+    attendance_logs, _, report = employee_performance_sources(employee_id)
     from collections import defaultdict
     monthly_records = defaultdict(list)
-    for log in attendance_logs:
+    for log in reversed(unique_attendance(attendance_logs)):
         month_key = log.date.strftime("%Y-%m")
         monthly_records[month_key].append(log)
-
-    # Attendance points
-    attendance_merit = sum(1 for log in attendance_logs if log.status == "Present")
-    attendance_demerit = sum(1 for log in attendance_logs if log.status == "Absent")
-
-    # Evaluation points
-    evaluations = Evaluation.query.filter_by(employee_id=employee_id).all()
-    approved_evaluations = [
-        e for e in evaluations
-        if e.approval_status in {'Approved', None}
-    ]
-    regular_evaluations = [e for e in approved_evaluations if not str(e.category or '').startswith('peer_')]
-    peer_evaluations = [e for e in approved_evaluations if str(e.category or '').startswith('peer_')]
-    eval_merit = sum(5 if e.score >= 90 else 3 if e.score >= 75 else 1 for e in regular_evaluations)
-    eval_demerit = sum(2 for e in regular_evaluations if e.score < 60)
-
-    peer_groups = defaultdict(list)
-    for evaluation in peer_evaluations:
-        group_key = (
-            evaluation.evaluator_id,
-            evaluation.date.year if evaluation.date else 0,
-            evaluation.date.month if evaluation.date else 0,
-        )
-        peer_groups[group_key].append(evaluation.score or 0)
-    peer_merit = sum(3 for ratings in peer_groups.values() if sum(ratings) / len(ratings) >= 4)
-    peer_demerit = sum(2 for ratings in peer_groups.values() if sum(ratings) / len(ratings) <= 2)
-
-    # Quiz points
-    quizzes = QuizResult.query.filter_by(employee_id=employee_id).all()
-    quiz_merit = sum(3 if q.score >= 90 else 1 if q.score >= 75 else 0 for q in quizzes)
-    quiz_demerit = 0
-
-    # Totals
-    merit_points = attendance_merit + eval_merit + peer_merit + quiz_merit
-    demerit_points = attendance_demerit + eval_demerit + peer_demerit + quiz_demerit
-    cash_value = merit_points * 10  # 1 point = ₱10
+    attendance_merit, attendance_demerit = report['categories']['attendance']
+    eval_merit, eval_demerit = report['categories']['admin']
+    peer_merit, peer_demerit = report['categories']['peer']
+    quiz_merit, quiz_demerit = report['categories']['quiz']
 
     return render_template("merit_demerit.html",
+                           report=report,
+                           current_year=datetime.now(ZoneInfo('Asia/Manila')).year,
                            employee=emp,
                            monthly_records=monthly_records,
                            attendance_merit=attendance_merit,
@@ -10771,9 +10939,8 @@ def merit_demerit(employee_id):
                            peer_demerit=peer_demerit,
                            quiz_merit=quiz_merit,
                            quiz_demerit=quiz_demerit,
-                           merit_points=merit_points,
-                           demerit_points=demerit_points,
-                           cash_value=cash_value)
+                           merit_points=report['merit'],
+                           demerit_points=report['demerit'])
 
 
 # ------------------ REDEEM POINTS ------------------
@@ -10866,30 +11033,16 @@ def export_data(data_type):
         if current_user.id != employee_id and 'admin' not in str(current_user.role or '').lower():
             return 'Access denied', 403
         employee = Employee.query.get_or_404(employee_id)
-        attendance_logs = Attendance.query.filter_by(employee_id=employee_id).order_by(Attendance.date.desc()).all()
-        attendance_merit = sum(1 for log in attendance_logs if log.status == "Present")
-        attendance_demerit = sum(1 for log in attendance_logs if log.status == "Absent")
-        evaluations = Evaluation.query.filter_by(employee_id=employee_id).all()
-        approved_evaluations = [item for item in evaluations if item.approval_status in {'Approved', None}]
-        eval_merit = sum(5 if item.score >= 90 else 3 if item.score >= 75 else 1 for item in approved_evaluations)
-        eval_demerit = sum(2 for item in approved_evaluations if item.score < 60)
-        quizzes = QuizResult.query.filter_by(employee_id=employee_id).all()
-        quiz_merit = sum(3 if item.score >= 90 else 1 if item.score >= 75 else 0 for item in quizzes)
-        quiz_demerit = 0
-        merit_points = attendance_merit + eval_merit + quiz_merit
-        demerit_points = attendance_demerit + eval_demerit + quiz_demerit
-        rows = [
-            ['Category', 'Merit', 'Demerit'],
-            ['Attendance', attendance_merit, attendance_demerit],
-            ['Evaluation', eval_merit, eval_demerit],
-            ['Quiz', quiz_merit, quiz_demerit],
-            ['TOTAL', merit_points, demerit_points],
-        ]
+        _, _, report = employee_performance_sources(employee_id)
+        rows = [['Category', 'Merit', 'Demerit']]
+        rows.extend([category, *points] for category, points in report['categories'].items())
+        rows.append(['TOTAL', report['merit'], report['demerit']])
         if data_type in {'merit_demerit_csv', 'merit_demerit_excel'}:
             output = io.StringIO()
             writer = csv.writer(output)
             writer.writerow(['Employee', employee.full_name()])
             writer.writerow(['Generated', datetime.now().strftime('%Y-%m-%d %H:%M')])
+            writer.writerow(['Scope', 'Read-only reporting points; not stored balances or cash entitlement'])
             writer.writerows(rows)
             response = make_response(output.getvalue())
             response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -10904,6 +11057,7 @@ def export_data(data_type):
         pdf.setFont('Helvetica', 10)
         pdf.drawString(50, 735, f'Employee: {employee.full_name()} (ID: {employee.id})')
         pdf.drawString(50, 720, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+        pdf.drawString(50, 705, 'Reporting points only; stored balances and redemption are separate.')
         y = 690
         for row in rows:
             pdf.setFont('Helvetica-Bold' if row[0] in {'Category', 'TOTAL'} else 'Helvetica', 10)

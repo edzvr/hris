@@ -38,7 +38,7 @@ def test_admin_has_grouped_vertical_navigation_and_all_routes():
             "employee_liabilities", "holiday_ot_dashboard", "leave", "loan",
             "employee_201_selector", "evaluation_dashboard", "admin_quiz_upload",
             "admin_incidents", "staff_concerns", "hr_documents", "admin_files",
-            "tax_reports", "compliance_reports", "backup", "audit_logs", "logout",
+            "tax_reports", "compliance_reports", "backup", "audit_logs", "logout", "analytics",
         ):
             assert f'href="{url_for(endpoint)}"' in html
     assert "#settings" in html

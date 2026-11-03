@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workforce Analytics</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7f6; color: #23352a; }
+        main { max-width: 1500px; margin: auto; }
+        .card { background: white; padding: 20px; border: 1px solid #d5dfd8; border-radius: 10px; margin-bottom: 20px; }
+        .filters, .metrics { display: flex; flex-wrap: wrap; gap: 16px; }
+        .filters label { display: grid; gap: 6px; }
+        .metrics .card { flex: 1 1 160px; }
+        .metrics strong { display: block; font-size: 1.7rem; margin-top: 8px; }
+        input, select, button, .button { padding: 10px; min-height: 44px; box-sizing: border-box; }
+        .button { display: inline-block; }
+        .table-scroll { overflow-x: auto; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 10px; border: 1px solid #d5dfd8; text-align: left; white-space: nowrap; }
+        th { background: #e7efe8; }
+        caption { text-align: left; padding: 10px 0; }
+        summary { cursor: pointer; font-weight: bold; }
+        meter { width: 90px; }
+        .notice { border-left: 4px solid #af791f; }
+        @media (max-width: 600px) { body { padding: 12px; } .filters label { width: 100%; } }
+    </style>
+</head>
+<body>
+<main>
+    <header class="card">
+        <h1>Workforce Analytics</h1>
+        <p>Read-only factual summaries. No employee ranking, automatic performance rating, or payroll recalculation.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<p role="alert">{{ message }}</p>{% endfor %}
+        {% endwith %}
+        <form class="filters" method="get">
+            <label>From <input type="date" name="start" value="{{ start }}" required></label>
+            <label>Through <input type="date" name="end" value="{{ end }}" required></label>
+            <label>Company
+                <select name="company"><option value="">All companies</option>
+                    {% for name in companies %}<option{% if company == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+                </select>
+            </label>
+            <label>Employee
+                <select name="employee_id"><option value="">All employees</option>
+                    {% for emp in employees %}<option value="{{ emp.id }}"{% if employee_id == emp.id %} selected{% endif %}>{{ emp.full_name() }}</option>{% endfor %}
+                </select>
+            </label>
+            <button type="submit">Apply filters</button>
+            {% if data %}<button type="submit" name="export" value="csv">Export filtered CSV</button>{% endif %}
+        </form>
+    </header>
+    {% if data %}
+    <section class="card notice" aria-label="Reporting scope">
+        <p><strong>{{ start }} through {{ end }} (inclusive).</strong>
+            Attendance uses recorded dates, one selected row per employee/date. Recorded absences overlapping approved leave
+            are excluded. Missing logs are not treated as absences. Late starts after 08:10;
+            undertime uses the existing company/day schedule and complete punches only.</p>
+        <p>Payroll includes saved records whose <strong>cutoff start</strong> is in this range, without prorating.
+            Finalized and saved drafts are separate. Gross Income excludes exempt benefits;
+            legacy exempt-benefit/OT details may be unavailable. No totals are recalculated.</p>
+        <p>Headcount, company, employment status, and OT estimate rates reflect <strong>current profiles</strong>,
+            not historical staffing. Includes all roles. Evaluation reporting uses full approved monthly groups
+            per evaluator/type, attributed to the last approved answer's submission date. Partial date ranges never
+            recalculate a score from only some answers.</p>
+    </section>
+    <section class="metrics" aria-label="Key metrics">
+        <div class="card">Current selected employees<strong>{{ data.rows|length }}</strong></div>
+        <div class="card">Recorded Present<strong>{{ data.totals.present }}</strong></div>
+        <div class="card">Recorded Absent (leave excluded)<strong>{{ data.totals.absent }}</strong></div>
+        <div class="card">Late days<strong>{{ data.totals.late }}</strong></div>
+        <div class="card">Undertime hours<strong>{{ "%.2f"|format(data.totals.undertime) }}</strong></div>
+        <div class="card">OT / Sunday hours<strong>{{ "%.2f"|format(data.totals.ot_hours) }}</strong></div>
+    </section>
+    <section class="card">
+        <h2>Saved payroll</h2>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Saved payroll totals">
+            <table>
+                <tr><th>Status</th><th>Records</th><th>Gross Income</th><th>Deductions</th><th>Net Pay</th></tr>
+                {% for name, bucket in [('Finalized', data.paid), ('Saved drafts (not recalculated)', data.draft)] %}
+                <tr><td>{{ name }}</td><td>{{ bucket.count }}</td><td>{{ bucket.gross|currency }}</td>
+                    <td>{{ bucket.deductions|currency }}</td><td>{{ bucket.net|currency }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+        <p>Finalized snapshot OT cost (excluding base rest-day pay): {{ data.snapshot_ot|currency }}.
+            Finalized legacy records without itemized OT: {{ data.legacy_payrolls }}.
+            This is partial coverage, not an estimate of missing historical costs.</p>
+    </section>
+    <section class="card">
+        <h2>Monthly trends</h2>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Monthly attendance and payroll trends">
+            <table>
+                <tr><th>Month</th><th>Present</th><th>Recorded absent</th><th>Late</th><th>OT hours</th>
+                    <th>Finalized gross</th><th>Finalized deductions</th><th>Finalized net</th><th>Saved draft net</th></tr>
+                {% for month, values in data.monthly.items() %}
+                <tr><td>{{ month }}</td><td>{{ values.present }}</td><td>{{ values.absent }}</td><td>{{ values.late }}</td>
+                    <td>{{ "%.2f"|format(values.ot_hours) }}</td><td>{{ values.paid_gross|currency }}</td>
+                    <td>{{ values.paid_deductions|currency }}</td><td>{{ values.paid_net|currency }}</td><td>{{ values.draft_net|currency }}</td></tr>
+                {% else %}<tr><td colspan="9">No recorded activity in this range.</td></tr>{% endfor %}
+            </table>
+        </div>
+    </section>
+    <section class="card">
+        <h2>Current workforce breakdown</h2>
+        {% for title, groups in [('Company', data.companies), ('Employment status', data.statuses)] %}
+        <h3>{{ title }}</h3>
+        <ul>{% for name, count in groups.items() %}<li>{{ name }}: {{ count }}</li>{% else %}<li>No matching employees.</li>{% endfor %}</ul>
+        {% endfor %}
+    </section>
+    {% include 'partials/performance_rules.html' %}
+    <section class="card">
+        <h2>Employee performance overview</h2>
+        <p>Expand an employee for source categories and data-quality notes. Reporting points are not cash entitlement or stored balances.</p>
+        <p>OT extra-pay estimates use current daily rates and existing OT rules, including automatic Trece Sunday/rest-day pay.
+            They are not historical payroll costs or productivity scores.</p>
+        {% for row in data.rows %}
+        {% set emp = row.employee %}{% set report = row.report %}
+        <details class="card">
+            <summary>{{ emp.full_name() }} / {{ emp.company or 'Unassigned' }} —
+                {{ report.merit }} reporting merit / {{ report.demerit }} reporting demerit</summary>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Employee attendance and hours">
+                <table>
+                    <tr><th>Present</th><th>Recorded absent</th><th>Late days / minutes</th><th>Undertime hours</th>
+                        <th>Regular hours</th><th>OT hours</th><th>Estimated extra pay</th><th>Incomplete punches</th></tr>
+                    <tr><td>{{ row.present }}</td><td>{{ row.absent }}</td><td>{{ row.late }} / {{ row.late_minutes }}</td>
+                        <td>{{ "%.2f"|format(row.undertime) }}</td><td>{{ "%.2f"|format(row.regular_hours) }}</td>
+                        <td>{{ "%.2f"|format(row.ot_hours) }}</td><td>{{ row.ot_estimate|currency }}</td><td>{{ row.incomplete }}</td></tr>
+                </table>
+            </div>
+            <p>Admin average: {{ "%.2f"|format(report.admin_average) if report.admin_average is not none else 'Not available' }} / 5.
+                Peer average: {{ "%.2f"|format(report.peer_average) if report.peer_average is not none else 'Not available' }} / 5.
+                Official quiz average: {{ "%.2f"|format(report.quiz_average) if report.quiz_average is not none else 'Not available' }}%
+                ({{ report.official_quizzes }} attempts).</p>
+            <table><tr><th>Category</th><th>Merit</th><th>Demerit</th></tr>
+                {% for category, points in report.categories.items() %}
+                <tr><td>{{ category|replace('_', ' ')|title }}</td><td>{{ points[0] }}</td><td>{{ points[1] }}</td></tr>
+                {% endfor %}
+            </table>
+            <p>Unchanged stored all-time balances: {{ emp.merit_points or 0 }} merit / {{ emp.demerit_points or 0 }} demerit.</p>
+            <p>Excluded/unverified evaluations: {{ report.excluded_evaluations }};
+                invalid official quiz records excluded: {{ report.invalid_quizzes }};
+                duplicate attendance rows ignored: {{ report.duplicate_attendance }};
+                recorded awards without source: {{ report.legacy_awards }}.</p>
+            <a href="{{ url_for('merit_demerit', employee_id=emp.id) }}">All-time merit report and legacy redemption</a>
+        </details>
+        {% else %}<p>No employees match the filters.</p>{% endfor %}
+    </section>
+    {% endif %}
+    <a class="button" href="{{ url_for('dashboard_admin') }}">Back to Dashboard</a>
+</main>
+</body>
+</html>

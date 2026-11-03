@@ -24,7 +24,15 @@
         <h2>Merit / Demerit Record</h2>
         <h3>{{ employee.full_name() }}</h3>
         <p><b>Role:</b> {{ employee.role }} | <b>Company:</b> {{ employee.company }}</p>
+        <p>All-time read-only reporting points, not historical balance corrections.</p>
+        <p>Stored historical balances (unchanged): {{ employee.merit_points or 0 }} merit /
+            {{ employee.demerit_points or 0 }} demerit.</p>
+        <p>Excluded/unverified evaluations: {{ report.excluded_evaluations }}.
+            Invalid official quiz records excluded: {{ report.invalid_quizzes }}.
+            Duplicate attendance rows counted only once: {{ report.duplicate_attendance }}.
+            Awards without a recorded source: {{ report.legacy_awards }}.</p>
     </div>
+    {% include 'partials/performance_rules.html' %}
 
     <!-- Summary Stats -->
     <div class="stats">
@@ -71,46 +79,13 @@
         <a href="{{ url_for('export_data', data_type='merit_demerit_pdf', employee_id=employee.id) }}" class="btn">Download PDF</a>
     </div>
 
-    <!-- Analytics Charts -->
-    <h2>Merit / Demerit Analytics</h2>
-    <canvas id="pointsChart" width="400" height="200"></canvas>
-    <canvas id="trendChart" width="400" height="200"></canvas>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        // Pie chart for merit vs demerit
-        var ctxPoints = document.getElementById('pointsChart').getContext('2d');
-        new Chart(ctxPoints, {
-            type: 'pie',
-            data: {
-                labels: ['Merit','Demerit'],
-                datasets: [{
-                    data: [{{ merit_points }}, {{ demerit_points }}],
-                    backgroundColor: ['#4caf50','#f44336']
-                }]
-            }
-        });
-
-        // Line chart for monthly trend
-        var ctxTrend = document.getElementById('trendChart').getContext('2d');
-        new Chart(ctxTrend, {
-            type: 'line',
-            data: {
-                labels: {{ monthly_records.keys()|list|tojson }},
-                datasets: [{
-                    label: 'Merit Points',
-                    data: [{% for month, logs in monthly_records.items() %}{{ logs|selectattr('status','equalto','Present')|list|length }},{% endfor %}],
-                    borderColor: '#4caf50',
-                    fill: false
-                },{
-                    label: 'Demerit Points',
-                    data: [{% for month, logs in monthly_records.items() %}{{ logs|selectattr('status','equalto','Absent')|list|length }},{% endfor %}],
-                    borderColor: '#f44336',
-                    fill: false
-                }]
-            }
-        });
-    </script>
+    <h2>Merit / Demerit Breakdown</h2>
+    <table>
+        <tr><th>Category</th><th>Merit</th><th>Demerit</th></tr>
+        {% for category, points in report.categories.items() %}
+        <tr><td>{{ category|replace('_', ' ')|title }}</td><td>{{ points[0] }}</td><td>{{ points[1] }}</td></tr>
+        {% endfor %}
+    </table>
 
     <br>
     <a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if current_user.role.lower() == 'admin' else url_for('dashboard_staff') }}">Back to Dashboard</a>
@@ -128,11 +103,10 @@
     </div>
 </div>
 <div class="card" style="text-align:center; margin-top:20px;">
-    <h3>Cash Equivalent</h3>
-    <p style="font-size:24px; color:#1976d2;">
-        PHP {{ cash_value }}
-    </p>
-    {% if employee.redemptions and employee.redemptions[-1].date_redeemed.year == now().year %}
+    <h3>Legacy Redemption (separate calculation)</h3>
+    <p>The existing redemption workflow still uses its legacy all-time calculation and PHP 10 per point,
+        once per year. It may differ from the reporting totals above. Those totals are not a cash entitlement.</p>
+    {% if employee.redemptions|selectattr('date_redeemed.year', 'equalto', current_year)|list %}
         <p style="color:red;">⚠ Already redeemed this year</p>
     {% else %}
         <a href="{{ url_for('redeem_points', employee_id=employee.id) }}" class="btn">
