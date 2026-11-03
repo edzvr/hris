@@ -222,6 +222,15 @@ def test_dashboard_preview_portal_and_validations(people):
     assert "Grand Total SSS Payable" in text and "TOTAL TO PAY IN PORTALS" in text
     assert "Pedro Twin" not in text
 
+    selected_portal = client.get(
+        f"/admin/government-contributions/portal?month=2026-10&employee_id={people['worker']}"
+    )
+    text = selected_portal.get_data(as_text=True)
+    assert selected_portal.status_code == 200
+    assert "Juan Remit" in text and "1 employee(s)" in text
+    assert text.count("Pedro Twin") == 1
+    assert "employee_id=%d" % people["worker"] in text
+
     history = client.get(f"/admin/government-contributions/history/{people['worker']}")
     assert history.status_code == 200
 

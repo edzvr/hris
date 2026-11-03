@@ -1952,15 +1952,27 @@ def gov_require_csrf():
 def gov_page_context(view):
     month = gov_month_from_request()
     company = gov_company_from_request()
+    employee_id = request.args.get('employee_id', type=int)
+    employees = [
+        employee for employee in Employee.query.order_by(
+            Employee.company, Employee.last_name, Employee.first_name
+        ).all()
+        if 'admin' not in str(employee.role or '').lower()
+        and (not company or gov_company_label(employee) == company)
+    ]
+    selected_employee = next((employee for employee in employees if employee.id == employee_id), None)
+    if selected_employee is None:
+        employee_id = None
     try:
-        data = build_government_contribution_month(month, company)
+        data = build_government_contribution_month(month, company, employee_id)
         error = None
     except ContributionSettingsError as exc:
         logger.warning('Government contribution settings error: %s', exc)
         data, error = None, str(exc)
     return {
         'view': view, 'month': month, 'company': company, 'data': data, 'settings_error': error,
-        'selected_employee_id': request.args.get('employee_id', type=int),
+        'employees': employees, 'selected_employee': selected_employee,
+        'selected_employee_id': employee_id,
     }
 
 

@@ -10,7 +10,7 @@
         .section { background:#fff; padding:clamp(16px, 2vw, 24px); margin-bottom:18px; border:1px solid #e1e8e4; border-radius:14px; box-shadow:0 5px 18px rgba(31,52,40,.06); overflow:auto; }
         .page-heading { margin:0 0 6px; font-size:clamp(22px, 2.4vw, 30px); }
         .page-intro { margin:0 0 20px; color:#5b6b60; }
-        .gov-filterbar { display:grid; grid-template-columns:repeat(2, minmax(180px, 1fr)) auto; align-items:end; gap:12px; margin-bottom:20px; }
+        .gov-filterbar { display:grid; grid-template-columns:repeat(3, minmax(160px, 1fr)) auto; align-items:end; gap:12px; margin-bottom:20px; }
         .gov-filter-field { display:grid; gap:6px; color:#405248; font-size:13px; font-weight:700; }
         .gov-filter-field input, .gov-filter-field select { width:100%; min-height:44px; box-sizing:border-box; padding:9px 11px; border:1px solid #cbd6cf; border-radius:9px; background:#fff; color:#243247; font:inherit; }
         .gov-filter-field input:focus, .gov-filter-field select:focus { outline:3px solid rgba(37,99,235,.2); border-color:#2563eb; }
@@ -69,13 +69,23 @@
                 <option value="Auto Expert" {% if company == 'Auto Expert' %}selected{% endif %}>Auto-Expert Auto Supply</option>
             </select>
         </label>
+        <label class="gov-filter-field">Staff member
+            <select name="employee_id">
+                <option value="" {% if not selected_employee_id %}selected{% endif %}>All staff</option>
+                {% for employee in employees %}
+                <option value="{{ employee.id }}" {% if employee.id == selected_employee_id %}selected{% endif %}>
+                    {{ employee.full_name() }} &mdash; {{ employee.company or 'No company' }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
         <button class="gov-filter-submit" type="submit">Show monthly totals</button>
     </form>
-    {% set q = {'month': month.strftime('%Y-%m'), 'company': company} %}
+    {% set q = {'month': month.strftime('%Y-%m'), 'company': company, 'employee_id': selected_employee_id} %}
     <nav class="gov-view-nav" aria-label="Government contribution pages">
         <a class="gov-nav-link gov-nav-primary" href="{{ url_for('government_portal_payment', **q) }}"{% if view == 'portal' %} aria-current="page"{% endif %}>
             <span class="gov-nav-title">Monthly Portal Payment Guide</span>
-            <span class="gov-nav-hint">Agency totals by employer</span>
+            <span class="gov-nav-hint">{% if selected_employee %}Totals for {{ selected_employee.full_name() }}{% else %}Agency totals by employer{% endif %}</span>
         </a>
         <a class="gov-nav-link" href="{{ url_for('government_contributions', **q) }}"{% if view == 'dashboard' %} aria-current="page"{% endif %}>
             <span class="gov-nav-title">Contributions Dashboard</span>
