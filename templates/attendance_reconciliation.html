@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Attendance Reconciliation - {{ emp.full_name() }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+</head>
+<body>
+<main class="container">
+    <h1>Duplicate Attendance Reconciliation</h1>
+    <h2>{{ emp.full_name() }} (ID: {{ emp.id }})</h2>
+    <p><a href="{{ url_for('attendance', employee_id=emp.id) }}">Back to Attendance</a></p>
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p role="alert" class="alert alert-{{ category }}">{{ message }}</p>
+    {% endfor %}
+    <p>Admin only. Use verified biometric/DTR times, not guessed times. This tool handles
+        duplicate same-day, non-Sunday, non-holiday records without overtime or pending correction requests.</p>
+    <ol>
+        <li><a href="{{ url_for('download_database_backup') }}">Download a fresh database backup</a>.
+            Save it securely and verify it opens before continuing. Backup download must be within 30 minutes.</li>
+        <li>Select the date, enter the verified times and source/reason, then preview.</li>
+        <li>Confirm only after checking the preview. It expires in 10 minutes.</li>
+    </ol>
+    <p><strong>Original rows are archived permanently before duplicate rows are removed from active attendance.
+        A record linked to reviewed corrections is retained without changing those requests.
+        If there are no links, the lowest record ID is retained. Conflicting links are blocked.
+        Saved payroll, paid status, loans and notifications are not changed.
+        Attendance-based views may change immediately; review payroll/payslip discrepancies separately.
+        Do not import or edit attendance for this employee during reconciliation.</strong></p>
+    <form method="get">
+        <label>Date <input type="date" name="attendance_date" value="{{ selected_date }}" required></label>
+        <button type="submit">Load Records</button>
+    </form>
+    <h3>Current Active Records</h3>
+    <table>
+        <tr><th>ID</th><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Stored Hours</th></tr>
+        {% for record in records %}
+        <tr><td>{{ record.id }}</td><td>{{ record.date }}</td><td>{{ record.clock_in }}</td>
+            <td>{{ record.clock_out }}</td><td>{{ record.status }}</td><td>{{ record.hours }}</td></tr>
+        {% else %}
+        <tr><td colspan="6">No records loaded.</td></tr>
+        {% endfor %}
+    </table>
+    {% if preview %}
+    <h3>Preview - No Attendance Changes Saved Yet</h3>
+    <p>Replace {{ records|length }} active records with one:
+        {{ preview.clock_in }} to {{ preview.clock_out }}.</p>
+    <p>Retain attendance ID: {{ preview.retained_id }}. Existing reviewed correction requests remain unchanged.</p>
+    <p>Source/reason: {{ preview.reason }}</p>
+    <p>Regular hours: {{ preview.hours }}. Status: {{ preview.status }}.
+        Undertime hours: {{ (8 - preview.hours)|round(2) }}. Overtime hours: 0.</p>
+    <p>All original fields will be preserved in reconciliation history. Saved payroll will remain unchanged.</p>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="confirm">
+        <input type="hidden" name="attendance_date" value="{{ selected_date }}">
+        <input type="hidden" name="preview_nonce" value="{{ preview.nonce }}">
+        <label><input type="checkbox" name="backup_verified" value="yes" required>
+            I saved and verified the backup, checked the source times, and understand payroll is not recalculated.</label>
+        <button type="submit">Confirm Reconciliation</button>
+    </form>
+    {% else %}
+    <h3>Verified Replacement Times</h3>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="preview">
+        <label>Date <input type="date" name="attendance_date" value="{{ selected_date }}" required></label>
+        <label>Clock In (local) <input type="datetime-local" name="clock_in" required></label>
+        <label>Clock Out (local) <input type="datetime-local" name="clock_out" required></label>
+        <label>Verified source/reason <textarea name="reason" maxlength="500" required></textarea></label>
+        <button type="submit">Preview Only</button>
+    </form>
+    {% endif %}
+    <h3>Recent Reconciliation History</h3>
+    {% for item in history %}
+    <details>
+        <summary>#{{ item.entry.id }} - {{ item.entry.attendance_date }} -
+            Admin ID {{ item.entry.performed_by }} - {{ item.entry.created_at }} UTC</summary>
+        <p>Source/reason: {{ item.entry.reason }}. Backup audit ID: {{ item.entry.backup_audit_id }}.</p>
+        <p>Retained attendance ID: {{ item.entry.retained_attendance_id }}.
+            Corrected times: {{ item.corrected.clock_in }} to {{ item.corrected.clock_out }}.</p>
+        <h4>Original Records (Preserved)</h4>
+        {% for original in item.originals %}
+        <pre>{{ original|tojson(indent=2) }}</pre>
+        {% endfor %}
+    </details>
+    {% else %}
+    <p>No reconciliations recorded.</p>
+    {% endfor %}
+</main>
+</body>
+</html>

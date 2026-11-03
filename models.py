@@ -171,6 +171,21 @@ class Attendance(db.Model):
         return f"<Attendance {self.date} - {self.status}>"
 
 
+class AttendanceReconciliation(db.Model):
+    __tablename__ = "attendance_reconciliations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    attendance_date = db.Column(db.Date, nullable=False)
+    performed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    retained_attendance_id = db.Column(db.Integer, nullable=False)
+    original_rows = db.Column(db.Text, nullable=False)
+    corrected_row = db.Column(db.Text, nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+    backup_audit_id = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class AttendanceCorrection(db.Model):
     __tablename__ = "attendance_corrections"
 
