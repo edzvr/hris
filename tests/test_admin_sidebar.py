@@ -15,10 +15,16 @@ def navigation_response(role, path="/dashboard_admin", company="Trece-Uno"):
     return response.get_data(as_text=True)
 
 
-def test_admin_has_grouped_vertical_navigation_and_all_routes():
+def test_admin_has_grouped_top_navigation_and_all_routes():
     html = navigation_response("admin")
     assert 'class="hris-admin-sidebar-page"' in html
     assert 'aria-label="Admin navigation"' in html
+    assert '<header id="hris-global-sidebar" class="admin-topbar"' in html
+    assert 'id="admin-topbar-navigation"' in html
+    assert 'class="admin-nav-dropdown"' in html
+    assert 'padding-left:0 !important' in html
+    assert 'new ResizeObserver' in html
+    assert 'if (activeGroup) activeGroup.open = true' not in html
     for heading in (
         "Payroll &amp; Contributions", "People &amp; Attendance",
         "Reports &amp; Performance", "Account &amp; System",
@@ -199,6 +205,6 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     assert '<select id="buttonColor">' in html
     for color, label in (('#2563eb', 'Blue'), ('#facc15', 'Yellow'), ('#64748b', 'Gray')):
         assert f'<option value="{color}">{label}</option>' in html
-    assert 'The sidebar stays white with gray text.' in html
+    assert 'The top bar stays white with gray text.' in html
     assert 'Staff colors are unchanged.' in html
     assert 'Buttons &amp; sidebar color' not in html

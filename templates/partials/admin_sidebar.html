@@ -42,29 +42,46 @@
   ])
 ] %}
 <style id="hris-global-sidebar-style">
-  body.hris-admin-sidebar-page { padding-top: 0 !important; padding-left: 240px !important; box-sizing: border-box; }
-  #hris-global-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10000; width: 240px; box-sizing: border-box; padding: 20px 12px; overflow-y: auto; background: #34483e; color: #f4f7f6; font-family: Arial, sans-serif; }
-  #hris-global-sidebar h2 { margin: 0; font-size: 26px; }
-  #hris-global-sidebar .workspace-label { margin: 4px 0 18px; font-size: 15px; color: #b9d4df; }
-  #hris-global-sidebar .sidebar-quick-links { display: grid; gap: 7px; margin: 16px 0 18px; }
-  #hris-global-sidebar .sidebar-quick-link { display: block; padding: 10px 12px; border: 1px solid rgba(255,255,255,.25); border-radius: 9px; color: var(--workspace-sidebar-text, #fff) !important; background: rgba(255,255,255,.08) !important; text-decoration: none; font-size: 14px; font-weight: 700; line-height: 1.35; }
-  #hris-global-sidebar .sidebar-quick-link:hover, #hris-global-sidebar .sidebar-quick-link:focus-visible { background: rgba(255,255,255,.18) !important; outline: 2px solid currentColor; outline-offset: 2px; }
+  body.hris-admin-sidebar-page { --admin-topbar-height:128px; padding-top:var(--admin-topbar-height) !important; padding-left:0 !important; box-sizing:border-box; }
+  #hris-global-sidebar { position:fixed; inset:0 0 auto; z-index:10000; width:100%; box-sizing:border-box; padding:0 20px; background:#fff; color:#374151; border-bottom:1px solid #e5e7eb; box-shadow:0 2px 8px rgba(0,0,0,.05); font-family:Arial,sans-serif; }
+  #hris-global-sidebar .admin-topbar-header { display:flex; align-items:center; gap:18px; min-height:64px; }
+  #hris-global-sidebar .admin-topbar-title { display:flex; align-items:baseline; gap:10px; }
+  #hris-global-sidebar h2 { margin:0; font-size:22px; }
+  #hris-global-sidebar .workspace-label { margin:0; font-size:13px; }
+  body.hris-admin-sidebar-page #hris-global-sidebar .company-branding { flex-wrap:nowrap; gap:8px; margin:0; }
+  body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:110px; height:42px; padding:4px; }
+  #hris-global-sidebar nav { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 0 10px; }
+  #hris-global-sidebar .sidebar-quick-links { display:flex; gap:6px; }
+  #hris-global-sidebar .sidebar-quick-link { display:block; padding:8px 12px; border:1px solid #e5e7eb; border-radius:7px; text-decoration:none; font-size:13px; font-weight:700; line-height:1.35; }
+  #hris-global-sidebar .sidebar-quick-link:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
   #hris-global-sidebar .sidebar-quick-link[aria-current="page"] { background: var(--workspace-nav-active, #536c80) !important; color: var(--workspace-nav-active-text, #fff) !important; }
   #hris-global-sidebar .sidebar-quick-link small { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; opacity: .85; }
-  #hris-global-sidebar details { border-top: 1px solid rgba(255,255,255,.16); }
-  #hris-global-sidebar summary { padding: 11px 8px; min-height:44px; box-sizing:border-box; font-size:13px; color:#c4d6c9; cursor:pointer; font-weight:600; }
-  #hris-global-sidebar a { display: block; padding: 10px 12px; margin: 2px 0; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #f4f7f6; text-decoration: none; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-  #hris-global-sidebar a:hover, #hris-global-sidebar a:focus-visible, #hris-global-sidebar a[aria-current="page"] { background: #506c59; outline-offset: 2px; }
-  #hris-global-sidebar .sidebar-logout { margin-top: 24px; border-top: 1px solid #48616f; }
+  #hris-global-sidebar details { position:relative; }
+  #hris-global-sidebar summary { padding:10px 8px; min-height:44px; box-sizing:border-box; font-size:13px; cursor:pointer; font-weight:600; }
+  #hris-global-sidebar details[open] > summary { margin-bottom:0; background:#eef0f3; border-radius:6px; }
+  #hris-global-sidebar .admin-nav-dropdown { position:absolute; top:100%; right:0; width:260px; max-height:calc(100dvh - var(--admin-topbar-height) - 16px); overflow-y:auto; padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,.1); }
+  #hris-global-sidebar a { display:block; padding:10px 12px; margin:0; min-height:44px; box-sizing:border-box; border-radius:6px; text-decoration:none; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+  #hris-global-sidebar a:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
+  #hris-global-sidebar .sidebar-logout { margin:0 0 0 auto; }
   #admin-menu-toggle { display: none; }
   #admin-menu-backdrop { display: none; }
   .hris-admin-sidebar-page .card { overflow-x: auto; }
-  @media (max-width: 900px) {
-    body.hris-admin-sidebar-page { padding-left: 0 !important; padding-top: 64px !important; }
-    #admin-menu-toggle { display: block; position: fixed; inset: 10px auto auto 12px; z-index: 10001; margin: 0; padding: 10px 16px; background: #34483e; color: #fff; border: 1px solid #b9d4df; border-radius: 6px; font-size: 17px; cursor: pointer; }
-    #hris-global-sidebar { top: 64px; width: min(280px, 85vw); visibility: hidden; }
-    #hris-global-sidebar.menu-open { visibility: visible; }
-    #admin-menu-backdrop:not([hidden]) { display: block; position: fixed; inset: 64px 0 0; z-index: 9999; padding: 0; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.35); width: 100%; height: calc(100% - 64px); }
+  @media (max-width:1100px) {
+    body.hris-admin-sidebar-page { --admin-topbar-height:64px; }
+    #hris-global-sidebar { padding:0 12px; }
+    #hris-global-sidebar .admin-topbar-header { gap:8px; }
+    #hris-global-sidebar .admin-topbar-title { display:none; }
+    #hris-global-sidebar .company-branding { margin-right:auto !important; }
+    #admin-menu-toggle { display:block; margin:0; padding:8px 10px; min-height:44px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer; }
+    #hris-global-sidebar nav { display:none; position:absolute; top:100%; left:0; right:0; max-height:calc(100dvh - var(--admin-topbar-height)); overflow-y:auto; padding:12px; border-bottom:1px solid #e5e7eb; background:#fff; }
+    #hris-global-sidebar.menu-open nav { display:block; }
+    #hris-global-sidebar .sidebar-quick-links { display:grid; }
+    #hris-global-sidebar .admin-nav-dropdown { position:static; width:auto; max-height:none; box-shadow:none; border:0; padding:0 0 0 12px; }
+    #hris-global-sidebar .sidebar-logout { margin-top:8px; }
+    #admin-menu-backdrop:not([hidden]) { display:block; position:fixed; inset:var(--admin-topbar-height) 0 0; z-index:9999; padding:0; margin:0; border:0; border-radius:0; background:rgba(0,0,0,.2); width:100%; height:calc(100% - var(--admin-topbar-height)); }
+  }
+  @media (max-width:360px) {
+    body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:88px; }
   }
 </style>
 {% set normalized_company = (workspace_company|default('', true)|trim|lower) %}
@@ -72,14 +89,18 @@
 <script>document.body.dataset.companyTheme = "{{ workspace_company_theme }}";</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='workspace_theme.css') }}">
 <script src="{{ url_for('static', filename='workspace_theme.js') }}"></script>
-<button id="admin-menu-toggle" type="button" aria-controls="hris-global-sidebar" aria-expanded="false">Admin menu</button>
 <button id="admin-menu-backdrop" type="button" aria-label="Close admin menu" hidden></button>
-<aside id="hris-global-sidebar" aria-label="Admin workspace">
+<header id="hris-global-sidebar" class="admin-topbar" aria-label="Admin workspace">
+  <div class="admin-topbar-header">
   {% set branding_is_admin = true %}
   {% include 'partials/company_branding.html' %}
-  <h2>HRIS</h2>
-  <p class="workspace-label">Admin workspace</p>
-  <nav aria-label="Admin navigation">
+    <div class="admin-topbar-title">
+      <h2>HRIS</h2>
+      <p class="workspace-label">Admin workspace</p>
+    </div>
+    <button id="admin-menu-toggle" type="button" aria-controls="admin-topbar-navigation" aria-expanded="false">Admin menu</button>
+  </div>
+  <nav id="admin-topbar-navigation" aria-label="Admin navigation">
     <div class="sidebar-quick-links" aria-label="Quick access">
       <a class="sidebar-quick-link" href="{{ url_for('dashboard_admin') }}"{% if request.endpoint == 'dashboard_admin' and not request.args.get('tab') %} aria-current="page"{% endif %}>Dashboard</a>
       <a class="sidebar-quick-link" href="{{ url_for('government_portal_payment') }}" data-active-prefix="/admin/government-contributions"{% if request.endpoint in ['government_contributions', 'government_contribution_preview', 'government_portal_payment', 'government_contribution_history'] %} aria-current="page"{% endif %}>
@@ -90,21 +111,27 @@
     {% for title, items in groups %}
       <details aria-label="{{ title }}">
         <summary>{{ title }}</summary>
+        <div class="admin-nav-dropdown">
         {% for endpoint, label, fragment in items %}
           {% set href = url_for(endpoint, user_id=sidebar_user_id) if endpoint == 'profile' else url_for(endpoint, employee_id=sidebar_user_id) if endpoint == 'attendance' else url_for(endpoint) %}
           <a href="{{ href }}{{ fragment }}"{% if request.endpoint == endpoint and not fragment %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
+        </div>
       </details>
     {% endfor %}
     <a class="sidebar-logout" href="{{ url_for('logout') }}">Sign out</a>
   </nav>
-</aside>
+</header>
 <script>
   (function () {
     const toggle = document.getElementById('admin-menu-toggle');
     const sidebar = document.getElementById('hris-global-sidebar');
     const backdrop = document.getElementById('admin-menu-backdrop');
+    function closeGroups() {
+      sidebar.querySelectorAll('details[open]').forEach(section => { section.open = false; });
+    }
     function closeMenu() {
+      closeGroups();
       sidebar.classList.remove('menu-open');
       toggle.setAttribute('aria-expanded', 'false');
       backdrop.hidden = true;
@@ -115,8 +142,14 @@
       backdrop.hidden = !open;
     });
     backdrop.addEventListener('click', closeMenu);
-    const mobileLayout = window.matchMedia('(max-width: 900px)');
+    const mobileLayout = window.matchMedia('(max-width: 1100px)');
     mobileLayout.addEventListener('change', closeMenu);
+    new ResizeObserver(() => {
+      document.body.style.setProperty('--admin-topbar-height', sidebar.getBoundingClientRect().height + 'px');
+    }).observe(sidebar);
+    document.addEventListener('click', event => {
+      if (!sidebar.contains(event.target)) closeMenu();
+    });
     function updateCurrentLink() {
       sidebar.querySelectorAll('a').forEach(link => {
         const url = new URL(link.href);
@@ -136,15 +169,13 @@
       });
     });
     updateCurrentLink();
-    const activeLink = sidebar.querySelector('details a[aria-current="page"]');
-    const activeGroup = activeLink ? activeLink.closest('details') : null;
-    if (activeGroup) activeGroup.open = true;
     window.addEventListener('hashchange', updateCurrentLink);
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && sidebar.classList.contains('menu-open')) {
+      if (event.key === 'Escape' && (sidebar.classList.contains('menu-open') || sidebar.querySelector('details[open]'))) {
+        const summary = sidebar.querySelector('details[open] > summary');
         closeMenu();
-        setTimeout(updateCurrentLink, 0);
-        toggle.focus();
+        if (mobileLayout.matches) toggle.focus();
+        else if (summary) summary.focus();
       }
     });
     sidebar.querySelectorAll('a').forEach(link => {
