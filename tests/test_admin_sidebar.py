@@ -34,8 +34,13 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
     assert '<details aria-label="People &amp; Attendance">' in html
     assert '<details aria-label="Reports &amp; Performance">' in html
     assert '<details aria-label="Account &amp; System">' in html
-    assert html.index("Monthly Gov Dues Guide") < html.index("Payroll &amp; Contributions")
-    assert 'data-active-prefix="/admin/government-contributions"' in html
+    assert html.index("Monthly Gov Dues Guide") > html.index("Payroll &amp; Contributions")
+    assert html.count("Monthly Gov Dues Guide") == 1
+    payroll_menu = html.split('<details aria-label="Payroll &amp; Contributions">', 1)[1].split('</details>', 1)[0]
+    assert 'Monthly Gov Dues Guide' in payroll_menu
+    quick_links = html.split('aria-label="Quick access">', 1)[1].split('</div>', 1)[0]
+    assert 'Monthly Gov Dues Guide' not in quick_links
+    assert 'data-active-prefix="/admin/government-contributions/portal"' in html
     assert "section.addEventListener('toggle'" in html
     with app.test_request_context():
         from flask import url_for
@@ -202,9 +207,9 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     assert "responsive: true" in html
     assert 'Employee directory &amp; attendance records' in html
     assert 'summary-workspace' in html
-    assert '<select id="buttonColor">' in html
-    for color, label in (('#2563eb', 'Blue'), ('#facc15', 'Yellow'), ('#64748b', 'Gray')):
-        assert f'<option value="{color}">{label}</option>' in html
-    assert 'The top bar stays white with gray text.' in html
+    assert '<input type="color" id="buttonColor"' in html
+    assert '<input type="color" id="topbarColor"' in html
+    assert "topbarColor: document.getElementById('topbarColor').value" in html
+    assert 'Choose separate colors for the Admin top bar and buttons' in html
     assert 'Staff colors are unchanged.' in html
     assert 'Buttons &amp; sidebar color' not in html

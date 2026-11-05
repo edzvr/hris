@@ -52,13 +52,13 @@ body:is(.hris-admin-sidebar-page, .hris-staff-navigation-page) main.card > p > a
 .admin-dark-mode .calendar-weekday { background:#334155; }
 .admin-dark-mode .outside-month { background:#182334; }
 body.hris-admin-sidebar-page {
-  --workspace-sidebar:#fff; --workspace-sidebar-text:#374151;
+  --workspace-sidebar:#2563eb; --workspace-sidebar-text:#fff;
   --workspace-button:#2563eb; --workspace-button-text:#fff;
   --workspace-nav-active:#eef0f3; --workspace-nav-active-text:#374151;
 }
 body.hris-admin-sidebar-page #hris-global-sidebar { border-right:1px solid #e5e7eb; }
 body.hris-admin-sidebar-page #hris-global-sidebar :is(details, .sidebar-logout, .sidebar-quick-link) { border-color:#e5e7eb; }
-body.hris-admin-sidebar-page #hris-global-sidebar .sidebar-quick-link { background:#f6f7f9 !important; }
+body.hris-admin-sidebar-page #hris-global-sidebar .sidebar-quick-link { background:transparent !important; }
 body.hris-admin-sidebar-page #hris-global-sidebar .sidebar-quick-link:is(:hover, :focus-visible, [aria-current="page"]) { background:#eef0f3 !important; color:#374151 !important; }
 body.hris-admin-sidebar-page:not(.admin-dark-mode) :is(.card, .section, .profile, .profile-card, .tab-content, .payslip-card, form, .panel, .summary-card, .payroll-row, .calendar-day) { background-color:#fff; }
 body.hris-admin-sidebar-page:not(.admin-dark-mode) :is(header, th, .summary-card.total, .attendance-avatar, .attendance-metric, .payroll-amounts > div, .calendar-event, .outside-month) { background:#f3f4f6; color:#374151; }

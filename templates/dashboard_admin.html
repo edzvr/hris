@@ -551,6 +551,7 @@
         notifications: document.getElementById('notifications').checked,
         topbarSize: document.getElementById('topbarSize').value,
         buttonColor: document.getElementById('buttonColor').value,
+        topbarColor: document.getElementById('topbarColor').value,
         buttonSize: document.getElementById('buttonSize').value,
         buttonsPerRow: document.getElementById('buttonsPerRow').value
       };
@@ -577,7 +578,7 @@
       document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || defaultButtonColor);
       const selectedColor = settings.buttonColor && settings.buttonColor.toLowerCase() !== defaultButtonColor.toLowerCase()
         ? settings.buttonColor : null;
-      applyWorkspaceTheme(selectedColor);
+      applyWorkspaceTheme(selectedColor, settings.topbarColor || null);
       const sizes = {
         small: { height: '70px', padding: '12px', fontSize: '18px' },
         medium: { height: '94px', padding: '20px', fontSize: '23px' },
@@ -634,13 +635,11 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       const storedSettings = JSON.parse(localStorage.getItem('hrisAdminSettings') || '{}');
-      if (storedSettings.buttonColor && !['#2563eb', '#facc15', '#64748b'].includes(storedSettings.buttonColor.toLowerCase())) {
-        storedSettings.buttonColor = null;
-      }
       document.getElementById('themeSelect').value = storedSettings.theme || 'light';
       document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
       document.getElementById('topbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
       document.getElementById('buttonColor').value = storedSettings.buttonColor || workspaceThemeButtonColor();
+      document.getElementById('topbarColor').value = storedSettings.topbarColor || workspaceThemeTopbarColor();
       document.getElementById('buttonSize').value = storedSettings.buttonSize || 'medium';
       document.getElementById('buttonsPerRow').value = storedSettings.buttonsPerRow || '3';
       applyAdminSettings(storedSettings);
@@ -673,7 +672,7 @@
         <br><br>
         <label><input type="checkbox" id="notifications"> Enable Notifications</label>
         <br><br>
-        <p>Choose blue, yellow, or gray for Admin buttons. The top bar stays white with gray text. Save Settings keeps the button color across Admin pages on this browser. Yellow buttons use dark text for readability; Staff colors are unchanged.</p>
+        <p>Choose separate colors for the Admin top bar and buttons to preview them immediately. Save Settings keeps both colors across Admin pages on this browser. Text automatically switches between dark and white for readability; Staff colors are unchanged.</p>
         <label>Navigation text size:
           <select id="topbarSize">
             <option value="small">Small</option>
@@ -683,11 +682,11 @@
         </label>
         <br><br>
         <label>Admin button color:
-          <select id="buttonColor">
-            <option value="#2563eb">Blue</option>
-            <option value="#facc15">Yellow</option>
-            <option value="#64748b">Gray</option>
-          </select>
+          <input type="color" id="buttonColor" value="#2563eb">
+        </label>
+        <br><br>
+        <label>Admin top bar color:
+          <input type="color" id="topbarColor" value="#2563eb">
         </label>
         <br><br>
         <label>Quick action button size:
@@ -706,7 +705,7 @@
             <option value="4">4</option>
           </select>
         </label>
-        <p>Admin routes are grouped in the sidebar by workflow. On smaller screens, use Admin menu to open navigation. The navigation text size setting applies to the staff sidebar on this browser.</p>
+        <p>Admin routes are grouped in the top bar by workflow. Monthly Gov Dues Guide is inside Payroll &amp; Contributions. On smaller screens, use Admin menu to open navigation. The navigation text size setting applies to the staff sidebar on this browser.</p>
         <p>On phones, cards stack and wide tables scroll inside their own panel. Quick Actions can be expanded below the employee tables.</p>
         <p>Drag the Quick Actions buttons to arrange them. Your arrangement is saved on this browser.</p>
         <br><br>

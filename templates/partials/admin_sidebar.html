@@ -3,6 +3,7 @@
     ('payroll_dashboard', 'Payroll', ''),
     ('admin_payroll_history', 'Payroll History', ''),
     ('monthly_deductions', 'Monthly Deductions', ''),
+    ('government_portal_payment', 'Monthly Gov Dues Guide', ''),
     ('government_contributions', 'Contribution Dashboard', ''),
     ('employee_liabilities', 'Liabilities / Shortage', ''),
     ('thirteenth_month', '13th-Month Pay', '')
@@ -42,41 +43,41 @@
   ])
 ] %}
 <style id="hris-global-sidebar-style">
-  body.hris-admin-sidebar-page { --admin-topbar-height:128px; padding-top:var(--admin-topbar-height) !important; padding-left:0 !important; box-sizing:border-box; }
-  #hris-global-sidebar { position:fixed; inset:0 0 auto; z-index:10000; width:100%; box-sizing:border-box; padding:0 20px; background:#fff; color:#374151; border-bottom:1px solid #e5e7eb; box-shadow:0 2px 8px rgba(0,0,0,.05); font-family:Arial,sans-serif; }
-  #hris-global-sidebar .admin-topbar-header { display:flex; align-items:center; gap:18px; min-height:64px; }
-  #hris-global-sidebar .admin-topbar-title { display:flex; align-items:baseline; gap:10px; }
-  #hris-global-sidebar h2 { margin:0; font-size:22px; }
-  #hris-global-sidebar .workspace-label { margin:0; font-size:13px; }
+  body.hris-admin-sidebar-page { --admin-topbar-height:64px; padding-top:var(--admin-topbar-height) !important; padding-left:0 !important; box-sizing:border-box; }
+  #hris-global-sidebar { position:fixed; inset:0 0 auto; z-index:10000; display:flex; align-items:center; gap:16px; width:100%; box-sizing:border-box; padding:0 12px; background:var(--workspace-sidebar); color:var(--workspace-sidebar-text); border-bottom:1px solid #e5e7eb; box-shadow:0 2px 8px rgba(0,0,0,.05); font-family:Arial,sans-serif; }
+  #hris-global-sidebar .admin-topbar-header { display:flex; flex-shrink:0; align-items:center; gap:10px; min-height:64px; }
+  #hris-global-sidebar .admin-topbar-title { display:grid; gap:2px; }
+  body.hris-admin-sidebar-page #hris-global-sidebar h2 { margin:0; font-size:20px; color:var(--workspace-sidebar-text); }
+  #hris-global-sidebar .workspace-label { margin:0; font-size:11px; }
   body.hris-admin-sidebar-page #hris-global-sidebar .company-branding { flex-wrap:nowrap; gap:8px; margin:0; }
-  body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:110px; height:42px; padding:4px; }
-  #hris-global-sidebar nav { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 0 10px; }
+  body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:88px; height:42px; padding:4px; }
+  #hris-global-sidebar nav { display:flex; flex:1; min-width:0; align-items:center; gap:4px; padding:6px 0; }
   #hris-global-sidebar .sidebar-quick-links { display:flex; gap:6px; }
   #hris-global-sidebar .sidebar-quick-link { display:block; padding:8px 12px; border:1px solid #e5e7eb; border-radius:7px; text-decoration:none; font-size:13px; font-weight:700; line-height:1.35; }
   #hris-global-sidebar .sidebar-quick-link:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
   #hris-global-sidebar .sidebar-quick-link[aria-current="page"] { background: var(--workspace-nav-active, #536c80) !important; color: var(--workspace-nav-active-text, #fff) !important; }
   #hris-global-sidebar .sidebar-quick-link small { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; opacity: .85; }
   #hris-global-sidebar details { position:relative; }
-  #hris-global-sidebar summary { padding:10px 8px; min-height:44px; box-sizing:border-box; font-size:13px; cursor:pointer; font-weight:600; }
-  #hris-global-sidebar details[open] > summary { margin-bottom:0; background:#eef0f3; border-radius:6px; }
-  #hris-global-sidebar .admin-nav-dropdown { position:absolute; top:100%; right:0; width:260px; max-height:calc(100dvh - var(--admin-topbar-height) - 16px); overflow-y:auto; padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,.1); }
+  #hris-global-sidebar summary { padding:10px 6px; min-height:44px; box-sizing:border-box; font-size:12px; cursor:pointer; font-weight:600; white-space:nowrap; }
+  #hris-global-sidebar details[open] > summary { margin-bottom:0; background:var(--workspace-nav-active); color:var(--workspace-nav-active-text) !important; border-radius:6px; }
+  #hris-global-sidebar .admin-nav-dropdown { --workspace-sidebar-text:#374151; position:absolute; top:100%; right:0; width:260px; max-height:calc(100dvh - var(--admin-topbar-height) - 16px); overflow-y:auto; padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,.1); }
   #hris-global-sidebar a { display:block; padding:10px 12px; margin:0; min-height:44px; box-sizing:border-box; border-radius:6px; text-decoration:none; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
   #hris-global-sidebar a:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
   #hris-global-sidebar .sidebar-logout { margin:0 0 0 auto; }
   #admin-menu-toggle { display: none; }
   #admin-menu-backdrop { display: none; }
   .hris-admin-sidebar-page .card { overflow-x: auto; }
-  @media (max-width:1100px) {
+  @media (max-width:1280px) {
     body.hris-admin-sidebar-page { --admin-topbar-height:64px; }
-    #hris-global-sidebar { padding:0 12px; }
+    #hris-global-sidebar { display:block; padding:0 12px; }
     #hris-global-sidebar .admin-topbar-header { gap:8px; }
     #hris-global-sidebar .admin-topbar-title { display:none; }
     #hris-global-sidebar .company-branding { margin-right:auto !important; }
     #admin-menu-toggle { display:block; margin:0; padding:8px 10px; min-height:44px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer; }
-    #hris-global-sidebar nav { display:none; position:absolute; top:100%; left:0; right:0; max-height:calc(100dvh - var(--admin-topbar-height)); overflow-y:auto; padding:12px; border-bottom:1px solid #e5e7eb; background:#fff; }
+    #hris-global-sidebar nav { display:none; position:absolute; top:100%; left:0; right:0; max-height:calc(100dvh - var(--admin-topbar-height)); overflow-y:auto; padding:12px; border-bottom:1px solid #e5e7eb; background:var(--workspace-sidebar); }
     #hris-global-sidebar.menu-open nav { display:block; }
     #hris-global-sidebar .sidebar-quick-links { display:grid; }
-    #hris-global-sidebar .admin-nav-dropdown { position:static; width:auto; max-height:none; box-shadow:none; border:0; padding:0 0 0 12px; }
+    #hris-global-sidebar .admin-nav-dropdown { --workspace-sidebar-text:inherit; position:static; width:auto; max-height:none; box-shadow:none; border:0; padding:0 0 0 12px; background:transparent; }
     #hris-global-sidebar .sidebar-logout { margin-top:8px; }
     #admin-menu-backdrop:not([hidden]) { display:block; position:fixed; inset:var(--admin-topbar-height) 0 0; z-index:9999; padding:0; margin:0; border:0; border-radius:0; background:rgba(0,0,0,.2); width:100%; height:calc(100% - var(--admin-topbar-height)); }
   }
@@ -103,10 +104,6 @@
   <nav id="admin-topbar-navigation" aria-label="Admin navigation">
     <div class="sidebar-quick-links" aria-label="Quick access">
       <a class="sidebar-quick-link" href="{{ url_for('dashboard_admin') }}"{% if request.endpoint == 'dashboard_admin' and not request.args.get('tab') %} aria-current="page"{% endif %}>Dashboard</a>
-      <a class="sidebar-quick-link" href="{{ url_for('government_portal_payment') }}" data-active-prefix="/admin/government-contributions"{% if request.endpoint in ['government_contributions', 'government_contribution_preview', 'government_portal_payment', 'government_contribution_history'] %} aria-current="page"{% endif %}>
-        Monthly Gov Dues Guide
-        <small>SSS / PhilHealth / Pag-IBIG</small>
-      </a>
     </div>
     {% for title, items in groups %}
       <details aria-label="{{ title }}">
@@ -114,7 +111,7 @@
         <div class="admin-nav-dropdown">
         {% for endpoint, label, fragment in items %}
           {% set href = url_for(endpoint, user_id=sidebar_user_id) if endpoint == 'profile' else url_for(endpoint, employee_id=sidebar_user_id) if endpoint == 'attendance' else url_for(endpoint) %}
-          <a href="{{ href }}{{ fragment }}"{% if request.endpoint == endpoint and not fragment %} aria-current="page"{% endif %}>{{ label }}</a>
+          <a href="{{ href }}{{ fragment }}"{% if endpoint == 'government_portal_payment' %} data-active-prefix="/admin/government-contributions/portal"{% endif %}{% if request.endpoint == endpoint and not fragment %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
         </div>
       </details>
@@ -142,7 +139,7 @@
       backdrop.hidden = !open;
     });
     backdrop.addEventListener('click', closeMenu);
-    const mobileLayout = window.matchMedia('(max-width: 1100px)');
+    const mobileLayout = window.matchMedia('(max-width: 1280px)');
     mobileLayout.addEventListener('change', closeMenu);
     new ResizeObserver(() => {
       document.body.style.setProperty('--admin-topbar-height', sidebar.getBoundingClientRect().height + 'px');
