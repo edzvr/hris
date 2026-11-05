@@ -1,11 +1,44 @@
 from io import BytesIO
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
+from html.parser import HTMLParser
+from flask import url_for
 
 import hris
 from hris import app, ensure_employee_hr_columns
 from models import Attendance, Employee, OTApplication, Payroll, PayslipVerification, db
 from pypdf import PdfReader
+
+
+class PayrollCardParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.cards = {}
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'article' and 'payroll-row' in attrs.get('class', '').split():
+            self.current = {
+                'attrs': attrs, 'inputs': {}, 'details': [], 'actions': [],
+                'text': [],
+            }
+            self.cards[attrs['data-employee']] = self.current
+        if self.current is not None:
+            if tag == 'input':
+                self.current['inputs'][attrs.get('name')] = attrs
+            elif tag == 'details':
+                self.current['details'].append(attrs)
+            elif tag in ('button', 'a'):
+                self.current['actions'].append(attrs)
+
+    def handle_endtag(self, tag):
+        if tag == 'article':
+            self.current = None
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current['text'].append(data)
 
 
 def log_in(client, employee):
@@ -150,7 +183,7 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert response.status_code == 200
         assert b'2. Review and filter employees' in response.data
         assert b'Select all shown' in response.data
-        assert b'class="deduction-heading">SSS</th>' in response.data
+        assert b'class="payroll-field deduction-cell">SSS<strong>' in response.data
         assert b'class="deduction-cell">' in response.data
         assert b'SSS Loan' in response.data
         assert b'Pag-IBIG Loan' in response.data
@@ -158,6 +191,36 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert b'Keira Ronquillo' in response.data
         assert b'Finalize Payroll' in response.data
         assert b'Payroll Admin' not in response.data
+        parser = PayrollCardParser()
+        parser.feed(response.get_data(as_text=True))
+        for employee_id, name, other_name in (
+            (karl_id, 'Karl Ronquillo', 'Keira Ronquillo'),
+            (keira_id, 'Keira Ronquillo', 'Karl Ronquillo'),
+        ):
+            card = parser.cards[str(employee_id)]
+            text = ' '.join(card['text'])
+            assert name in text
+            assert other_name not in text
+            assert 'Unpaid preview' in text
+            assert all(label in text for label in ('Gross Pay', 'Deductions', 'Net Pay'))
+            assert card['attrs']['data-company'] == 'trece'
+            assert all('open' not in details for details in card['details'])
+            for field in (
+                'daily_rate', 'rice_allowance', 'laundry_allowance',
+                'medical_allowance', 'uniform_allowance', 'christmas_gift_allowance',
+                'meal_allowance', 'sss_loan', 'pagibig_loan', 'withholding_tax',
+                'liability_deduction', 'cash_advance', 'other_deductions',
+                'loan', 'loan_deduction',
+            ):
+                assert f'{field}_{employee_id}' in card['inputs']
+            assert card['inputs']['selected_employee_ids']['value'] == str(employee_id)
+            with app.test_request_context():
+                assert any(
+                    action.get('formaction') == url_for(
+                        'finalize_payroll', employee_id=employee_id
+                    )
+                    for action in card['actions']
+                )
         assert f'name="loan_deduction_{karl_id}"'.encode() in response.data
         assert f'name="loan_deduction_{keira_id}"'.encode() in response.data
         assert b'Company Loan Deduction This Cutoff' in response.data
@@ -171,6 +234,61 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
                 employee = db.session.get(Employee, employee_id)
                 if employee:
                     db.session.delete(employee)
+            db.session.commit()
+
+
+def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
+    with app.app_context():
+        admin = Employee(first_name='Card', last_name='Manager', role='admin')
+        staff = Employee(
+            first_name='Card', last_name='Employee', role='staff',
+            company='Auto Expert', daily_rate=700,
+        )
+        record = Payroll(
+            employee=staff, cutoff_start=date(2026, 10, 3),
+            cutoff_end=date(2026, 10, 9), is_paid=True,
+            gross_income=4200, total_deductions=500, net_pay=3700,
+        )
+        db.session.add_all([admin, staff, record])
+        db.session.commit()
+        admin_id, staff_id, record_id = admin.id, staff.id, record.id
+        client = app.test_client()
+        log_in(client, admin)
+    try:
+        response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
+        assert response.status_code == 200
+        parser = PayrollCardParser()
+        parser.feed(response.get_data(as_text=True))
+        card = parser.cards[str(staff_id)]
+        text = ' '.join(card['text'])
+        assert 'Finalized' in text
+        for amount in ('4,200.00', '500.00', '3,700.00'):
+            assert amount in text
+        assert card['attrs']['data-company'] == 'auto'
+        for field in (
+            'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
+            'cash_advance', 'other_deductions', 'loan', 'loan_deduction',
+        ):
+            assert 'disabled' in card['inputs'][f'{field}_{staff_id}']
+        with app.test_request_context():
+            assert any(
+                action.get('formaction') == url_for('reopen_payroll', employee_id=staff_id)
+                for action in card['actions']
+            )
+            assert any(
+                action.get('href') == url_for('payroll', employee_id=staff_id, download='true')
+                for action in card['actions']
+            )
+        with app.app_context():
+            saved = db.session.get(Payroll, record_id)
+            assert (saved.gross_income, saved.total_deductions, saved.net_pay) == (4200, 500, 3700)
+            assert saved.is_paid is True
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            db.session.delete(db.session.get(Payroll, record_id))
+            db.session.delete(db.session.get(Employee, staff_id))
+            db.session.delete(db.session.get(Employee, admin_id))
             db.session.commit()
 
 

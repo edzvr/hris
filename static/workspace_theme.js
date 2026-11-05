@@ -1,4 +1,7 @@
 (function () {
+  const isAdmin = document.body.classList.contains('hris-admin-sidebar-page');
+  const adminButtonColors = ['#2563eb', '#facc15', '#64748b'];
+  const adminTheme = { sidebar: '#ffffff', button: '#2563eb', active: '#eef0f3', activeText: '#374151' };
   const themes = {
     autoxpert: { sidebar: '#eee15b', button: '#3937ad', active: '#4b5059', activeText: '#ffffff' },
     'trece-uno': { sidebar: '#4642b4', button: '#eee15b', active: '#353195', activeText: '#ffffff' },
@@ -14,16 +17,19 @@
   }
   function applyWorkspaceTheme(customColor) {
     const themeName = document.body.dataset.companyTheme;
-    const theme = themes[themeName] || themes.neutral;
+    const theme = isAdmin ? adminTheme : themes[themeName] || themes.neutral;
     if (customColor !== undefined && customColor !== null && !/^#[0-9a-f]{6}$/i.test(customColor)) {
       throw new Error('Invalid workspace accent color');
     }
+    if (isAdmin && customColor && !adminButtonColors.includes(customColor.toLowerCase())) {
+      customColor = null;
+    }
     const colors = customColor
-      ? { ...theme, sidebar: customColor, button: customColor }
+      ? { ...theme, sidebar: isAdmin ? theme.sidebar : customColor, button: customColor }
       : theme;
     for (const [variable, color] of [
       ['--workspace-sidebar', colors.sidebar],
-      ['--workspace-sidebar-text', readableText(colors.sidebar)],
+      ['--workspace-sidebar-text', isAdmin ? '#374151' : readableText(colors.sidebar)],
       ['--workspace-button', colors.button],
       ['--workspace-button-text', readableText(colors.button)],
       ['--workspace-nav-active', colors.active],
@@ -31,7 +37,7 @@
     ]) document.body.style.setProperty(variable, color);
   }
   const companyTheme = document.body.dataset.companyTheme;
-  const defaultTheme = themes[companyTheme] || themes.neutral;
+  const defaultTheme = isAdmin ? adminTheme : themes[companyTheme] || themes.neutral;
   window.applyWorkspaceTheme = applyWorkspaceTheme;
   window.applyWorkspaceAccent = applyWorkspaceTheme;
   window.workspaceThemeButtonColor = () => defaultTheme.button;

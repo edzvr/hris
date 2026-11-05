@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Payroll Dashboard</title>
     <style>
         :root { color-scheme: light; }
@@ -35,7 +36,6 @@
         .review-ready { color: #1d7a46; font-weight: 700; }
         .review-needed { color: #b45309; font-weight: 700; }
         .deduction-cell, .deduction-details summary, .deduction-details input[type="number"] { color: #b42318; font-weight: 700; }
-        .deduction-heading { background: #7f2d32; }
         .filter-grid { align-items: end; }
         .filter-grid label { flex: 1 1 180px; }
         .filter-grid select { width: 100%; }
@@ -51,21 +51,27 @@
         .toolbar-actions a { color: #17577e; font-weight: 600; }
         .selection-count { color: #586b7a; font-size: 13px; }
         .table-caption { margin: 0 0 8px; color: #586b7a; font-size: 13px; }
-        .table-wrap { max-height: 72vh; overflow: auto; border: 1px solid #cbd7e0; border-radius: 8px; background: #fff; }
-        table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1380px; margin: 0; }
-        th, td { border-right: 1px solid #dce4e9; border-bottom: 1px solid #dce4e9; padding: 10px; text-align: center; font-size: 13px; }
-        th { position: sticky; top: 0; z-index: 3; background: #245f83; color: #fff; font-size: 12px; white-space: nowrap; }
-        tr:nth-child(even) td { background: #f8fafb; }
         input[type="number"] { width: 88px; }
-        th:first-child, td:first-child { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 4px rgba(0, 0, 0, .08); }
-        th:first-child { z-index: 5; background: #245f83; }
-        .admin-row td { background: #f7f0fa; }
-        .admin-row td:first-child { background: #f7f0fa; }
-        .section-label td { position: static; background: #e9eff4 !important; text-align: left; font-weight: 700; font-size: 14px; }
-        .payroll-row details { min-width: 160px; text-align: left; }
-        .payroll-row details label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; white-space: nowrap; }
-        .payroll-row details input[type="number"] { width: 78px; }
-        .payroll-row td:first-child label { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 170px; text-align: left; white-space: nowrap; }
+        .payroll-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+        .payroll-section { grid-column:1 / -1; margin:8px 0 0; font-size:16px; }
+        .payroll-row { min-width:0; padding:18px; border:1px solid #d6e0e7; border-radius:14px; background:#fff; }
+        .payroll-row.admin-row { border-color:#d8c6e4; background:#fcf9fe; }
+        .payroll-card-header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:12px; margin-bottom:16px; }
+        .payroll-card-header label { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; }
+        .payroll-card-company { margin:5px 0 0 25px; color:#586b7a; font-size:13px; }
+        .payroll-status { font-size:12px; padding:5px 8px; border-radius:6px; background:#eef3f8; }
+        .payroll-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:14px; }
+        .payroll-amounts div { min-width:0; padding:10px; border-radius:8px; background:#f1f5f9; }
+        .payroll-amounts span { display:block; font-size:12px; margin-bottom:6px; }
+        .payroll-amounts strong { font-size:16px; overflow-wrap:anywhere; }
+        .payroll-amounts .payroll-net { background:#e7f2eb; color:#175b37; }
+        .payroll-detail-toggle > summary { cursor:pointer; padding:10px 0; color:#17577e; font-weight:700; }
+        .payroll-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:12px 0; border-top:1px solid #e2e8f0; }
+        .payroll-field { min-width:0; display:grid; align-content:start; gap:7px; font-size:13px; }
+        .payroll-field input[type="number"] { width:100%; min-width:0; }
+        .payroll-field details label { display:grid; gap:5px; margin:10px 0; }
+        .payroll-card-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+        @media(max-width:1100px) { .payroll-cards { grid-template-columns:1fr; } }
         .dashboard-back-link { color: #17577e; font-weight: 600; }
         @media (max-width: 700px) {
             body { padding: 12px; }
@@ -76,7 +82,7 @@
             .bulk-toolbar { align-items: flex-start; flex-direction: column; }
             .toolbar-actions { align-items: stretch; flex-direction: column; width: 100%; }
             .toolbar-actions button, .toolbar-actions a { width: 100%; text-align: center; }
-            .table-wrap { max-height: 65vh; }
+            .payroll-fields { grid-template-columns:1fr; }
         }
     </style>
 </head>
@@ -197,51 +203,36 @@
                 <button type="submit">Save All Updates</button>
             </div>
         </div>
-        <p class="table-caption">3. Payroll details — scroll horizontally to view all pay and deduction columns.</p>
-        <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Employee</th>
-                    <th>Company</th>
-                    <th>Review Status</th>
-                    <th>Daily Rate</th>
-                    <th title="Combined ceiling only; not automatically added to salary">De Minimis Ceiling (not extra pay)</th>
-                    <th>Worked Days</th>
-                    <th>Rest Day / OT Pay</th>
-                    <th>Gross Income</th>
-                    <th class="deduction-heading">SSS</th>
-                    <th class="deduction-heading">PhilHealth</th>
-                    <th class="deduction-heading">Pag-IBIG</th>
-                    <th class="deduction-heading">SSS Loan</th>
-                    <th class="deduction-heading">Pag-IBIG Loan</th>
-                    <th class="deduction-heading">Withholding Tax</th>
-                    <th class="deduction-heading">Liability</th>
-                    <th class="deduction-heading">Deductions (Editable)</th>
-                    <th>Net Pay</th>
-                    <th>Outstanding Loan</th>
-                    <th class="deduction-heading">Company Loan Deduction This Cutoff</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
+        <p class="table-caption">3. One card per employee. Open View / Edit Details for the full payroll breakdown. Changes require Save All Updates; summary amounts refresh after saving.</p>
+        <div class="payroll-cards">
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
-                <tr class="section-label payroll-section"><td colspan="20">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</td></tr>
+                <h3 class="payroll-section">{{ 'Admin Payroll - Confidential' if p.is_admin else 'Staff Payroll - Alphabetical' }}</h3>
                 {% endif %}
-                <tr class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}">
-                    <td>
-                        <label style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                <article class="payroll-row {{ 'admin-row' if p.is_admin else '' }}" data-employee="{{ p.emp.id }}" data-company="{{ 'trece' if p.emp.company and p.emp.company.lower().startswith('trece') else 'auto' }}" data-review="{{ 'review' if p.review_status == 'Needs Review' else 'ready' }}" aria-label="Payroll for {{ p.emp.first_name }} {{ p.emp.last_name }}">
+                    <header class="payroll-card-header">
+                      <div>
+                        <label>
                             <input type="checkbox" name="selected_employee_ids" value="{{ p.emp.id }}">
                             {{ p.emp.first_name }} {{ p.emp.last_name }}
                         </label>
-                    </td>
-                    <td>{{ p.emp.company }}</td>
-                    <td class="{{ 'review-needed' if p.review_status == 'Needs Review' else 'review-ready' }}" title="{{ p.review_reasons|join(', ') }}">{{ p.review_status }}</td>
-                    <td>
+                        <p class="payroll-card-company">{{ p.emp.company }} &middot; {{ 'Finalized' if p.is_paid else 'Unpaid preview' }}</p>
+                      </div>
+                      <span class="payroll-status {{ 'review-needed' if p.review_status == 'Needs Review' else 'review-ready' }}" title="{{ p.review_reasons|join(', ') }}">{{ p.review_status }}</span>
+                    </header>
+                    <div class="payroll-amounts">
+                        <div><span>Gross Pay</span><strong>₱{{ p.gross_income|currency }}</strong></div>
+                        <div class="deduction-cell"><span>Deductions</span><strong>₱{{ p.deductions|currency }}</strong></div>
+                        <div class="payroll-net"><span>Net Pay</span><strong>₱{{ p.net_pay|currency }}</strong></div>
+                    </div>
+                    <details class="payroll-detail-toggle">
+                      <summary>View / Edit Details</summary>
+                      {% if p.review_reasons %}<p class="review-needed">{{ p.review_reasons|join(', ') }}</p>{% endif %}
+                      <div class="payroll-fields">
+                    <label class="payroll-field">Daily Rate
                         <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
-                    </td>
-                    <td>
+                    </label>
+                    <div class="payroll-field">De Minimis Ceiling (not extra pay)
                         <details>
                             <summary>₱{{ p.de_minimis_monthly_ceiling|currency }} ceiling only</summary>
                             <label>Automatic rice subsidy / worked day
@@ -263,18 +254,17 @@
                                 <input type="number" min="0" step="0.01" name="meal_allowance_{{ p.emp.id }}" value="{{ p.emp.meal_allowance or 0 }}">
                             </label>
                         </details>
-                    </td>
-                    <td>{{ p.worked_days }}</td>
-                    <td>₱{{ p.approved_ot_pay|currency }}</td>
-                    <td>₱{{ p.gross_income|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.sss|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.philhealth|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.pagibig|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.sss_loan|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.pagibig_loan|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.withholding_tax|currency }}</td>
-                    <td class="deduction-cell">₱{{ p.liability_deduction|currency }}</td>
-                    <td class="deduction-cell">
+                    </div>
+                    <div class="payroll-field">Worked Days<strong>{{ p.worked_days }}</strong></div>
+                    <div class="payroll-field">Rest Day / OT Pay<strong>₱{{ p.approved_ot_pay|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">SSS<strong>₱{{ p.sss|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">PhilHealth<strong>₱{{ p.philhealth|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">Pag-IBIG<strong>₱{{ p.pagibig|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">SSS Loan<strong>₱{{ p.sss_loan|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">Pag-IBIG Loan<strong>₱{{ p.pagibig_loan|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">Withholding Tax<strong>₱{{ p.withholding_tax|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">Liability<strong>₱{{ p.liability_deduction|currency }}</strong></div>
+                    <div class="payroll-field deduction-cell">Deductions (Editable)
                         <details class="deduction-details">
                             <summary><strong>₱{{ p.deductions|currency }}</strong></summary>
                             <label>SSS Loan
@@ -296,15 +286,15 @@
                                 <input type="number" min="0" step="0.01" name="other_deductions_{{ p.emp.id }}" value="{{ p.other_deductions or 0 }}" {% if p.is_paid %}disabled{% endif %}>
                             </label>
                         </details>
-                    </td>
-                    <td><strong>₱{{ p.net_pay|currency }}</strong></td>
-                    <td>
+                    </div>
+                    <label class="payroll-field">Outstanding Loan
                         <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}" {% if p.is_paid %}disabled{% endif %}>
-                    </td>
-                    <td class="deduction-cell">
+                    </label>
+                    <label class="payroll-field deduction-cell">Company Loan Deduction This Cutoff
                         <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}" {% if p.is_paid %}disabled{% endif %}>
-                    </td>
-                    <td>
+                    </label>
+                      </div>
+                    <div class="payroll-card-actions">
                         <button type="submit"
                                 formaction="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}"
                                 formmethod="POST">Finalize Payroll</button>
@@ -313,12 +303,15 @@
                             formaction="{{ url_for('reopen_payroll', employee_id=p.emp.id) }}"
                             formmethod="POST">Reopen / Recalculate</button>
                         {% endif %}
+                    </div>
+                    </details>
+                    <div class="payroll-card-actions">
                         <a href="{{ url_for('payroll', employee_id=p.emp.id, download='true') }}" class="btn">📄 Download Payslip</a>
-                    </td>
-                </tr>
+                    </div>
+                </article>
+                {% else %}
+                <p>No employees available for this cutoff.</p>
                 {% endfor %}
-            </tbody>
-        </table>
         </div>
     </form>
     <p><a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">Back to Dashboard</a></p>

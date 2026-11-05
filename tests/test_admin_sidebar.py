@@ -196,3 +196,9 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     assert "responsive: true" in html
     assert 'Employee directory &amp; attendance records' in html
     assert 'summary-workspace' in html
+    assert '<select id="buttonColor">' in html
+    for color, label in (('#2563eb', 'Blue'), ('#facc15', 'Yellow'), ('#64748b', 'Gray')):
+        assert f'<option value="{color}">{label}</option>' in html
+    assert 'The sidebar stays white with gray text.' in html
+    assert 'Staff colors are unchanged.' in html
+    assert 'Buttons &amp; sidebar color' not in html

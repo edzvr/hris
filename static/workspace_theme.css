@@ -9,14 +9,12 @@
 #hris-global-sidebar .company-branding img { width:100%; }
 .admin-workspace-header { flex-wrap:wrap; }
 body.hris-admin-sidebar-page, body.hris-staff-navigation-page { background:#f1f3f6 !important; color:#243247; }
-body.hris-staff-navigation-page[data-company-theme="autoxpert"],
-body.hris-admin-sidebar-page[data-company-theme="autoxpert"] {
+body.hris-staff-navigation-page[data-company-theme="autoxpert"] {
   --workspace-sidebar:#eee15b; --workspace-sidebar-text:#000;
   --workspace-button:#3937ad; --workspace-button-text:#fff;
   --workspace-nav-active:#4b5059; --workspace-nav-active-text:#fff;
 }
-body.hris-staff-navigation-page[data-company-theme="trece-uno"],
-body.hris-admin-sidebar-page[data-company-theme="trece-uno"] {
+body.hris-staff-navigation-page[data-company-theme="trece-uno"] {
   --workspace-sidebar:#4642b4; --workspace-sidebar-text:#fff;
   --workspace-button:#eee15b; --workspace-button-text:#000;
   --workspace-nav-active:#353195; --workspace-nav-active-text:#fff;
@@ -31,7 +29,7 @@ body.hris-admin-sidebar-page[data-company-theme="trece-uno"] {
 #hris-global-sidebar details[open] > summary::before { transform:rotate(45deg); }
 #admin-menu-toggle, #staff-menu-toggle { background:var(--workspace-sidebar) !important; color:var(--workspace-sidebar-text) !important; }
 body:is(.hris-admin-sidebar-page, .hris-staff-navigation-page) :is(.btn, .dashboard-back-link, button:not([id$="backdrop"]):not([id$="menu-toggle"]), input[type="submit"]):not(.btn-danger):not(.btn-red) {
-  background:var(--workspace-button) !important; color:var(--workspace-button-text) !important; border-color:var(--workspace-button) !important;
+  background:var(--workspace-action-background, var(--workspace-button)) !important; color:var(--workspace-action-text, var(--workspace-button-text)) !important; border-color:var(--workspace-action-background, var(--workspace-button)) !important;
 }
 body:is(.hris-admin-sidebar-page, .hris-staff-navigation-page) :is(.btn-danger, .btn-red) { background:#dc2626 !important; color:#fff !important; border-color:#dc2626 !important; }
 body:is(.hris-admin-sidebar-page, .hris-staff-navigation-page) main.card > p > a[href*="dashboard_staff"] { background:var(--workspace-button) !important; color:var(--workspace-button-text) !important; border-color:var(--workspace-button) !important; }
@@ -53,3 +51,17 @@ body:is(.hris-admin-sidebar-page, .hris-staff-navigation-page) main.card > p > a
 .admin-dark-mode .calendar-day { background:#243247; }
 .admin-dark-mode .calendar-weekday { background:#334155; }
 .admin-dark-mode .outside-month { background:#182334; }
+body.hris-admin-sidebar-page {
+  --workspace-sidebar:#fff; --workspace-sidebar-text:#374151;
+  --workspace-button:#2563eb; --workspace-button-text:#fff;
+  --workspace-nav-active:#eef0f3; --workspace-nav-active-text:#374151;
+}
+body.hris-admin-sidebar-page #hris-global-sidebar { border-right:1px solid #e5e7eb; }
+body.hris-admin-sidebar-page #hris-global-sidebar :is(details, .sidebar-logout, .sidebar-quick-link) { border-color:#e5e7eb; }
+body.hris-admin-sidebar-page #hris-global-sidebar .sidebar-quick-link { background:#f6f7f9 !important; }
+body.hris-admin-sidebar-page #hris-global-sidebar .sidebar-quick-link:is(:hover, :focus-visible, [aria-current="page"]) { background:#eef0f3 !important; color:#374151 !important; }
+body.hris-admin-sidebar-page:not(.admin-dark-mode) :is(.card, .section, .profile, .profile-card, .tab-content, .payslip-card, form, .panel, .summary-card, .payroll-row, .calendar-day) { background-color:#fff; }
+body.hris-admin-sidebar-page:not(.admin-dark-mode) :is(header, th, .summary-card.total, .attendance-avatar, .attendance-metric, .payroll-amounts > div, .calendar-event, .outside-month) { background:#f3f4f6; color:#374151; }
+body.hris-admin-sidebar-page:not(.admin-dark-mode) :is(h1, h2, h3, h4, .payroll-net, .review-ready, .review-needed, .deduction-cell, .deduction-details summary, .deduction-details input[type="number"]) { color:#374151; }
+body.hris-admin-sidebar-page :is(.btn-danger, .btn-red) { background:#64748b !important; color:#fff !important; border-color:#64748b !important; }
+body.hris-admin-sidebar-page :is(button[formaction*="bulk_finalize"], .btn-warning, .btn-reject) { --workspace-action-background:#facc15; --workspace-action-text:#000; }

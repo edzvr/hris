@@ -8,6 +8,64 @@ from hris import app, build_cutoff_attendance_rows, db
 from models import Attendance, Employee
 
 
+def test_attendance_cards_keep_each_employees_records_separate():
+    from flask import render_template
+    from html.parser import HTMLParser
+
+    class CardParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.cards = []
+            self.inside_card = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "article":
+                self.inside_card = True
+                self.cards.append("")
+
+        def handle_endtag(self, tag):
+            if tag == "article":
+                self.inside_card = False
+
+        def handle_data(self, data):
+            if self.inside_card:
+                self.cards[-1] += data
+
+    rows = []
+    for employee_id, name, day in ((1, "Alice", 19), (2, "Bob", 20), (1, "Alice", 21)):
+        rows.append({
+            "attendance": SimpleNamespace(
+                employee_id=employee_id,
+                employee=SimpleNamespace(first_name=name, last_name="Staff", company="Auto Expert"),
+                date=date(2026, 10, day), clock_in=None, clock_out=None, ot_status=None,
+            ),
+            "regular_hours": 0, "late_minutes": 0, "undertime_hours": 0,
+            "half_day": False, "overtime_hours": 0,
+            "missing_clock_in": True, "missing_clock_out": True,
+        })
+    with app.test_request_context():
+        html = render_template(
+            "holiday_ot_dashboard.html", attendance_report_rows=rows,
+            cutoff_start="2026-10-17", filter_status="", employee_search="",
+            applications=[], records=[],
+        )
+        empty = render_template(
+            "holiday_ot_dashboard.html", attendance_report_rows=[],
+            cutoff_start="2026-10-17", filter_status="", employee_search="",
+            applications=[], records=[],
+        )
+    parser = CardParser()
+    parser.feed(html)
+    assert len(parser.cards) == 2
+    assert "Alice Staff" in parser.cards[0] and "Bob Staff" not in parser.cards[0]
+    assert "2026-10-19" in parser.cards[0] and "2026-10-21" in parser.cards[0]
+    assert "Bob Staff" in parser.cards[1] and "2026-10-20" in parser.cards[1]
+    assert "2026-10-19" not in parser.cards[1]
+    assert "No In" in parser.cards[0] and "No Out" in parser.cards[0]
+    assert "/attendance/1?cutoff_start=2026-10-17" in html
+    assert "No attendance records found for this cutoff and employee search." in empty
+
+
 @pytest.mark.parametrize(
     "company,day,start,end,hours,undertime,half_day",
     [
