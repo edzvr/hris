@@ -105,6 +105,7 @@
             <p class="muted">Pumili ng payroll cutoff (Sabado–Biyernes).</p>
         </div>
         <form method="GET" class="cutoff-form">
+            <input id="cutoff-company" type="hidden" name="company" value="">
             <label for="cutoff-start">Payroll cutoff
                 <select id="cutoff-start" name="cutoff_start" required>
                     {% for cutoff in cutoff_options %}
@@ -288,10 +289,11 @@
                         </details>
                     </div>
                     <label class="payroll-field">Outstanding Loan
-                        <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}" {% if p.is_paid %}disabled{% endif %}>
+                        <input type="number" min="0" step="0.01" name="loan_{{ p.emp.id }}" value="{{ p.emp.loan_balance or 0 }}" readonly disabled>
                     </label>
-                    <label class="payroll-field deduction-cell">Company Loan Deduction This Cutoff
-                        <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}" {% if p.is_paid %}disabled{% endif %}>
+                    <label class="payroll-field deduction-cell">Automatic Company Loan Deduction This Cutoff
+                        <input type="number" min="0" step="0.01" name="loan_deduction_{{ p.emp.id }}" value="{{ p.loan_deduction or 0 }}" readonly disabled>
+                        <small>Automatic, capped at the balance. Approve a staff skip request in Payroll Loan Review to skip one cutoff. Correct balances in Loans, not here.</small>
                     </label>
                       </div>
                     <div class="payroll-card-actions">
@@ -383,6 +385,8 @@
         function applyPayrollFilters() {
             const review = reviewFilter ? reviewFilter.value : 'all';
             const company = companyFilter ? companyFilter.value : 'all';
+            document.getElementById('cutoff-company').value =
+                company === 'trece' ? 'Trece-Uno' : company === 'auto' ? 'Auto Expert' : '';
             const employee = employeeFilter ? employeeFilter.value : 'all';
             document.querySelectorAll('.payroll-row').forEach(function (row) {
                 const matchesReview = review === 'all' || row.dataset.review === review;
@@ -424,6 +428,10 @@
                 updateEmployeeOptions();
                 applyPayrollFilters();
             });
+        }
+        const requestedCompany = new URLSearchParams(location.search).get('company');
+        if (companyFilter && ['Auto Expert', 'Trece-Uno'].includes(requestedCompany)) {
+            companyFilter.value = requestedCompany === 'Trece-Uno' ? 'trece' : 'auto';
         }
         updateEmployeeOptions();
         applyPayrollFilters();

@@ -86,6 +86,10 @@
         {% endif %}
 
         <p class="net-pay" style="font-weight:700; font-size:1.2rem;"><strong>Net Pay: ₱{{ payslip.net_pay|currency }}</strong></p>
+        {% if payslip.loan_remaining_balance is defined %}
+        <p><strong>Remaining Loan after this cutoff: ₱{{ payslip.loan_remaining_balance|currency }}</strong>
+            {% if not payroll.is_paid %}(projected until finalized){% endif %}</p>
+        {% endif %}
         {% if payslip.attendance_issues %}
         <div style="margin-top: 14px;">
             <p><strong>Absent / Late / Undertime / Half-day dates:</strong></p>

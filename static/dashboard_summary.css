@@ -14,3 +14,72 @@
 .dark-mode .summary-panel { background:#2c3e50; color:#ecf0f1; }
 .dark-mode .summary-panel a { color:#a8ddbe; }
 @media(max-width:600px) { .summary-grid { grid-template-columns: minmax(0,1fr); } .summary-workspace { padding: 12px; } .summary-panel { padding: 14px; } }
+
+.cutoff-overview { --cutoff-muted:#526178; --cutoff-border:#dce4ef; margin:24px 0; color:#243249; }
+.cutoff-overview-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:20px; }
+.cutoff-overview .cutoff-eyebrow { margin:0 0 6px; color:var(--cutoff-muted); font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+.cutoff-overview h2 { margin:0; font-size:28px; letter-spacing:-.03em; }
+.cutoff-picker label { display:block; font-size:12px; font-weight:700; }
+.cutoff-picker > div { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.cutoff-period-nav, .cutoff-row-actions { display:flex; flex-wrap:wrap; gap:12px; }
+.cutoff-overview a { color:#1e50a2; text-underline-offset:3px; }
+.cutoff-period-nav a, .cutoff-row-actions a { display:inline-flex; align-items:center; min-height:44px; font-weight:600; }
+.cutoff-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.admin-dashboard-page .cutoff-kpi { --workspace-action-background:#fff; --workspace-action-text:#243249; display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin:0; padding:18px; border:1px solid var(--cutoff-border); border-radius:14px; text-align:left; background:#fff; color:#243249; box-shadow:0 4px 14px #263e6310; cursor:pointer; }
+.cutoff-kpi strong { font-size:30px; line-height:1.2; }
+.cutoff-kpi span { font-size:13px; font-weight:700; }
+.cutoff-kpi small { color:inherit; }
+.admin-dashboard-page .cutoff-kpi[aria-pressed="true"] { --workspace-action-background:var(--workspace-button, #2563eb); --workspace-action-text:var(--workspace-button-text, #fff); border-color:#2563eb; box-shadow:inset 0 0 0 1px var(--workspace-button, #2563eb); }
+.cutoff-overview :focus-visible { outline:3px solid #2563eb; outline-offset:3px; }
+.cutoff-payroll-strip { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; padding:20px; border-radius:14px; background:#e9f0fd; border:1px solid #cbdafa; }
+.cutoff-payroll-strip strong { display:block; font-size:25px; }
+.cutoff-payroll-strip span, .cutoff-payroll-strip small { font-size:12px; }
+.cutoff-explainer { color:var(--cutoff-muted); font-size:13px !important; max-width:1100px; }
+.cutoff-tools { display:flex; flex-wrap:wrap; gap:14px; align-items:end; margin:22px 0 14px; }
+.cutoff-tools label { display:grid; gap:6px; font-weight:600; }
+.cutoff-tools label:first-child { flex:1 1 240px; }
+.cutoff-tools input, .cutoff-tools select { width:100%; background:#fff; color:#243249; }
+.cutoff-tools p { font-size:13px; color:var(--cutoff-muted); }
+.cutoff-employees { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.cutoff-employee { min-width:0; border:1px solid var(--cutoff-border); border-radius:16px; background:#fff; padding:20px; box-shadow:0 4px 16px #263e6308; overflow-wrap:anywhere; }
+.cutoff-employee[hidden], #cutoff-empty[hidden] { display:none !important; }
+.cutoff-employee > header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:10px; background:transparent; padding:0; color:inherit; }
+.cutoff-employee h3 { margin:0 0 3px; font-size:18px; }
+.cutoff-employee header p { margin:0; color:var(--cutoff-muted); font-size:12px; }
+.cutoff-badge { display:inline-block; padding:4px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+.cutoff-overview .info { background:#e9f1ff; color:#214d8a; }
+.cutoff-overview .warning { background:#fff4d8; color:#775000; }
+.cutoff-overview .danger { background:#ffeded; color:#9d2525; }
+.cutoff-overview .success { background:#e9f7ef; color:#1c6241; }
+.cutoff-overview .neutral { background:#f0f3f7; color:#526178; }
+.cutoff-employee-pay { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:18px 0; }
+.cutoff-employee-pay > div { padding:14px; background:#f6f8fc; border-radius:10px; }
+.cutoff-employee-pay span, .cutoff-employee-pay small { display:block; font-size:12px; color:var(--cutoff-muted); }
+.cutoff-employee-pay strong { display:block; margin:5px 0; font-size:18px; }
+.cutoff-employee-pay a { display:inline-block; padding:10px 0 0; font-size:13px; min-height:36px; }
+.cutoff-attendance-counts { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin:0 0 16px; text-align:center; }
+.cutoff-attendance-counts dt { font-size:11px; color:var(--cutoff-muted); }
+.cutoff-attendance-counts dd { margin:4px 0; font-size:18px; font-weight:700; }
+.cutoff-day-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.cutoff-day { padding:8px; border-radius:8px; font-size:10px; }
+.cutoff-day strong, .cutoff-day span { display:block; }
+.cutoff-day span { margin-top:4px; }
+.cutoff-day-details { list-style:none; margin:0; padding:0; }
+.cutoff-day-details li { padding:8px 0; border-bottom:1px solid var(--cutoff-border); font-size:13px; }
+.cutoff-day-details small { display:block; color:var(--cutoff-muted); }
+.cutoff-request-list { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12px; }
+.admin-dark-mode .cutoff-overview { --cutoff-muted:#bac9dc; --cutoff-border:#526078; color:#edf3ff; }
+.admin-dark-mode .cutoff-employee { background:#29384b; }
+.admin-dark-mode .cutoff-employee-pay > div, .admin-dark-mode .cutoff-payroll-strip { background:#30435e; }
+.admin-dark-mode .cutoff-overview a { color:#b6d2ff; }
+.admin-dark-mode .cutoff-kpi:not([aria-pressed="true"]) { --workspace-action-background:#29384b; --workspace-action-text:#edf3ff; }
+@media(max-width:1000px) { .cutoff-employees { grid-template-columns:1fr; } }
+@media(max-width:600px) {
+  .cutoff-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .admin-dashboard-page .cutoff-kpi { padding:12px; }
+  .cutoff-overview h2 { font-size:23px; }
+  .cutoff-employee { padding:14px; }
+  .cutoff-employee-pay { grid-template-columns:1fr; }
+  .cutoff-day-strip { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .cutoff-tools label { width:100%; }
+}

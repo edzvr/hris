@@ -19,6 +19,7 @@ def test_admin_generates_agreement_with_approved_loan_amount_and_reason():
             date_needed=date(2026, 10, 20),
             reason='Emergency home repair',
             status='Approved',
+            deduction_per_cutoff=750,
         )
         db.session.add(loan)
         db.session.commit()
@@ -37,7 +38,7 @@ def test_admin_generates_agreement_with_approved_loan_amount_and_reason():
 
         response = client.post(
             f'/loan/{loan_id}/agreement',
-            data={'deduction_per_cutoff': '425.00'},
+            data={'deduction_per_cutoff': '750.00'},
         )
         assert response.status_code == 200
         assert response.mimetype == 'application/pdf'
@@ -47,8 +48,11 @@ def test_admin_generates_agreement_with_approved_loan_amount_and_reason():
         )
         assert 'PHP 2,750.00' in pdf_text
         assert 'Emergency home repair' in pdf_text
-        assert '425.00 pesos' in pdf_text
+        assert '750.00 pesos' in pdf_text
         assert 'Borrower/Employee' in pdf_text
+        assert client.post(
+            f'/loan/{loan_id}/agreement', data={'deduction_per_cutoff': '425.00'},
+        ).status_code == 302
 
         staff_client = app.test_client()
         with staff_client.session_transaction() as session:

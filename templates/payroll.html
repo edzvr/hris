@@ -188,6 +188,15 @@
 {% if payslip %}
 <div class="section">
     <h3>Detailed Payslip</h3>
+    {% if payslip.loan_remaining_balance is defined %}
+    <p><strong>Remaining Loan after this cutoff: ₱{{ "%.2f"|format(payslip.loan_remaining_balance) }}</strong>
+        {% if not payroll_record.is_paid %}(projected; balance changes only when finalized){% endif %}</p>
+    {% endif %}
+    {% if can_manage_payroll %}
+    <p>Company loan deductions are automatic. Approve a staff skip request in
+        <a href="{{ url_for('payroll_loan_review', cutoff_start=cutoff_start) }}">Payroll Loan Review</a>
+        to skip this cutoff.</p>
+    {% endif %}
     {% if can_manage_payroll %}
     <p><a href="{{ url_for('recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Preview Draft Recalculation</a> (unpaid payroll only; approval required)</p>
     {% endif %}
@@ -197,7 +206,7 @@
     <form method="post">
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
         <input type="hidden" name="save_payroll" value="1">
-        <label>Company loan <input name="loan_deduction" type="number" step="0.01" min="0" value="{{ payroll_record.loan or 0 }}"></label>
+        <label>Automatic company loan <input name="loan_deduction" type="number" step="0.01" min="0" value="{{ loan_deduction }}" readonly disabled></label>
         <label>SSS loan <input name="sss_loan" type="number" step="0.01" min="0" value="{{ payroll_record.sss_loan or 0 }}"></label>
         <label>Pag-IBIG loan <input name="pagibig_loan" type="number" step="0.01" min="0" value="{{ payroll_record.pagibig_loan or 0 }}"></label>
         <button type="submit">Save Inputs & Preview Recalculation</button>
@@ -287,6 +296,7 @@
                 {% if can_manage_payroll and loan_editable %}
                 <input type="number" name="loan_deduction" min="0" max="{{ emp.loan_balance or 0 }}"
                        step="0.01" value="{{ "%.2f"|format(payslip.company_loan) }}"
+                       readonly disabled
                        aria-label="Company loan deduction this cutoff">
                 {% else %}
                 ₱{{ "%.2f"|format(payslip.company_loan) }}

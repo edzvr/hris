@@ -2,9 +2,9 @@
   <div class="calendar-toolbar">
     <h2>Request Calendar - {{ request_calendar.month.strftime('%B %Y') }}</h2>
     <div>
-      <a class="btn" href="{{ url_for('dashboard_admin', calendar_month=request_calendar.previous) }}#request-calendar" aria-label="Previous month">Previous</a>
-      <a class="btn" href="{{ url_for('dashboard_admin') }}#request-calendar">Today</a>
-      <a class="btn" href="{{ url_for('dashboard_admin', calendar_month=request_calendar.next) }}#request-calendar" aria-label="Next month">Next</a>
+      <a class="btn" href="{{ url_for('dashboard_admin', company=selected_company or '', calendar_month=request_calendar.previous) }}#request-calendar" aria-label="Previous month">Previous</a>
+      <a class="btn" href="{{ url_for('dashboard_admin', company=selected_company or '') }}#request-calendar">Today</a>
+      <a class="btn" href="{{ url_for('dashboard_admin', company=selected_company or '', calendar_month=request_calendar.next) }}#request-calendar" aria-label="Next month">Next</a>
     </div>
   </div>
   <p>Leave dates and loan date-needed are shown with request status. Blue entries are existing payroll review and month-end reminders, not statutory filing deadlines.</p>
@@ -13,6 +13,7 @@
     <a class="btn" href="{{ url_for('company_reminders', month=request_calendar.month.strftime('%Y-%m')) }}">Manage reminders / email status</a>
   </p>
   <form method="GET" class="calendar-toolbar">
+    {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
     <label>Choose month <input type="month" name="calendar_month" value="{{ request_calendar.month.strftime('%Y-%m') }}" min="1901-01" max="9998-12" required></label>
     <button type="submit" class="btn">Go</button>
   </form>

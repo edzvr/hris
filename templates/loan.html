@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Loan Module</title>
     <style>
         body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
@@ -33,6 +34,7 @@
         @media (max-width:800px) { .admin-form { grid-template-columns:1fr; } }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
 </head>
 <body>
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -69,30 +71,6 @@
         </form>
     </section>
 
-    <section>
-        <h2>Employee Loan Accounts</h2>
-        <p>Current Outstanding is the remaining loan after finalized payroll deductions. Edit and save it per employee to correct a balance; this does not approve pending requests or change past payroll deductions.</p>
-        <div class="table-wrap"><table>
-            <tr><th>Employee</th><th>Company</th><th>Total Recorded Loans</th><th>Payroll Deductions</th><th>Current Outstanding</th><th>Statement</th></tr>
-            {% for item in loan_accounts %}
-            <tr data-employee-name="{{ item.employee.full_name()|lower }}">
-                <td>{{ item.employee.full_name() }}</td><td>{{ item.employee.company or 'N/A' }}</td>
-                <td>₱{{ item.total_credited|currency }}</td><td>₱{{ item.total_deducted|currency }}</td>
-                <td><strong>₱{{ item.outstanding|currency }}</strong>
-                    <details class="no-print">
-                        <summary>Edit Remaining Loan</summary>
-                        <form method="POST" action="{{ url_for('update_loan_balance', employee_id=item.employee.id) }}">
-                            <input type="hidden" name="previous_balance" value="{{ item.outstanding }}">
-                            <label>Remaining Loan (PHP)<input type="number" name="balance" value="{{ '%.2f'|format(item.outstanding) }}" min="0" step="0.01" required></label>
-                            <button type="submit">Save Balance</button>
-                        </form>
-                    </details>
-                </td>
-                <td><a class="btn" href="{{ url_for('download_loan_statement', employee_id=item.employee.id) }}">Download</a></td>
-            </tr>
-            {% endfor %}
-        </table></div>
-    </section>
     {% else %}
     <section class="summary">
         <div><strong>Current Outstanding</strong><p>₱{{ account.outstanding|currency }}</p></div>
@@ -110,6 +88,13 @@
         <form method="POST">
             <label>Amount (PHP)</label>
             <input type="number" name="amount" step="0.01" required>
+            <label>Deduction per cutoff (PHP, minimum 500)</label>
+            <input type="number" name="deduction_per_cutoff" min="500" step="0.01"
+                   value="{{ '%.2f'|format(current_user.loan_deduction_per_cutoff or 500) }}" required
+                   {% if current_user.loan_balance and current_user.loan_balance > 0 %}readonly{% endif %}>
+            <p>One deduction per employee each cutoff, capped at the remaining balance.
+                An additional loan adds to your balance and keeps your existing repayment amount.
+                To skip one cutoff, submit a skip request for Admin approval below.</p>
             <label>Reason</label>
             <input type="text" name="reason" required>
             <label>Date Needed</label>
@@ -126,20 +111,67 @@
     </div>
     {% endif %}
 
-    <!-- Loan History Table -->
+    <section class="no-print">
+        <h2>Skip Loan Deduction for One Cutoff</h2>
+        {% if current_user.role.lower() == 'admin' %}
+        <p>Review and approve staff requests before finalizing payroll. Pending or declined requests do not stop the automatic deduction.</p>
+        <a class="btn" href="{{ url_for('payroll_loan_review') }}">Review Skip Requests</a>
+        {% else %}
+        <p>Cutoff: {{ current_cutoff_start }} to {{ current_cutoff_end }}.
+            An approved request skips only this cutoff; normal deductions resume next cutoff.</p>
+        {% if current_cutoff_skip_request %}
+        <p><strong>Status: {{ current_cutoff_skip_request.status }}</strong>
+            {{ current_cutoff_skip_request.decision_note or '' }}</p>
+        {% endif %}
+        {% if account.outstanding > 0 and (not current_cutoff_skip_request or current_cutoff_skip_request.status == 'Rejected') %}
+        <form method="POST">
+            <input type="hidden" name="action" value="request_deduction_skip">
+            <label>Reason for skipping this cutoff</label>
+            <input name="skip_reason" type="text" required>
+            <button type="submit">Request to Skip Deduction</button>
+        </form>
+        {% endif %}
+        {% endif %}
+    </section>
+
+    <h2>Employee Loan Accounts</h2>
+    <p>Current Outstanding is the remaining loan after finalized payroll deductions. Editing a balance does not approve pending requests or change past payroll deductions.</p>
+    {% set employee_accounts = loan_accounts if current_user.role.lower() == 'admin' else [account] %}
+    <div class="employee-records">
+    {% for item in employee_accounts %}
+    {% set employee = item.employee if current_user.role.lower() == 'admin' else current_user %}
+    <article class="employee-record" data-employee="{{ employee.id }}" data-company="{{ 'Trece-Uno' if employee.company and employee.company.lower().startswith('trece') else 'Auto Expert' }}" data-employee-name="{{ employee.full_name()|lower }}">
+        <header><div><h3>{{ employee.full_name() }}</h3><p class="employee-company">{{ employee.company or 'N/A' }}</p></div></header>
+        <dl class="record-metrics">
+            <div><dt>Current Outstanding</dt><dd>₱{{ item.outstanding|currency }}</dd></div>
+            <div><dt>Total Recorded Loans</dt><dd>₱{{ item.total_credited|currency }}</dd></div>
+            <div><dt>Payroll Deductions</dt><dd>₱{{ item.total_deducted|currency }}</dd></div>
+            <div><dt>Automatic per Cutoff</dt><dd>₱{{ (employee.loan_deduction_per_cutoff or 500)|currency }}</dd></div>
+        </dl>
+        {% if current_user.role.lower() == 'admin' %}
+        <details class="no-print"><summary>Edit Remaining Loan</summary>
+            <form method="POST" action="{{ url_for('update_loan_balance', employee_id=employee.id) }}">
+                <input type="hidden" name="previous_balance" value="{{ item.outstanding }}">
+                <label>Remaining Loan (PHP)<input type="number" name="balance" value="{{ '%.2f'|format(item.outstanding) }}" min="0" step="0.01" required></label>
+                <button type="submit">Save Balance</button>
+            </form>
+        </details>
+        {% endif %}
+        <p><a class="btn" href="{{ url_for('download_loan_statement', employee_id=employee.id) }}">Download Loan Statement</a></p>
+        <details><summary>View loan details and payroll deductions</summary>
     <h2>Loan Details</h2>
     <p>Pending requests are not yet included in the employee balance. Admin approval adds the requested amount once to Current Outstanding; payroll deductions reduce it when payroll is finalized.</p>
-    <div class="table-wrap"><table>
+    <div class="record-scroll"><table>
         <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Reference</th><th>Type</th><th>Amount</th><th>Reason</th><th>Date Needed</th><th>Status</th>
             {% if current_user.role.lower() == 'admin' %}<th class="no-print">Action</th>{% endif %}
         </tr>
-        {% for l in loans %}
+        {% for l in loans|selectattr('employee_id', 'equalto', employee.id) %}
         <tr{% if current_user.role.lower() == 'admin' %} data-employee-name="{{ l.employee.full_name()|lower }}"{% endif %}>
             {% if current_user.role.lower() == 'admin' %}<td>{{ l.employee.full_name() }}</td>{% endif %}
             <td>LOAN-{{ "%06d"|format(l.id) }}</td>
             <td>{{ l.loan_type or 'Employee Loan' }}</td>
             <td>₱{{ l.amount|currency }}</td>
-            <td>{{ l.reason }}</td>
+            <td>{{ l.reason }}<br><small>Deduction: ₱{{ l.deduction_per_cutoff|currency }} per cutoff</small></td>
             <td>{{ l.date_needed }}</td>
             <td>
                 {% if l.status == "Approved" %}
@@ -173,9 +205,9 @@
     </table></div>
 
     <h2>Payroll Deduction History</h2>
-    <div class="table-wrap"><table>
+    <div class="record-scroll"><table>
         <tr>{% if current_user.role.lower() == 'admin' %}<th>Employee</th>{% endif %}<th>Payroll Reference</th><th>Cutoff</th><th>Deducted</th><th title="Loan balance left right after this payroll deduction">Remaining Loan</th><th>Status</th><th>Statement</th></tr>
-        {% for item in deduction_history %}
+        {% for item in deduction_history|selectattr('employee.id', 'equalto', employee.id) %}
         <tr{% if current_user.role.lower() == 'admin' %} data-employee-name="{{ item.employee.full_name()|lower }}"{% endif %}>
             {% if current_user.role.lower() == 'admin' %}<td>{{ item.employee.full_name() }}</td>{% endif %}
             <td>PAY-{{ "%06d"|format(item.payroll.id) }}</td>
@@ -187,6 +219,12 @@
         {% else %}<tr><td colspan="7">No finalized loan deductions yet.</td></tr>
         {% endfor %}
     </table></div>
+        </details>
+    </article>
+    {% else %}
+    <p class="record-empty">No employee loan accounts found.</p>
+    {% endfor %}
+    </div>
 
     <!-- PDF Export / View -->
     <div class="no-print" style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
@@ -275,13 +313,19 @@
         if (!search) { return; }
         function applyFilter() {
             var term = search.value.trim().toLowerCase();
-            document.querySelectorAll('tr[data-employee-name]').forEach(function (row) {
-                row.hidden = term !== '' && row.dataset.employeeName.indexOf(term) === -1;
+            var company = new URLSearchParams(location.search).get('company');
+            document.querySelectorAll('article[data-employee-name]').forEach(function (row) {
+                row.hidden = (term !== '' && row.dataset.employeeName.indexOf(term) === -1)
+                    || (['Auto Expert', 'Trece-Uno'].includes(company) && row.dataset.company !== company);
             });
         }
         search.addEventListener('input', applyFilter);
+        applyFilter();
         document.getElementById('loan-employee-search-clear').addEventListener('click', function () {
             search.value = '';
+            var url = new URL(location.href);
+            url.searchParams.delete('company');
+            history.replaceState(null, '', url);
             applyFilter();
         });
     })();

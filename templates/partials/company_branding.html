@@ -1,10 +1,14 @@
 {% set company_key = (branding_company|default('', true)|trim|lower) %}
 <div class="company-branding" aria-label="Company branding">
   {% if branding_is_admin or company_key in ['auto expert', 'auto-expert', 'autoxpert'] %}
+    {% if branding_is_admin %}<a class="company-logo-link" href="{{ url_for('dashboard_admin', company='Auto Expert') }}" aria-label="Open Auto Expert dashboard">{% endif %}
     <img src="{{ url_for('static', filename='images/autoxpertlogo.jpg') }}" alt="AutoXpert Auto Supply">
+    {% if branding_is_admin %}</a>{% endif %}
   {% endif %}
   {% if branding_is_admin or company_key.startswith('trece') %}
+    {% if branding_is_admin %}<a class="company-logo-link" href="{{ url_for('dashboard_admin', company='Trece-Uno') }}" aria-label="Open Trece-Uno dashboard">{% endif %}
     <img src="{{ url_for('static', filename='images/trece-uno-logo.jpg') }}" alt="Trece-Uno Auto Supply">
+    {% if branding_is_admin %}</a>{% endif %}
   {% endif %}
   {% if not branding_is_admin and not company_key.startswith('trece') and company_key not in ['auto expert', 'auto-expert', 'autoxpert'] %}
     <span>{{ branding_company or 'Company not assigned' }}</span>

@@ -178,25 +178,29 @@
 <body class="admin-dashboard-page">
   <!-- Welcome -->
   <header class="admin-workspace-header">
-    {% set branding_is_admin = true %}
-    {% include 'partials/company_branding.html' %}
     <div><strong>Dashboard</strong><span>HRIS admin workspace</span></div>
-    <a class="btn" href="{{ url_for('payroll_dashboard') }}">Review payroll</a>
+    <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Review payroll</a>
   </header>
   <main class="admin-workspace-content">
   <div class="admin-welcome">
     <h2>Welcome, {{ admin.first_name }} {{ admin.last_name }} 👋</h2>
+    <p class="active-company"><strong>Active company: {{ selected_company or 'All Companies' }}</strong></p>
+    <div class="company-quick-actions">
+      <a class="btn" href="{{ url_for('dashboard_admin') }}">All Companies</a>
+      <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Payroll</a>
+      <a class="btn" href="{{ url_for('holiday_ot_dashboard', company=selected_company or '') }}">Attendance</a>
+      <a class="btn" href="{{ url_for('loan', company=selected_company or '') }}">Loans</a>
+      <a class="btn" href="{{ url_for('government_contributions', company=selected_company or '') }}">Contributions</a>
+    </div>
   </div>
 
-  <div class="stats">
-    <div><h3>Total Employees</h3><p><b>{{ total_employees }}</b></p></div>
-    <div><h3>Latest Finalized Cutoff Net Pay</h3><p><b>₱{{ "%.2f"|format(summary.net_pay) }}</b></p></div>
-    <div><h3>Pending OT</h3><p><b>{{ pending_ot }}</b></p></div>
-    <div><h3>Pending Leaves</h3><p><b>{{ pending_leaves }}</b></p></div>
-  </div>
+  {% include 'partials/admin_cutoff_overview.html' %}
 
+  <details class="card">
+  <summary>Summary &amp; Reports — monthly totals &amp; report center</summary>
   {% set dashboard_is_admin = true %}
   {% include 'partials/dashboard_summary.html' %}
+  </details>
   {% include 'partials/admin_calendar.html' %}
 
   <details class="card" style="border-left:4px solid #238b63;">
@@ -204,7 +208,7 @@
     <p>Review these items regularly so attendance, payroll, and employee requests stay updated.</p>
     <div class="admin-actions-grid">
       <a href="#attendance-corrections" class="btn">Attendance corrections: {{ pending_attendance_corrections|length }} pending</a>
-      <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">Overtime requests: {{ pending_ot }} pending</a>
+      <a href="{{ url_for('holiday_ot_dashboard', company=selected_company or '') }}" class="btn">Overtime requests: {{ pending_ot }} pending</a>
       <a href="{{ url_for('leave') }}" class="btn">Leave requests: {{ pending_leaves }} pending</a>
       <a href="{{ url_for('loan') }}" class="btn">Loan requests: {{ pending_loans }} pending</a>
       <a href="{{ url_for('evaluation_dashboard') }}" class="btn">Evaluation review: {{ pending_evaluations }} pending</a>
@@ -313,8 +317,9 @@
   </details>
   <!-- Employees Tab -->
   <div id="employees" class="tab-content active">
-    <details class="card">
+    <details class="card"{% if selected_company %} open{% endif %}>
     <summary>Employee directory &amp; attendance records</summary>
+    {% if not selected_company or selected_company == 'Trece-Uno' %}
     <div class="card">
       <h2>Employees - Trece-Uno</h2>
       <div class="admin-table-scroll" role="region" aria-label="Trece-Uno employees table" tabindex="0">
@@ -337,6 +342,8 @@
       </table>
       </div>
     </div>
+    {% endif %}
+    {% if not selected_company or selected_company == 'Auto Expert' %}
     <div class="card">
       <h2>Employees - Auto Expert</h2>
       <div class="admin-table-scroll" role="region" aria-label="Auto Expert employees table" tabindex="0">
@@ -359,6 +366,7 @@
       </table>
       </div>
     </div>
+    {% endif %}
     </details>
   </div>
 
@@ -705,8 +713,9 @@
             <option value="4">4</option>
           </select>
         </label>
-        <p>Admin routes are grouped in the top bar by workflow. Monthly Gov Dues Guide is inside Payroll &amp; Contributions. On smaller screens, use Admin menu to open navigation. The navigation text size setting applies to the staff sidebar on this browser.</p>
+        <p>Click a company logo to open its dashboard, totals, employee directory, and quick actions. All Companies restores the combined dashboard. Admin menus stay visible on desktop; on phones, use Admin menu. Monthly Gov Dues Guide is inside Payroll &amp; Contributions. The navigation text size setting applies to the staff sidebar on this browser.</p>
         <p>On phones, cards stack and wide tables scroll inside their own panel. Quick Actions can be expanded below the employee tables.</p>
+        <p>This Cutoff at a Glance is a read-only staff overview. Choose a Saturday cutoff; click a metric or search an employee to filter the cards. Missing clock-outs cover past days only. No record means verify, not automatically absent. Last pay shows the employee's latest finalized payslip before the selected cutoff; drafts are labeled separately. Expand a card for daily times, cutoff requests and actions. Company logo filters apply to this overview; monthly totals remain under Summary &amp; Reports.</p>
         <p>Drag the Quick Actions buttons to arrange them. Your arrangement is saved on this browser.</p>
         <br><br>
         <button type="button" class="btn" onclick="saveSettings()">Save Settings</button>

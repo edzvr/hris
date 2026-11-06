@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Government Contributions</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
     <style>
         body { font-family: Arial, sans-serif; background:#f4f7f6; color:#243247; padding:clamp(12px, 2vw, 24px); }
         .section { background:#fff; padding:clamp(16px, 2vw, 24px); margin-bottom:18px; border:1px solid #e1e8e4; border-radius:14px; box-shadow:0 5px 18px rgba(31,52,40,.06); overflow:auto; }
@@ -161,44 +162,39 @@
 
 <section class="section">
     <h3>Employer Payment Monitor &mdash; {{ month.strftime('%B %Y') }}</h3>
-    <table style="min-width:1500px">
-        <tr>
-            <th>Employee</th><th>Employer</th><th>Days</th><th>Gross Salary</th><th>Actual Earnings (SSS basis)</th>
-            <th>Salary Bracket</th><th>MSC</th><th>SSS EE</th><th>SSS ER</th><th>EC</th><th>SSS Total</th>
-            <th>PhilHealth Basis (EMR)</th><th>PH EE</th><th>PH ER</th><th>PH Total</th>
-            <th>Pag-IBIG EE</th><th>Pag-IBIG ER</th><th>Pag-IBIG Total</th>
-            <th>Grand Total Payable</th><th>True Cost to Company</th><th>History</th>
-        </tr>
+    <div class="employee-records">
         {% for row in data.rows %}
-        <tr>
-            <td>{{ row.employee.full_name() }}{% if row.manual %} <small>(owner &ndash; manual)</small>{% endif %}</td>
-            <td class="left">{{ row.company }}</td>
-            <td>{{ row.days_worked }}</td>
-            <td>{{ peso.format(row.gross_pay) }}</td>
-            <td>{{ peso.format(row.actual_earnings) }}</td>
-            <td>{{ row.result.sss.bracket_label if row.result else 'Manual' }}</td>
-            <td>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</td>
-            <td>{{ peso.format(row.sss_ee) }}</td><td>{{ peso.format(row.sss_er) }}</td><td>{{ peso.format(row.sss_ec) }}</td>
-            <td>{{ peso.format(row.sss_ee + row.sss_er + row.sss_ec) }}</td>
-            <td>{{ peso.format(row.result.philhealth.basis) if row.result else '-' }}</td>
-            <td>{{ peso.format(row.ph_ee) }}</td><td>{{ peso.format(row.ph_er) }}</td><td>{{ peso.format(row.ph_ee + row.ph_er) }}</td>
-            <td>{{ peso.format(row.pi_ee) }}</td><td>{{ peso.format(row.pi_er) }}</td><td>{{ peso.format(row.pi_ee + row.pi_er) }}</td>
-            <td><strong>{{ peso.format(row.remittance_total) }}</strong></td>
-            <td>{{ peso.format(row.true_cost) }}</td>
-            <td><a href="{{ url_for('government_contribution_history', employee_id=row.employee.id) }}">View</a></td>
-        </tr>
+        <article class="employee-record" data-employee="{{ row.employee.id }}">
+            <header><div><h4>{{ row.employee.full_name() }}{% if row.manual %} <small>(owner &ndash; manual)</small>{% endif %}</h4><p class="employee-company">{{ row.company }}</p></div><span class="record-count">{{ row.days_worked }} days</span></header>
+            <dl class="record-metrics">
+                <div><dt>Gross Salary</dt><dd>{{ peso.format(row.gross_pay) }}</dd></div>
+                <div><dt>Grand Total Payable</dt><dd>{{ peso.format(row.remittance_total) }}</dd></div>
+                <div><dt>True Cost to Company</dt><dd>{{ peso.format(row.true_cost) }}</dd></div>
+            </dl>
+            <details><summary>View contribution breakdown</summary>
+                <dl class="record-breakdown">
+                    <div><dt>Actual Earnings (SSS basis)</dt><dd>{{ peso.format(row.actual_earnings) }}</dd></div>
+                    <div><dt>Salary Bracket</dt><dd>{{ row.result.sss.bracket_label if row.result else 'Manual' }}</dd></div>
+                    <div><dt>MSC</dt><dd>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</dd></div>
+                    <div><dt>PhilHealth Basis (EMR)</dt><dd>{{ peso.format(row.result.philhealth.basis) if row.result else '-' }}</dd></div>
+                    {% for label, amount in [('SSS EE', row.sss_ee), ('SSS ER', row.sss_er), ('EC', row.sss_ec), ('SSS Total', row.sss_ee + row.sss_er + row.sss_ec), ('PH EE', row.ph_ee), ('PH ER', row.ph_er), ('PH Total', row.ph_ee + row.ph_er), ('Pag-IBIG EE', row.pi_ee), ('Pag-IBIG ER', row.pi_er), ('Pag-IBIG Total', row.pi_ee + row.pi_er)] %}
+                    <div><dt>{{ label }}</dt><dd>{{ peso.format(amount) }}</dd></div>
+                    {% endfor %}
+                </dl>
+            </details>
+            <a class="btn" href="{{ url_for('government_contribution_history', employee_id=row.employee.id) }}">View History</a>
+        </article>
         {% else %}
-        <tr><td colspan="21">No employees with attendance or payroll for this month.</td></tr>
+        <p class="record-empty">No employees with attendance or payroll for this month.</p>
         {% endfor %}
+    </div>
         {% set o = portal.overall %}
-        <tr class="total">
-            <td>TOTAL</td><td></td><td></td><td>{{ peso.format(labor.gross) }}</td><td></td><td></td><td></td>
-            <td>{{ peso.format(o.sss.ee) }}</td><td>{{ peso.format(o.sss.er) }}</td><td>{{ peso.format(o.sss.ec) }}</td><td>{{ peso.format(o.sss.total) }}</td>
-            <td></td><td>{{ peso.format(o.philhealth.ee) }}</td><td>{{ peso.format(o.philhealth.er) }}</td><td>{{ peso.format(o.philhealth.total) }}</td>
-            <td>{{ peso.format(o.pagibig.ee) }}</td><td>{{ peso.format(o.pagibig.er) }}</td><td>{{ peso.format(o.pagibig.total) }}</td>
-            <td>{{ peso.format(o.overall) }}</td><td>{{ peso.format(labor.labor_cost) }}</td><td></td>
-        </tr>
-    </table>
+    <h4>TOTAL</h4>
+    <dl class="record-metrics">
+        {% for label, amount in [('Gross Salary', labor.gross), ('SSS EE', o.sss.ee), ('SSS ER', o.sss.er), ('EC', o.sss.ec), ('SSS Total', o.sss.total), ('PH EE', o.philhealth.ee), ('PH ER', o.philhealth.er), ('PH Total', o.philhealth.total), ('Pag-IBIG EE', o.pagibig.ee), ('Pag-IBIG ER', o.pagibig.er), ('Pag-IBIG Total', o.pagibig.total), ('Grand Total Payable', o.overall), ('True Cost to Company', labor.labor_cost)] %}
+        <div><dt>{{ label }}</dt><dd>{{ peso.format(amount) }}</dd></div>
+        {% endfor %}
+    </dl>
 </section>
 
 <section class="section">

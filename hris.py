@@ -1079,7 +1079,22 @@ def ensure_staff_concern_schema():
 
 
 def ensure_loan_tracking_columns():
-    loan_columns = {column["name"] for column in inspect(db.engine).get_columns("loans")}
+    inspector = inspect(db.engine)
+    loan_columns = {column["name"] for column in inspector.get_columns("loans")}
+    employee_columns = {column["name"] for column in inspector.get_columns("employees")}
+    payroll_columns = {column["name"] for column in inspector.get_columns("payrolls")}
+    if "deduction_per_cutoff" not in loan_columns:
+        db.session.execute(text(
+            "ALTER TABLE loans ADD COLUMN deduction_per_cutoff FLOAT NOT NULL DEFAULT 500"
+        ))
+    if "loan_deduction_per_cutoff" not in employee_columns:
+        db.session.execute(text(
+            "ALTER TABLE employees ADD COLUMN loan_deduction_per_cutoff FLOAT NOT NULL DEFAULT 500"
+        ))
+    if "loan_deduction_override" not in payroll_columns:
+        db.session.execute(text(
+            "ALTER TABLE payrolls ADD COLUMN loan_deduction_override FLOAT"
+        ))
     if "loan_type" not in loan_columns:
         db.session.execute(text(
             "ALTER TABLE loans ADD COLUMN loan_type VARCHAR(30) NOT NULL DEFAULT 'Employee Loan'"
@@ -3870,7 +3885,157 @@ def attendance(employee_id):
 
 
 # ------------------ ADMIN DASHBOARD ------------------
-def dashboard_summary(employee=None):
+def admin_cutoff_overview(cutoff_start, employee_ids=None, today=None):
+    """Read cutoff activity without calculating or changing saved payroll."""
+    today = today or datetime.now(ZoneInfo('Asia/Manila')).date()
+    cutoff_end = cutoff_start + timedelta(days=6)
+    employees = Employee.query.filter(Employee.role.ilike('%staff%'))
+    if employee_ids is not None:
+        employees = employees.filter(Employee.id.in_(employee_ids))
+    employees = employees.order_by(Employee.company, Employee.last_name, Employee.first_name).all()
+    ids = [employee.id for employee in employees]
+    attendance = Attendance.query.filter(
+        Attendance.employee_id.in_(ids), Attendance.date >= cutoff_start,
+        Attendance.date <= min(cutoff_end, today),
+    ).order_by(Attendance.date, Attendance.id).all()
+    attendance_by_employee = {}
+    for record in attendance:
+        attendance_by_employee.setdefault(record.employee_id, {}).setdefault(record.date, []).append(record)
+    payrolls = Payroll.query.filter(
+        Payroll.employee_id.in_(ids),
+        db.or_(
+            db.and_(Payroll.cutoff_start == cutoff_start, Payroll.cutoff_end == cutoff_end),
+            db.and_(Payroll.is_paid.is_(True), Payroll.cutoff_end < cutoff_start),
+        ),
+    ).order_by(Payroll.cutoff_start.desc(), Payroll.id.desc()).all()
+    current_payrolls, previous_payrolls = {}, {}
+    for record in payrolls:
+        if record.cutoff_start == cutoff_start:
+            current_payrolls.setdefault(record.employee_id, []).append(record)
+        else:
+            previous_payrolls.setdefault(record.employee_id, []).append(record)
+    leaves = LeaveRequest.query.filter(
+        LeaveRequest.employee_id.in_(ids), LeaveRequest.start_date <= cutoff_end,
+        LeaveRequest.end_date >= cutoff_start,
+    ).all()
+    request_specs = (
+        (Loan, Loan.date_needed.between(cutoff_start, cutoff_end), 'loans'),
+        (OTApplication, OTApplication.ot_date.between(cutoff_start, cutoff_end), 'overtime'),
+        (AttendanceCorrection, AttendanceCorrection.correction_date.between(cutoff_start, cutoff_end), 'corrections'),
+        (LoanDeductionSkipRequest, LoanDeductionSkipRequest.cutoff_start == cutoff_start, 'skips'),
+    )
+    pending = {key: {} for key in ('loans', 'overtime', 'corrections', 'skips', 'leaves')}
+    for model, condition, key in request_specs:
+        for record in model.query.filter(
+            model.employee_id.in_(ids), condition, model.status == 'Pending',
+        ).all():
+            pending[key][record.employee_id] = pending[key].get(record.employee_id, 0) + 1
+    for leave in leaves:
+        if leave.status == 'Pending':
+            pending['leaves'][leave.employee_id] = pending['leaves'].get(leave.employee_id, 0) + 1
+    rows = []
+    totals = dict.fromkeys(('missing_out', 'absent', 'no_record', 'late', 'finalized', 'draft', 'not_prepared', 'attention', 'pending_requests'), 0)
+    days = [cutoff_start + timedelta(days=offset) for offset in range(7)]
+    for employee in employees:
+        records_by_day = attendance_by_employee.get(employee.id, {})
+        day_rows = []
+        flags = set()
+        counts = dict.fromkeys(('present', 'late', 'absent', 'missing_out', 'no_record', 'working', 'duplicates'), 0)
+        for day in days:
+            records = records_by_day.get(day, [])
+            approved_leave = next((
+                leave for leave in leaves if leave.employee_id == employee.id
+                and leave.status == 'Approved' and leave.start_date <= day <= leave.end_date
+            ), None)
+            tone = 'neutral'
+            if day > today:
+                status = 'Upcoming'
+            elif len(records) > 1:
+                status, tone = 'Duplicate records', 'danger'
+                counts['duplicates'] += 1
+                flags.add('attendance')
+            elif records:
+                record = records[0]
+                if record.status == 'Absent':
+                    status, tone = 'Absent recorded', 'danger'
+                    counts['absent'] += 1
+                    flags.add('absent')
+                elif record.clock_in and not record.clock_out:
+                    if day == today:
+                        status, tone = 'Clocked in / awaiting out', 'info'
+                        counts['working'] += 1
+                    else:
+                        status, tone = 'Missing clock-out', 'danger'
+                        counts['missing_out'] += 1
+                        flags.add('missing-out')
+                elif record.clock_out and not record.clock_in:
+                    status, tone = 'Missing clock-in', 'danger'
+                    flags.add('attendance')
+                elif not record.clock_in and not record.clock_out:
+                    status, tone = 'Incomplete record', 'warning'
+                    flags.add('attendance')
+                else:
+                    status = record.status or 'Completed'
+                    tone = 'warning' if status == 'Late' else 'success'
+                    counts['late' if status == 'Late' else 'present'] += 1
+                    if status == 'Late':
+                        flags.add('late')
+            elif approved_leave:
+                status, tone = 'Approved leave', 'info'
+            elif employee.payroll_attendance_exempt:
+                status = 'Attendance exempt'
+            elif attendance_scheduled_hours(employee, day) == 0:
+                status = 'Rest day'
+            elif day == today:
+                status, tone = 'No clock-in yet', 'warning'
+            else:
+                status, tone = 'No record / verify', 'warning'
+                counts['no_record'] += 1
+                flags.add('no-record')
+            day_rows.append({'date': day, 'status': status, 'tone': tone, 'records': records})
+        current = current_payrolls.get(employee.id, [])
+        previous = previous_payrolls.get(employee.id, [])
+        last_payroll = previous[0] if previous else None
+        previous_duplicate = bool(last_payroll and sum(
+            record.cutoff_start == last_payroll.cutoff_start and record.cutoff_end == last_payroll.cutoff_end
+            for record in previous
+        ) > 1)
+        payroll_state = (
+            'Duplicate records' if len(current) > 1 else 'Finalized' if current and current[0].is_paid
+            else 'Draft' if current else 'Not prepared'
+        )
+        if len(current) > 1 or previous_duplicate:
+            flags.add('payroll')
+        elif not employee.payroll_attendance_exempt and payroll_state != 'Finalized':
+            flags.add('payroll')
+        requests = {key: counts_by_id.get(employee.id, 0) for key, counts_by_id in pending.items()}
+        if any(requests.values()):
+            flags.add('requests')
+        for key in ('missing_out', 'absent', 'no_record', 'late'):
+            totals[key] += counts[key]
+        if not employee.payroll_attendance_exempt:
+            state_key = {'Finalized': 'finalized', 'Draft': 'draft', 'Not prepared': 'not_prepared'}.get(payroll_state)
+            if state_key:
+                totals[state_key] += 1
+        totals['attention'] += bool(flags)
+        totals['pending_requests'] += sum(requests.values())
+        rows.append({
+            'employee': employee, 'days': day_rows, 'counts': counts, 'flags': sorted(flags),
+            'payroll_state': payroll_state, 'current_payroll': current[0] if len(current) == 1 else None,
+            'previous_payroll': None if previous_duplicate else last_payroll,
+            'previous_duplicate': previous_duplicate, 'requests': requests,
+        })
+    return {
+        'start': cutoff_start, 'end': cutoff_end, 'today': today, 'rows': rows, 'totals': totals,
+        'previous': cutoff_start - timedelta(days=7), 'next': cutoff_start + timedelta(days=7),
+        'finalized_net': sum(
+            float(row['current_payroll'].net_pay or 0) for row in rows
+            if row['payroll_state'] == 'Finalized' and not row['employee'].payroll_attendance_exempt
+        ),
+    }
+
+
+def dashboard_summary(employee=None, employee_ids=None):
     """Read saved records; dashboard viewing never recalculates or finalizes payroll."""
     today = datetime.now(ZoneInfo('Asia/Manila')).date()
     month_start = today.replace(day=1)
@@ -3887,6 +4052,12 @@ def dashboard_summary(employee=None):
         evaluation_query = evaluation_query.filter_by(employee_id=employee.id)
     else:
         attendance_query = attendance_query.join(Employee).filter(Employee.role.ilike('%staff%'))
+    if employee_ids is not None:
+        attendance_query = attendance_query.filter(Attendance.employee_id.in_(employee_ids))
+        payroll_query = payroll_query.filter(Payroll.employee_id.in_(employee_ids))
+        leave_query = leave_query.filter(LeaveRequest.employee_id.in_(employee_ids))
+        loan_query = loan_query.filter(Loan.employee_id.in_(employee_ids))
+        evaluation_query = evaluation_query.filter(Evaluation.employee_id.in_(employee_ids))
     finalized = payroll_query.filter(Payroll.is_paid.is_(True)).order_by(
         Payroll.cutoff_start.desc(), Payroll.id.desc()
     )
@@ -3915,7 +4086,10 @@ def dashboard_summary(employee=None):
         'approved_leaves': leave_query.filter_by(status='Approved').count(),
         'pending_loans': loan_query.filter_by(status='Pending').count(),
         'loan_balance': float(employee.loan_balance or 0) if employee else sum(
-            float(row.loan_balance or 0) for row in Employee.query.filter(Employee.role.ilike('%staff%')).all()
+            float(row.loan_balance or 0) for row in Employee.query.filter(
+                Employee.role.ilike('%staff%'),
+                Employee.id.in_(employee_ids) if employee_ids is not None else db.true(),
+            ).all()
         ),
         'pending_evaluations': evaluation_query.filter_by(approval_status='Pending').count(),
         'approved_evaluations': len(approved_ratings),
@@ -3923,7 +4097,7 @@ def dashboard_summary(employee=None):
     }
 
 
-def admin_request_calendar(month_start):
+def admin_request_calendar(month_start, employee_ids=None, company=''):
     import calendar
 
     month_end = month_start.replace(day=calendar.monthrange(month_start.year, month_start.month)[1])
@@ -3933,6 +4107,7 @@ def admin_request_calendar(month_start):
         events.setdefault(day, []).append({'label': label, 'url': url_for(endpoint), 'kind': kind})
 
     leaves = LeaveRequest.query.filter(
+        LeaveRequest.employee_id.in_(employee_ids) if employee_ids is not None else db.true(),
         LeaveRequest.start_date <= month_end, LeaveRequest.end_date >= month_start
     ).order_by(LeaveRequest.start_date, LeaveRequest.id).all()
     for leave in leaves:
@@ -3942,6 +4117,7 @@ def admin_request_calendar(month_start):
             add_event(day, f'{leave.employee.full_name()} - Leave ({leave.status})', 'leave', 'leave')
             day += timedelta(days=1)
     loans = Loan.query.filter(
+        Loan.employee_id.in_(employee_ids) if employee_ids is not None else db.true(),
         Loan.date_needed >= month_start, Loan.date_needed <= month_end
     ).order_by(Loan.date_needed, Loan.id).all()
     for loan in loans:
@@ -3954,6 +4130,8 @@ def admin_request_calendar(month_start):
     if current_user.is_authenticated:
         for event in reminder_events(current_user, month_start, month_end):
             reminder = event['reminder']
+            if company and reminder.company not in (company, 'All'):
+                continue
             events.setdefault(event['at'].date(), []).append({
                 'label': f"{event['at']:%I:%M %p} - {reminder.title} ({reminder.company})",
                 'url': url_for('company_reminder_edit', reminder_id=reminder.id),
@@ -4127,6 +4305,25 @@ def dashboard_admin():
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('login'))
 
+    selected_company = request.args.get('company', '').strip()
+    if selected_company not in ('', 'Auto Expert', 'Trece-Uno'):
+        flash('Select a valid company.', 'danger')
+        return redirect(url_for('dashboard_admin'))
+    company_employees = Employee.query
+    if selected_company == 'Trece-Uno':
+        company_employees = company_employees.filter(Employee.company.in_(['Trece', 'Trece-Uno']))
+    elif selected_company:
+        company_employees = company_employees.filter_by(company=selected_company)
+    employee_ids = [emp.id for emp in company_employees.all()] if selected_company else None
+    try:
+        overview_start, _ = payroll_cutoff_from_request(request.args.get('overview_cutoff'))
+    except ValueError:
+        flash('Select a Saturday for the dashboard cutoff.', 'danger')
+        return redirect(url_for('dashboard_admin', company=selected_company))
+
+    def scoped(query, model):
+        return query.filter(model.employee_id.in_(employee_ids)) if employee_ids is not None else query
+
     calendar_month = datetime.now(ZoneInfo('Asia/Manila')).date().replace(day=1)
     if request.args.get('calendar_month'):
         try:
@@ -4175,10 +4372,15 @@ def dashboard_admin():
     # Dashboard data
     trece_employees = Employee.query.filter(Employee.company.in_(["Trece-Uno", "Trece"])).all()
     auto_employees = Employee.query.filter_by(company="Auto Expert").all()
+    if selected_company == 'Auto Expert':
+        trece_employees = []
+    elif selected_company == 'Trece-Uno':
+        auto_employees = []
     trece_leaves = LeaveRequest.query.join(Employee).filter(Employee.company.in_(["Trece-Uno", "Trece"])).all()
     auto_leaves = LeaveRequest.query.join(Employee).filter(Employee.company=="Auto Expert").all()
     unread_count = Bulletin.query.count()
     total_employees = Employee.query.filter(
+        Employee.id.in_(employee_ids) if employee_ids is not None else db.true(),
         Employee.role.ilike('%staff%'),
         Employee.first_name.isnot(None),
         Employee.first_name != '',
@@ -4186,19 +4388,20 @@ def dashboard_admin():
         Employee.last_name != ''
     ).count()
 
-    pending_ot = OTApplication.query.filter_by(status="Pending").count()
-    pending_leaves = LeaveRequest.query.filter_by(status="Pending").count()
-    pending_loans = Loan.query.filter_by(status="Pending").count()
-    pending_evaluations = Evaluation.query.filter_by(approval_status='Pending').count()
-    pending_leaves_list = LeaveRequest.query.filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
-    pending_loans_list = Loan.query.filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
+    pending_ot = scoped(OTApplication.query, OTApplication).filter_by(status="Pending").count()
+    pending_leaves = scoped(LeaveRequest.query, LeaveRequest).filter_by(status="Pending").count()
+    pending_loans = scoped(Loan.query, Loan).filter_by(status="Pending").count()
+    pending_evaluations = scoped(Evaluation.query, Evaluation).filter_by(approval_status='Pending').count()
+    pending_leaves_list = scoped(LeaveRequest.query, LeaveRequest).filter_by(status="Pending").order_by(LeaveRequest.date_filed.desc()).all()
+    pending_loans_list = scoped(Loan.query, Loan).filter_by(status="Pending").order_by(Loan.date_filed.desc()).all()
     bulletins = Bulletin.query.order_by(Bulletin.created_at.desc()).all()
     attendance_events = AuditLog.query.filter(
+        AuditLog.employee_id.in_(employee_ids) if employee_ids is not None else db.true(),
         AuditLog.action.in_(["Clock in", "Clock out"])
     ).order_by(AuditLog.created_at.desc()).limit(10).all()
     today_date = datetime.now(ZoneInfo('Asia/Manila')).date()
     staff_attendance = []
-    for employee in Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+    for employee in company_employees.filter(Employee.role.ilike('%staff%')).order_by(
         Employee.company, Employee.last_name, Employee.first_name
     ).all():
         today_log = Attendance.query.filter_by(
@@ -4218,7 +4421,7 @@ def dashboard_admin():
     staff_attendance_by_employee = {
         item['employee'].id: item for item in staff_attendance
     }
-    pending_attendance_corrections = AttendanceCorrection.query.filter_by(
+    pending_attendance_corrections = scoped(AttendanceCorrection.query, AttendanceCorrection).filter_by(
         status='Pending'
     ).order_by(AttendanceCorrection.created_at.asc()).all()
 
@@ -4229,6 +4432,7 @@ def dashboard_admin():
             Payroll.cutoff_end,
             func.sum(Payroll.net_pay).label("total_payroll")
         )
+        .filter(Payroll.employee_id.in_(employee_ids) if employee_ids is not None else db.true())
         .group_by(Payroll.cutoff_start, Payroll.cutoff_end)
         .order_by(Payroll.cutoff_start.desc())
         .limit(6)
@@ -4263,8 +4467,10 @@ def dashboard_admin():
         trend_labels=trend_labels,
         trend_values=trend_values,
         admin=current_user,
-        summary=dashboard_summary(),
-        request_calendar=admin_request_calendar(calendar_month)
+        selected_company=selected_company,
+        cutoff_overview=admin_cutoff_overview(overview_start, employee_ids=employee_ids),
+        summary=dashboard_summary(employee_ids=employee_ids),
+        request_calendar=admin_request_calendar(calendar_month, employee_ids=employee_ids, company=selected_company)
     )
 
 
@@ -5164,6 +5370,22 @@ def loan_cutoff_deduction(loan_balance, requested_deduction=0.0):
     return min(balance, requested)
 
 
+def automatic_loan_deduction(employee, record, cutoff_start):
+    if record and (record.is_paid or record.loan_deduction_applied):
+        return float(record.loan or 0)
+    if approved_loan_deduction_skip(employee.id, cutoff_start):
+        return 0.0
+    requested = float(employee.loan_deduction_per_cutoff or 500)
+    if record and record.loan_deduction_override is not None:
+        requested = float(record.loan_deduction_override)
+    elif record and not record.payslip_snapshot and float(record.loan or 0) > 0:
+        # A legacy draft without a snapshot carries a manually entered deduction.
+        requested = float(record.loan)
+    if not isfinite(requested) or requested < 0:
+        raise ValueError('Invalid company loan deduction.')
+    return loan_cutoff_deduction(employee.loan_balance, requested)
+
+
 def payroll_statutory_deductions(payroll_record, calculated_deductions):
     """Use attendance-adjusted statutory calculations for each weekly cutoff."""
     return calculated_deductions
@@ -5354,6 +5576,7 @@ def payroll_loan_review():
                 db.session.add(payroll_record)
             if payroll_record is not None:
                 payroll_record.loan = cutoff_deduction
+                payroll_record.loan_deduction_override = cutoff_deduction
         db.session.commit()
         flash('Loan balances and cutoff deductions saved for your review.', 'success')
         if deduction_was_capped:
@@ -5375,10 +5598,7 @@ def payroll_loan_review():
         record = payroll_records.get(employee.id)
         balance = float(employee.loan_balance or 0)
         skip_request = active_skip_by_employee.get(employee.id)
-        deduction = (
-            0.0 if skip_request and skip_request.status == 'Approved'
-            else float(record.loan or 0) if record else 0.0
-        )
+        deduction = automatic_loan_deduction(employee, record, cutoff_start)
         if record and record.loan_deduction_applied and deduction > 0:
             # The current balance already has this deduction removed, so rebuild the
             # before/after values for this cutoff from the loan history.
@@ -5966,7 +6186,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             cutoff_start=cutoff_start,
             cutoff_end=cutoff_end - timedelta(days=1)
         ).first()
-        loan = float(payroll_record.loan or 0) if payroll_record else 0.0
+        loan = automatic_loan_deduction(emp, payroll_record, cutoff_start)
         sss_loan = float(payroll_record.sss_loan or 0) if payroll_record else 0.0
         pagibig_loan = (
             float(payroll_record.pagibig_loan or 0) if payroll_record else 0.0
@@ -8230,6 +8450,10 @@ def calculate_payslip_breakdown(emp, payroll_record):
         "pagibig": pagibig,
         "withholding_tax": withholding_tax,
         "company_loan": company_loan,
+        "loan_remaining_balance": round(max(
+            float(emp.loan_balance or 0)
+            - (0 if payroll_record.loan_deduction_applied else company_loan), 0,
+        ), 2),
         "sss_loan": sss_loan,
         "pagibig_loan": pagibig_loan,
         "liability_deduction": liability_deduction,
@@ -8272,7 +8496,7 @@ def weekly_payslip_table_data(payslip):
         ["Night Differential", "", amount("night_differential"), "Withholding Tax", "", amount("withholding_tax")],
         ["Other Earnings / Adjustment", "", amount("payslip_adjustment"), "Other Deductions", "", amount("other_deductions")],
         ["GROSS PAY", "", amount("gross_pay"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
-        ["", "", "", "NET PAY", "", amount("net_pay")],
+        ["Remaining Loan", "", f'{payslip["loan_remaining_balance"]:,.2f}' if "loan_remaining_balance" in payslip else "Not recorded", "NET PAY", "", amount("net_pay")],
         ["*Already in basic pay", "", "", "Not deducted again", "", ""],
     ]
 
@@ -8410,6 +8634,7 @@ def payroll(employee_id):
             for key, value in parsed_loan_inputs.items():
                 if key == "loan":
                     value = loan_cutoff_deduction(emp.loan_balance, value)
+                    payroll_record.loan_deduction_override = value
                 setattr(payroll_record, key, value)
             payroll_record.payslip_snapshot = None
 
@@ -8471,7 +8696,7 @@ def payroll(employee_id):
     sss = deductions["sss"]
     philhealth = deductions["philhealth"]
     pagibig = deductions["pagibig"]
-    loan = float(payroll_record.loan or 0) if payroll_record is not None else 0.0
+    loan = automatic_loan_deduction(emp, payroll_record, cutoff_start)
     sss_loan = float(payroll_record.sss_loan or 0) if payroll_record else 0.0
     pagibig_loan = float(payroll_record.pagibig_loan or 0) if payroll_record else 0.0
     liability_deduction = liability_cutoff_deduction(emp.id)
@@ -8768,16 +8993,17 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         if record.liability_deduction_applied
         else liability_cutoff_deduction(employee.id)
     )
-    total = statutory_total + tax + liability + sum(
+    loan = automatic_loan_deduction(employee, record, cutoff_start)
+    total = statutory_total + tax + liability + loan + sum(
         float(getattr(record, field) or 0)
-        for field in ('loan', 'sss_loan', 'pagibig_loan', 'cash_advance', 'other_deductions')
+        for field in ('sss_loan', 'pagibig_loan', 'cash_advance', 'other_deductions')
     )
     snapshot = {
         'gross_income': gross, 'total_deductions': total,
         'net_pay': gross + rice_exempt - total,
         'sss': statutory['sss'], 'philhealth': statutory['philhealth'],
         'pagibig': statutory['pagibig'], 'withholding_tax': tax,
-        'liability_deduction': liability, 'contribution_salary_base': contributions['basis'],
+        'loan': loan, 'liability_deduction': liability, 'contribution_salary_base': contributions['basis'],
         'employer_sss': employer['sss'], 'employer_sss_ec': employer['sss_ec'],
         'employer_philhealth': employer['philhealth'], 'employer_pagibig': employer['pagibig'],
     }
@@ -8978,6 +9204,7 @@ def finalize_payroll(employee_id):
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('payroll_dashboard'))
     lock_attendance_employee(employee.id)
+    db.session.refresh(employee)
     existing_records = Payroll.query.filter_by(
         employee_id=employee.id, cutoff_start=cutoff_start,
         cutoff_end=cutoff_end - timedelta(days=1)
@@ -9020,6 +9247,7 @@ def finalize_payroll(employee_id):
                 0.0 if approved_loan_deduction_skip(employee_id, cutoff_start)
                 else loan_cutoff_deduction(employee.loan_balance, float(loan_deduction))
             )
+            payroll_record.loan_deduction_override = payroll_record.loan
         update_manual_owner_contribution_settings(employee, request.form, cutoff_start)
         record = Payroll.query.filter_by(
             employee_id=employee.id, cutoff_start=cutoff_start,
@@ -9061,6 +9289,7 @@ def bulk_finalize_payroll():
             if employee is None or employee.payroll_attendance_exempt:
                 continue
             lock_attendance_employee(employee.id)
+            db.session.refresh(employee)
             records = Payroll.query.filter_by(
                 employee_id=int(employee_id),
                 cutoff_start=cutoff_start,
@@ -9092,7 +9321,9 @@ def bulk_finalize_payroll():
 def reopen_payroll(employee_id):
     if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
-    Employee.query.get_or_404(employee_id)
+    employee = Employee.query.get_or_404(employee_id)
+    lock_attendance_employee(employee.id)
+    db.session.refresh(employee)
     cutoff_start, cutoff_end = completed_cutoff()
     payroll_record = Payroll.query.filter_by(
         employee_id=employee_id,
@@ -9365,6 +9596,7 @@ def payroll_dashboard():
                             0.0 if approved_loan_deduction_skip(emp.id, cutoff_start)
                             else loan_cutoff_deduction(emp.loan_balance, requested_deduction)
                         )
+                        payroll_record.loan_deduction_override = payroll_record.loan
                     if sss_loan_deduction is not None and sss_loan_deduction.strip() != "":
                         payroll_record.sss_loan = max(float(sss_loan_deduction), 0)
                     if pagibig_loan_deduction is not None and pagibig_loan_deduction.strip() != "":
@@ -9462,11 +9694,7 @@ def payroll_dashboard():
             cutoff_start=start_cutoff.date(),
             cutoff_end=(end_cutoff - timedelta(days=1)).date()
         ).first()
-        loan = (
-            float(payroll_record.loan or 0)
-            if payroll_record is not None
-            else 0.0
-        )
+        loan = automatic_loan_deduction(emp, payroll_record, cutoff_start)
         sss_loan = (
             float(payroll_record.sss_loan or 0)
             if payroll_record is not None
@@ -9637,6 +9865,11 @@ def holiday_ot_dashboard():
         Attendance.date >= cutoff_start,
         Attendance.date < cutoff_end,
     ).order_by(Attendance.date.desc()).all()
+    company = gov_company_from_request()
+    if company:
+        records = [row for row in records if gov_company_label(row.employee) == company]
+        applications = [row for row in applications if gov_company_label(row.employee) == company]
+        attendance_report = [row for row in attendance_report if gov_company_label(row.employee) == company]
     if employee_search:
         search_value = employee_search.casefold()
         attendance_report = [
@@ -10013,6 +10246,8 @@ def apply_approved_loan_balance(loan_record):
     if loan_record.balance_applied:
         return False
     employee = db.session.get(Employee, loan_record.employee_id, with_for_update=True)
+    if float(employee.loan_balance or 0) <= 0:
+        employee.loan_deduction_per_cutoff = float(getattr(loan_record, 'deduction_per_cutoff', None) or 500)
     employee.loan_balance = float(employee.loan_balance or 0) + float(loan_record.amount or 0)
     loan_record.balance_applied = True
     return True
@@ -10062,6 +10297,10 @@ def loan_remaining_after_deductions(outstanding, approved_loans, deductions):
     ]
     remaining_after = {}
     for payroll_record in deductions:
+        saved = json.loads(getattr(payroll_record, 'payslip_snapshot', None) or '{}')
+        if 'loan_remaining_balance' in saved:
+            remaining_after[payroll_record.id] = float(saved['loan_remaining_balance'])
+            continue
         order_key = (payroll_record.cutoff_start, payroll_record.id)
         later_deductions = sum(
             float(other.loan or 0)
@@ -10089,6 +10328,12 @@ def review_loan_request(loan_id, decision):
         return redirect(url_for('loan'))
     if not isfinite(float(loan_record.amount)) or loan_record.amount <= 0:
         flash('This loan has an invalid amount. Correct the record before review.', 'danger')
+        return redirect(url_for('loan'))
+    employee = db.session.get(Employee, loan_record.employee_id, with_for_update=True)
+    if decision == 'Approved' and float(employee.loan_balance or 0) > 0 and (
+        float(loan_record.deduction_per_cutoff) != float(employee.loan_deduction_per_cutoff or 500)
+    ):
+        flash('This application has a different deduction from the existing loan. Decline it and request a new application with the current repayment amount.', 'danger')
         return redirect(url_for('loan'))
     loan_record.status = decision
     loan_record.decision_date = datetime.utcnow()
@@ -10208,6 +10453,8 @@ def review_loan_deduction_skip_request(request_id, action):
     if not can_review_payroll_loans(current_user) or action not in {'approve', 'reject'}:
         return 'Access denied', 403
     skip_request = LoanDeductionSkipRequest.query.get_or_404(request_id)
+    lock_attendance_employee(skip_request.employee_id)
+    db.session.refresh(skip_request)
     if skip_request.status != 'Pending':
         flash('This skip request was already reviewed.', 'warning')
         return redirect(url_for(
@@ -10336,7 +10583,19 @@ def loan():
             flash('Your request to skip this cutoff\'s loan deduction was sent for review.', 'success')
             return redirect(url_for('loan'))
 
-        amount = float(request.form.get('amount'))
+        try:
+            amount = float(request.form.get('amount', ''))
+            deduction_per_cutoff = float(request.form.get('deduction_per_cutoff', '500'))
+            if not isfinite(amount) or amount <= 0:
+                raise ValueError
+            if not isfinite(deduction_per_cutoff) or deduction_per_cutoff < 500:
+                raise ValueError
+        except (TypeError, ValueError):
+            flash('Enter a valid loan amount and a deduction of at least PHP 500 per cutoff.', 'danger')
+            return redirect(url_for('loan'))
+        if float(emp.loan_balance or 0) > 0 and deduction_per_cutoff != float(emp.loan_deduction_per_cutoff or 500):
+            flash('An additional loan keeps your existing deduction per cutoff; it does not add a second deduction.', 'danger')
+            return redirect(url_for('loan'))
         if amount > remaining_limit:
             flash(f"❌ Loan exceeds your current limit ₱{remaining_limit:.2f}", "danger")
         else:
@@ -10354,6 +10613,7 @@ def loan():
             new_loan = Loan(
                 employee_id=current_user.id,
                 amount=amount,
+                deduction_per_cutoff=deduction_per_cutoff,
                 reason=request.form.get('reason'),
                 date_needed=date_needed,
                 status='Pending'
@@ -10379,7 +10639,10 @@ def loan():
     rejected = status_query.filter_by(status="Rejected").count()
 
     if current_user.role.lower() == 'admin':
-        account_employees = Employee.query.filter(Employee.role.ilike('%staff%')).order_by(
+        account_employees = Employee.query.filter(db.or_(
+            Employee.role.ilike('%staff%'),
+            Employee.id.in_(db.session.query(Loan.employee_id)),
+        )).order_by(
             Employee.company, Employee.last_name, Employee.first_name
         ).all()
         loan_accounts = [loan_account_summary(employee) for employee in account_employees]
@@ -10457,6 +10720,7 @@ def loan_agreement_body(loan, deduction_per_cutoff):
         f"Deduction per cutoff: PHP {deduction_per_cutoff:,.2f}",
         "",
         f"I fully agree and authorize the company to deduct {deduction_per_cutoff:,.2f} pesos from my salary every cut off until the loan is completely settled.",
+        "Only one regular company loan deduction applies per employee each cutoff, including additional loans. The final deduction cannot exceed the remaining balance. A cutoff may be skipped only with an approved skip request.",
         "In the event of resignation or separation from the company, I agree that any remaining balance shall be deducted from my final pay or settled in full before clearance.",
         "This agreement is made voluntarily and with full understanding of its terms.",
         "",
@@ -10483,7 +10747,7 @@ def create_loan_agreement(loan_id):
 
     from decimal import Decimal, InvalidOperation
 
-    default_deduction = min(Decimal('500.00'), Decimal(str(loan.amount)))
+    default_deduction = Decimal(str(loan.deduction_per_cutoff))
     if request.method == 'POST':
         try:
             deduction_per_cutoff = Decimal(request.form.get('deduction_per_cutoff', ''))
@@ -10492,6 +10756,9 @@ def create_loan_agreement(loan_id):
             return redirect(url_for('create_loan_agreement', loan_id=loan.id))
         if not deduction_per_cutoff.is_finite() or deduction_per_cutoff <= 0:
             flash("Deduction per cutoff must be greater than zero.", "danger")
+            return redirect(url_for('create_loan_agreement', loan_id=loan.id))
+        if deduction_per_cutoff != default_deduction:
+            flash('Use the deduction selected in the loan application; the agreement must match it.', 'danger')
             return redirect(url_for('create_loan_agreement', loan_id=loan.id))
 
         from io import BytesIO

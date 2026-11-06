@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payroll History</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
     <style>
         body { font-family: Arial, sans-serif; background: #f4f7f6; padding: 20px; }
         .section { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; overflow-x: auto; }
@@ -31,7 +32,18 @@
             <button type="submit">View History</button>
         </form>
     </main>
-    <section class="section">
+    <section class="employee-records" aria-label="Employee payroll histories">
+        {% for employee_id, employee_records in records|groupby('employee_id') %}
+        {% set employee = employee_records[0].employee %}
+        <article class="employee-record" data-employee="{{ employee_id }}">
+            <header><div><h3>{{ employee.full_name() }}</h3><p class="employee-company">{{ employee.company or 'N/A' }}</p></div><span class="record-count">{{ employee_records|length }} payroll records</span></header>
+            <dl class="record-metrics">
+                <div><dt>Gross Income</dt><dd>₱{{ employee_records|map(attribute='gross_income')|reject('none')|sum|currency }}</dd></div>
+                <div><dt>Deductions</dt><dd>₱{{ employee_records|map(attribute='total_deductions')|reject('none')|sum|currency }}</dd></div>
+                <div><dt>Net Pay</dt><dd>₱{{ employee_records|map(attribute='net_pay')|reject('none')|sum|currency }}</dd></div>
+            </dl>
+            <details><summary>View payroll history</summary>
+            <div class="record-scroll">
         <table>
             <thead>
                 <tr>
@@ -45,7 +57,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for record in records %}
+                {% for record in employee_records %}
                 <tr>
                     <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
                     <td>{{ record.employee.full_name() }} / {{ record.employee.company or 'N/A' }}</td>
@@ -62,11 +74,14 @@
                         {% endif %}
                     </td>
                 </tr>
-                {% else %}
-                <tr><td colspan="7">No payroll history found for this selection.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+            </div></details>
+        </article>
+        {% else %}
+        <p class="record-empty">No payroll history found for this selection.</p>
+        {% endfor %}
     </section>
     <p>
         <a class="btn" href="{{ url_for('payroll_dashboard') }}">Back to Payroll Dashboard</a>

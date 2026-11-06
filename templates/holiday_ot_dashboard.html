@@ -50,6 +50,7 @@
         <!-- Filter dropdown -->
         <div class="filter">
             <form method="GET">
+                {% if request.args.get('company') %}<input type="hidden" name="company" value="{{ request.args.get('company') }}">{% endif %}
                 <label for="cutoff-start">Cutoff Start (Saturday):</label>
                 <input id="cutoff-start" type="date" name="cutoff_start" value="{{ cutoff_start }}" required>
                 <label for="status">Filter by Status:</label>
@@ -123,7 +124,7 @@
         <p class="attendance-empty">No attendance records found for this cutoff and employee search.</p>
         {% endfor %}
         </div>
-        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, employee_search=employee_search, export='attendance_csv') }}" class="btn">Export Attendance Report CSV</a>
+        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, company=request.args.get('company', ''), status=filter_status, employee_search=employee_search, export='attendance_csv') }}" class="btn">Export Attendance Report CSV</a>
         </section>
 
         <div class="table-wrap">
@@ -189,7 +190,7 @@
         </div>
         <br>
         <!-- Export button -->
-        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, status=filter_status, employee_search=employee_search, export='csv') }}" class="btn">⬇ Export OT CSV</a>
+        <a href="{{ url_for('holiday_ot_dashboard', cutoff_start=cutoff_start, company=request.args.get('company', ''), status=filter_status, employee_search=employee_search, export='csv') }}" class="btn">⬇ Export OT CSV</a>
         <!-- Back to Admin Dashboard -->
         <div style="text-align:center;">
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>

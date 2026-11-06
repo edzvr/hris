@@ -1,0 +1,25 @@
+.employee-records { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin:18px 0; }
+.employee-record { min-width:0; padding:18px; border:1px solid #dce2e9; border-radius:14px; background:#fff; color:#374151; }
+.employee-record > header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:10px; padding:0; background:transparent !important; }
+.employee-record h3, .employee-record h4 { margin:0 0 6px; }
+.employee-record .employee-company { margin:0; color:#64748b; font-size:13px; }
+.employee-record .record-count { font-size:13px; color:#64748b; }
+.employee-record > details { margin-top:14px; }
+.employee-record summary { cursor:pointer; padding:10px 0; font-weight:600; }
+.employee-record .record-scroll { max-width:100%; overflow-x:auto; margin:12px 0; }
+.employee-record .record-scroll table { margin:0; }
+.record-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:14px 0; }
+.record-metrics > div { background:#f3f4f6; padding:12px; border-radius:8px; overflow-wrap:anywhere; }
+.record-metrics dt { font-size:12px; color:#64748b; margin-bottom:6px; }
+.record-metrics dd { margin:0; font-weight:700; }
+.record-breakdown { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.record-breakdown dt { font-size:13px; color:#64748b; }
+.record-breakdown dd { margin:4px 0 0; overflow-wrap:anywhere; }
+.record-entry { border-top:1px solid #e5e7eb; padding:14px 0; }
+.record-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:start; }
+.record-actions form { flex:1 1 180px; min-width:0; }
+.employee-record[hidden] { display:none !important; }
+.record-empty { padding:18px; color:#64748b; }
+@media(max-width:1100px) { .employee-records { grid-template-columns:1fr; } }
+@media(max-width:480px) { .employee-record { padding:14px; } .record-breakdown { grid-template-columns:1fr; } }
+@media print { .employee-records { display:block; } .employee-record { margin-bottom:16px; } .employee-record > details::details-content { content-visibility:visible; } }

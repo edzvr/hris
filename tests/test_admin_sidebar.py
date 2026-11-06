@@ -24,6 +24,7 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
     assert 'class="admin-nav-dropdown"' in html
     assert 'padding-left:0 !important' in html
     assert 'new ResizeObserver' in html
+    assert "window.matchMedia('(max-width: 760px)')" in html
     assert 'if (activeGroup) activeGroup.open = true' not in html
     for heading in (
         "Payroll &amp; Contributions", "People &amp; Attendance",
@@ -113,6 +114,10 @@ def test_company_logos_follow_role_and_employee_company():
     admin_html = navigation_response('admin')
     assert 'images/autoxpertlogo.jpg' in admin_html
     assert 'images/trece-uno-logo.jpg' in admin_html
+    assert 'aria-label="Open Auto Expert dashboard"' in admin_html
+    assert 'aria-label="Open Trece-Uno dashboard"' in admin_html
+    assert '/dashboard_admin?company=Auto+Expert' in admin_html
+    assert '/dashboard_admin?company=Trece-Uno' in admin_html
     for company in ('Trece', 'Trece-Uno'):
         html = navigation_response('staff', '/dashboard_staff', company)
         assert 'images/trece-uno-logo.jpg' in html
@@ -160,7 +165,7 @@ def test_login_and_non_html_do_not_receive_admin_sidebar():
 
 def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
     from flask import render_template
-    from hris import dashboard_summary, admin_request_calendar
+    from hris import dashboard_summary, admin_request_calendar, admin_cutoff_overview, current_payroll_cutoff
     from html.parser import HTMLParser
 
     class LayoutParser(HTMLParser):
@@ -194,6 +199,7 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
             pending_leaves_list=[], pending_loans_list=[], bulletins=[],
             trend_labels=[], trend_values=[],
             summary=dashboard_summary(),
+            cutoff_overview=admin_cutoff_overview(current_payroll_cutoff()[0], employee_ids=[]),
             request_calendar=admin_request_calendar(dashboard_summary()['month_start']),
         )
     parser = LayoutParser()

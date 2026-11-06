@@ -23,6 +23,7 @@
         .table-wrap { overflow-x:auto; }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
 </head>
 <body>
 <main>
@@ -79,33 +80,43 @@
 
     <section class="panel">
         <h2>Records</h2>
-        <div class="table-wrap"><table>
-            <tr><th>Employee</th><th>Category / Reference</th><th>Agreement</th><th>Original</th><th>Per Cutoff</th><th>Deducted</th><th>Recovered</th><th>Refunded</th><th>Refundable</th><th>Remaining</th><th>Status</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
-            {% for item in liabilities %}
-            <tr>
-                <td>{{ item.employee.full_name() }}</td>
-                <td><strong>{{ item.category }}</strong><br>{{ item.reference or 'No reference' }}<br>{{ item.customer_name or '' }}<br><small>{{ item.description }}</small></td>
-                <td>{{ item.agreement_date or 'N/A' }}<br>{{ item.acknowledgment_status }}</td>
-                <td>PHP {{ item.total_amount|currency }}</td>
-                <td>PHP {{ item.deduction_per_cutoff|currency }}</td>
-                <td>PHP {{ item.amount_deducted|currency }}</td>
-                <td>PHP {{ item.amount_recovered|currency }}</td>
-                <td>PHP {{ item.amount_refunded|currency }}</td>
-                <td>PHP {{ item.refundable_balance|currency }}</td>
-                <td>PHP {{ item.remaining_balance|currency }}</td>
-                <td>{{ item.status }}</td>
-                {% if is_admin %}
-                <td>
-                    <form method="POST"><input type="hidden" name="action" value="recover"><input type="hidden" name="liability_id" value="{{ item.id }}"><input type="number" name="amount_recovered" min="0.01" step="0.01" placeholder="Customer paid"><button class="btn" type="submit">Record Recovery</button></form>
-                    <form method="POST"><input type="hidden" name="action" value="refund"><input type="hidden" name="liability_id" value="{{ item.id }}"><input type="number" name="amount_refunded" min="0.01" step="0.01" max="{{ item.refundable_balance }}" placeholder="Refund amount"><button class="btn" type="submit">Record Refund</button></form>
-                    <form method="POST"><input type="hidden" name="action" value="close"><input type="hidden" name="liability_id" value="{{ item.id }}"><button class="btn btn-danger" type="submit">Close</button></form>
-                </td>
-                {% endif %}
-            </tr>
-            {% else %}
-            <tr><td colspan="12">No liability records found.</td></tr>
-            {% endfor %}
-        </table></div>
+        <div class="employee-records">
+        {% for employee_id, employee_items in liabilities|groupby('employee_id') %}
+        <article class="employee-record" data-employee="{{ employee_id }}">
+            <header><div><h3>{{ employee_items[0].employee.full_name() }}</h3><p class="employee-company">{{ employee_items[0].employee.company or 'N/A' }}</p></div><span class="record-count">{{ employee_items|length }} liability records</span></header>
+            <dl class="record-metrics">
+                <div><dt>Original Amount</dt><dd>PHP {{ employee_items|sum(attribute='total_amount')|currency }}</dd></div>
+                <div><dt>Remaining</dt><dd>PHP {{ employee_items|sum(attribute='remaining_balance')|currency }}</dd></div>
+                <div><dt>Refundable</dt><dd>PHP {{ employee_items|sum(attribute='refundable_balance')|currency }}</dd></div>
+            </dl>
+            <details><summary>View liabilities and actions</summary>
+        {% for item in employee_items %}
+        <section class="record-entry" data-liability="{{ item.id }}">
+            <h4>{{ item.category }} / {{ item.reference or 'No reference' }}</h4>
+            <p>{{ item.customer_name or '' }} {{ item.description }}</p>
+            <dl class="record-breakdown">
+                {% for label, value in [('Agreement', item.agreement_date or 'N/A'), ('Acknowledgment', item.acknowledgment_status), ('Status', item.status)] %}
+                <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+                {% endfor %}
+                {% for label, value in [('Original', item.total_amount), ('Per Cutoff', item.deduction_per_cutoff), ('Deducted', item.amount_deducted), ('Recovered', item.amount_recovered), ('Refunded', item.amount_refunded), ('Refundable', item.refundable_balance), ('Remaining', item.remaining_balance)] %}
+                <div><dt>{{ label }}</dt><dd>PHP {{ value|currency }}</dd></div>
+                {% endfor %}
+            </dl>
+            {% if is_admin %}
+            <div class="record-actions">
+                <form method="POST"><input type="hidden" name="action" value="recover"><input type="hidden" name="liability_id" value="{{ item.id }}"><label>Customer paid<input type="number" name="amount_recovered" min="0.01" step="0.01" placeholder="Customer paid"></label><button class="btn" type="submit">Record Recovery</button></form>
+                <form method="POST"><input type="hidden" name="action" value="refund"><input type="hidden" name="liability_id" value="{{ item.id }}"><label>Refund amount<input type="number" name="amount_refunded" min="0.01" step="0.01" max="{{ item.refundable_balance }}" placeholder="Refund amount"></label><button class="btn" type="submit">Record Refund</button></form>
+                <form method="POST"><input type="hidden" name="action" value="close"><input type="hidden" name="liability_id" value="{{ item.id }}"><button class="btn btn-danger" type="submit">Close</button></form>
+            </div>
+            {% endif %}
+        </section>
+        {% endfor %}
+            </details>
+        </article>
+        {% else %}
+        <p class="record-empty">No liability records found.</p>
+        {% endfor %}
+        </div>
     </section>
 
     <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') if is_admin else url_for('dashboard_staff') }}">Back to Dashboard</a></p>

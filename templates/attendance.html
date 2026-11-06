@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Report - {{ emp.first_name }} {{ emp.last_name }}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
 </head>
 <body class="bg-light">
 
 <div class="container my-4">
+<article class="employee-record" data-employee="{{ emp.id }}" aria-label="Attendance for {{ emp.first_name }} {{ emp.last_name }}">
     <!-- Header with Single Logo -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         {% if emp.company == "Auto-Expert" %}
@@ -62,7 +65,7 @@
     {% if daily_attendance_record %}
     <div class="card mb-4">
         <div class="card-header fw-bold">Daily Attendance: {{ daily_attendance_record.date }}</div>
-        <div class="card-body p-0">
+        <div class="card-body p-0 record-scroll">
             <table class="table table-striped mb-0">
                 <thead><tr><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Hours</th><th>Undertime</th><th>OT</th></tr></thead>
                 <tbody><tr><td>{{ daily_attendance_record.clock_in }}</td><td>{{ daily_attendance_record.clock_out }}</td><td>{{ daily_attendance_record.status }}</td><td>{{ daily_attendance_record.hours|round(2) }}</td><td>{{ daily_attendance_record.undertime_hours|round(2) }}</td><td>{{ daily_attendance_record.ot or '—' }}</td></tr></tbody>
@@ -134,44 +137,41 @@
     </div>
 
     <!-- DTR Table -->
-    <div class="card">
-        <div class="card-header fw-bold">Daily Time Records</div>
-        <div class="card-body p-0">
-            <table class="table table-striped table-hover mb-0">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Date</th>
-                        <th>Clock In</th>
-                        <th>Clock Out</th>
-                        <th>Status</th>
-                        <th>Hours</th><th>Undertime</th>
-                        <th>OT</th>
-                        <th>Branch</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for record in dtr_records %}
-                    <tr>
-                        <td>{{ record.date }}</td>
-                        <td>{{ record.clock_in }}</td>
-                        <td>{{ record.clock_out }}</td>
-                        <td>{{ record.status }}</td>
-                        <td>{{ record.hours|round(2) }}</td>
-                        <td>{{ record.undertime_hours|round(2) }}</td>
-                        <td>{{ record.ot or '—' }}</td>
-                        <td>{{ record.branch }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <details id="attendance-dtr">
+        <summary>Daily Time Records &mdash; {{ dtr_records|length }} days</summary>
+        <div class="employee-records">
+            {% for record in dtr_records %}
+            <section class="employee-record" data-attendance-date="{{ record.date }}">
+                <header><h4>{{ record.date }}</h4><span class="record-count">{{ record.status }}</span></header>
+                <dl class="record-breakdown">
+                    <div><dt>Clock In</dt><dd>{{ record.clock_in }}</dd></div>
+                    <div><dt>Clock Out</dt><dd>{{ record.clock_out }}</dd></div>
+                    <div><dt>Hours</dt><dd>{{ record.hours|round(2) }}</dd></div>
+                    <div><dt>Undertime</dt><dd>{{ record.undertime_hours|round(2) }}</dd></div>
+                    <div><dt>OT</dt><dd>{{ record.ot or '—' }}</dd></div>
+                    <div><dt>Branch</dt><dd>{{ record.branch }}</dd></div>
+                </dl>
+            </section>
+            {% else %}
+            <p class="record-empty">No attendance records for this selection.</p>
+            {% endfor %}
         </div>
-    </div>
-
+    </details>
+</article>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+const attendanceDtr = document.getElementById('attendance-dtr');
+let attendanceDtrWasOpen = false;
+window.addEventListener('beforeprint', () => {
+    attendanceDtrWasOpen = attendanceDtr.open;
+    attendanceDtr.open = true;
+});
+window.addEventListener('afterprint', () => {
+    attendanceDtr.open = attendanceDtrWasOpen;
+});
 new Chart(document.getElementById('attendanceChart'), {
     type: 'bar',
     data: {

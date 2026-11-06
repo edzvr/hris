@@ -40,8 +40,9 @@
         {% endwith %}
         <form method="post">
             <label>Deduction per cutoff (PHP)
-                <input type="number" name="deduction_per_cutoff" min="0.01" step="0.01" value="{{ '%.2f'|format(deduction_per_cutoff) }}" required>
+                <input type="number" name="deduction_per_cutoff" min="500" step="0.01" value="{{ '%.2f'|format(deduction_per_cutoff) }}" readonly required>
             </label>
+            <p>This is the amount selected in the application. The last deduction is limited to the remaining balance.</p>
             <h2>Agreement Body</h2>
             <pre>{{ agreement_body }}</pre>
             <button class="btn" type="submit">Generate PDF Agreement</button>

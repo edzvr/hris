@@ -5,16 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monthly Deductions</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='employee_records.css') }}">
     <style>
-        body { font-family: Arial, sans-serif; background:#f4f7f6; padding:20px; }
-        .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:8px; overflow:auto; }
-        table { width:100%; min-width:850px; border-collapse:collapse; }
-        th, td { border:1px solid #ddd; padding:9px; text-align:right; }
-        th:first-child, td:first-child { text-align:left; }
-        th { background:#1976d2; color:#fff; }
-        button, a { display:inline-block; padding:8px 12px; margin:4px; border:0; border-radius:4px; text-decoration:none; }
-        button { background:#1976d2; color:#fff; cursor:pointer; }
-        a { background:#eee; color:#222; }
+        body { font-family:Arial,sans-serif; padding:20px; color:#374151; }
+        .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:8px; }
+        button, .btn { display:inline-block; padding:8px 12px; margin:4px; border:0; border-radius:4px; text-decoration:none; background:#2563eb; color:#fff; cursor:pointer; }
     </style>
 </head>
 <body>
@@ -26,94 +21,70 @@
             <button type="submit">View</button>
             <button type="submit" name="download" value="true">Download PDF</button>
         </form>
-    </main>
-    <section class="section">
         <h3>Monthly Employee Contribution Summary (Government Portal Guide)</h3>
-        <p>For each employee, this adds the saved contribution bases and employee/employer shares from finalized cutoffs whose start date falls in the selected month. SSS MSC, PhilHealth base, and Pag-IBIG fund salary show the applicable capped/rounded bases using the current system schedule. EE/ER amounts are sums actually calculated for those cutoffs. Older cutoffs with no saved salary basis are marked N/A. Verify against the latest agency portal schedule before payment.</p>
-        <table style="min-width:1450px">
-            <tr>
-                <th>Employee / Company</th><th>Cutoffs</th><th>Monthly Attendance-Adjusted Base</th>
-                <th>Gross Earnings (incl. OT)</th>
-                <th>SSS MSC</th><th>SSS EE</th><th>SSS ER + EC</th>
-                <th>PhilHealth Base</th><th>PhilHealth EE</th><th>PhilHealth ER</th>
-                <th>Pag-IBIG Fund Salary</th><th>Pag-IBIG EE</th><th>Pag-IBIG ER</th>
-            </tr>
-            {% for row in monthly_employee_rows %}
-            <tr>
-                <td>{{ row.employee.full_name() }} / {{ 'Trece-Uno Auto Supply' if row.employee.company and row.employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</td>
-                <td>{{ row.cutoff_count }}</td>
-                <td>{{ 'N/A (older cutoff missing basis)' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.contribution_salary_base) }}</td>
-                <td>PHP {{ '%.2f'|format(row.gross_income) }}</td>
-                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.sss_msc) }}</td>
-                <td>PHP {{ '%.2f'|format(row.sss) }}</td>
-                <td>PHP {{ '%.2f'|format(row.employer_sss + row.employer_sss_ec) }}</td>
-                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.philhealth_base) }}</td>
-                <td>PHP {{ '%.2f'|format(row.philhealth) }}</td>
-                <td>PHP {{ '%.2f'|format(row.employer_philhealth) }}</td>
-                <td>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.pagibig_base) }}</td>
-                <td>PHP {{ '%.2f'|format(row.pagibig) }}</td>
-                <td>PHP {{ '%.2f'|format(row.employer_pagibig) }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="13">No finalized payroll contributions for this month.</td></tr>
-            {% endfor %}
-        </table>
+        <p>Each employee card adds saved employee/employer shares from finalized cutoffs whose start date falls in this month. Monthly Attendance-Adjusted Base, SSS MSC, PhilHealth Base, and Pag-IBIG Fund Salary use the current system schedule. Older cutoffs with no saved salary basis are marked N/A. Verify against the latest agency portal schedule before payment.</p>
+        <p>Employee Share (EE deductions from salary) reduces net pay. Employer Share (ER / Admin Portal Payment) is separate and does not reduce employee net pay. Portal totals exclude unavailable employer shares for older cutoffs.</p>
+    </main>
+    <section class="employee-records" aria-label="Monthly employee deductions">
+        {% for row in monthly_employee_rows %}
+        <article class="employee-record" data-employee="{{ row.employee.id }}">
+            <header><div><h3>{{ row.employee.full_name() }}</h3><p class="employee-company">{{ 'Trece-Uno Auto Supply' if row.employee.company and row.employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</p></div><span class="record-count">{{ row.cutoff_count }} finalized cutoffs</span></header>
+            <dl class="record-metrics">
+                <div><dt>Gross Earnings (incl. OT)</dt><dd>PHP {{ '%.2f'|format(row.gross_income) }}</dd></div>
+                <div><dt>Government EE Share</dt><dd>PHP {{ '%.2f'|format(row.total_ee) }}</dd></div>
+                <div><dt>Monthly Attendance-Adjusted Base</dt><dd>{{ 'N/A (older cutoff missing basis)' if row.has_missing_contribution_basis else 'PHP %.2f'|format(row.contribution_salary_base) }}</dd></div>
+            </dl>
+            <details><summary>View monthly contributions and cutoff deductions</summary>
+                <h4>Monthly Contribution Summary</h4>
+                <dl class="record-breakdown">
+                    {% for label, amount in [('SSS MSC', row.sss_msc), ('PhilHealth Base', row.philhealth_base), ('Pag-IBIG Fund Salary', row.pagibig_base)] %}
+                    <div><dt>{{ label }}</dt><dd>{{ 'N/A' if row.has_missing_contribution_basis else 'PHP %.2f'|format(amount) }}</dd></div>
+                    {% endfor %}
+                    {% for label, amount in [('SSS EE', row.sss), ('SSS ER + EC', row.employer_sss + row.employer_sss_ec), ('PhilHealth EE', row.philhealth), ('PhilHealth ER', row.employer_philhealth), ('Pag-IBIG EE', row.pagibig), ('Pag-IBIG ER', row.employer_pagibig)] %}
+                    <div><dt>{{ label }}</dt><dd>PHP {{ '%.2f'|format(amount) }}</dd></div>
+                    {% endfor %}
+                </dl>
+                {% for record, employee in rows|selectattr('1.id', 'equalto', row.employee.id) %}
+                <section class="record-entry" data-payroll="{{ record.id }}">
+                    <h4>{{ record.cutoff_start }} to {{ record.cutoff_end }}</h4>
+                    <h5>Employee Share (EE deductions from salary)</h5>
+                    <dl class="record-breakdown">
+                        <div><dt>Cutoff Base</dt><dd>{{ 'PHP %.2f'|format(record.contribution_salary_base) if record.contribution_salary_base is not none else 'N/A' }}</dd></div>
+                        {% for label, amount in [('SSS EE', record.sss), ('PhilHealth EE', record.philhealth), ('Pag-IBIG EE', record.pagibig), ('Tax', record.withholding_tax), ('Loan', record.loan), ('Total EE Deductions', record.total_deductions)] %}
+                        <div><dt>{{ label }}</dt><dd>PHP {{ '%.2f'|format(amount or 0) }}</dd></div>
+                        {% endfor %}
+                    </dl>
+                    {% for er in employer_rows|selectattr('record.id', 'equalto', record.id) %}
+                    <h5>Employer Share (ER / Admin Portal Payment)</h5>
+                    <dl class="record-breakdown">
+                        {% for label, amount in [('SSS ER', er.employer_sss), ('SSS EC', er.employer_sss_ec), ('PhilHealth ER', er.employer_philhealth), ('Pag-IBIG ER', er.employer_pagibig), ('Total ER Share', er.employer_sss + er.employer_sss_ec + er.employer_philhealth + er.employer_pagibig)] %}
+                        <div><dt>{{ label }}</dt><dd>{{ 'PHP %.2f'|format(amount) if er.has_contribution_basis else 'N/A' }}</dd></div>
+                        {% endfor %}
+                    </dl>
+                    {% endfor %}
+                </section>
+                {% endfor %}
+            </details>
+        </article>
+        {% else %}
+        <p class="record-empty">No finalized payroll contributions for this month. No finalized payroll deductions for this month. No employer contribution records for this month.</p>
+        {% endfor %}
     </section>
     <section class="section">
-        <h3>Employee Share (EE deductions from salary)</h3>
-        <p>Cutoff Base is the attendance-adjusted statutory salary basis for that weekly cutoff. The monthly salary base totals those finalized cutoff bases for this report month. Older finalized cutoffs may show N/A if their basis was not saved; portal totals exclude unavailable employer shares for those rows.</p>
-        <table>
-            <tr><th>Employee / Company</th><th>Cutoff</th><th>Cutoff Base</th><th>SSS EE</th><th>PhilHealth EE</th><th>Pag-IBIG EE</th><th>Tax</th><th>Loan</th><th>Total EE Deductions</th></tr>
-            {% for record, employee in rows %}
-            <tr>
-                <td>{{ employee.full_name() }} / {{ 'Trece-Uno Auto Supply' if employee.company and employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</td>
-                <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
-                <td>{{ 'PHP %.2f'|format(record.contribution_salary_base) if record.contribution_salary_base is not none else 'N/A' }}</td>
-                <td>PHP {{ '%.2f'|format(record.sss or 0) }}</td>
-                <td>PHP {{ '%.2f'|format(record.philhealth or 0) }}</td>
-                <td>PHP {{ '%.2f'|format(record.pagibig or 0) }}</td>
-                <td>PHP {{ '%.2f'|format(record.withholding_tax or 0) }}</td>
-                <td>PHP {{ '%.2f'|format(record.loan or 0) }}</td>
-                <td>PHP {{ '%.2f'|format(record.total_deductions or 0) }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="9">No finalized payroll deductions for this month.</td></tr>
+        <h3>Monthly Total</h3>
+        <dl class="record-metrics">
+            <div><dt>Monthly Salary Base</dt><dd>{{ 'N/A' if totals.has_missing_contribution_basis else 'PHP %.2f'|format(totals.contribution_salary_base) }}</dd></div>
+            {% for label, amount in [('SSS EE', totals.sss), ('PhilHealth EE', totals.philhealth), ('Pag-IBIG EE', totals.pagibig), ('Tax', totals.withholding_tax), ('Loan', totals.loan), ('Total EE Deductions', totals.total_deductions), ('SSS ER', totals.employer_sss), ('SSS EC', totals.employer_sss_ec), ('PhilHealth ER', totals.employer_philhealth), ('Pag-IBIG ER', totals.employer_pagibig), ('Total ER Share', totals.employer_sss + totals.employer_sss_ec + totals.employer_philhealth + totals.employer_pagibig)] %}
+            <div><dt>{{ label }}</dt><dd>PHP {{ '%.2f'|format(amount) }}</dd></div>
             {% endfor %}
-            <tr><th>Monthly Total</th><th></th><th>{{ 'N/A' if totals.has_missing_contribution_basis else 'PHP %.2f'|format(totals.contribution_salary_base) }}</th><th>PHP {{ '%.2f'|format(totals.sss) }}</th><th>PHP {{ '%.2f'|format(totals.philhealth) }}</th><th>PHP {{ '%.2f'|format(totals.pagibig) }}</th><th>PHP {{ '%.2f'|format(totals.withholding_tax) }}</th><th>PHP {{ '%.2f'|format(totals.loan) }}</th><th>PHP {{ '%.2f'|format(totals.total_deductions) }}</th></tr>
-        </table>
-    </section>
-    <section class="section">
-        <h3>Employer Share (ER / Admin Portal Payment)</h3>
-        <p>These employer contributions are separate from employee deductions and do not reduce employee net pay. The combined EE + ER totals are the portal payment guide.</p>
-        <table>
-            <tr><th>Employee / Company</th><th>SSS ER</th><th>SSS EC</th><th>PhilHealth ER</th><th>Pag-IBIG ER</th><th>Total ER Share</th></tr>
-            {% for row in employer_rows %}
-            <tr>
-                <td>{{ row.employee.full_name() }} / {{ 'Trece-Uno Auto Supply' if row.employee.company and row.employee.company.lower().startswith('trece') else 'Auto-Expert Auto Supply' }}</td>
-                <td>{{ 'PHP %.2f'|format(row.employer_sss) if row.has_contribution_basis else 'N/A' }}</td>
-                <td>{{ 'PHP %.2f'|format(row.employer_sss_ec) if row.has_contribution_basis else 'N/A' }}</td>
-                <td>{{ 'PHP %.2f'|format(row.employer_philhealth) if row.has_contribution_basis else 'N/A' }}</td>
-                <td>{{ 'PHP %.2f'|format(row.employer_pagibig) if row.has_contribution_basis else 'N/A' }}</td>
-                <td>{{ 'PHP %.2f'|format(row.employer_sss + row.employer_sss_ec + row.employer_philhealth + row.employer_pagibig) if row.has_contribution_basis else 'N/A' }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6">No employer contribution records for this month.</td></tr>
-            {% endfor %}
-            <tr><th>Monthly Total</th><th>PHP {{ '%.2f'|format(totals.employer_sss) }}</th><th>PHP {{ '%.2f'|format(totals.employer_sss_ec) }}</th><th>PHP {{ '%.2f'|format(totals.employer_philhealth) }}</th><th>PHP {{ '%.2f'|format(totals.employer_pagibig) }}</th><th>PHP {{ '%.2f'|format(totals.employer_sss + totals.employer_sss_ec + totals.employer_philhealth + totals.employer_pagibig) }}</th></tr>
-        </table>
-    </section>
-    <section class="section">
+        </dl>
         <h3>Portal Payment Total (EE + ER)</h3>
-        <table>
-            <tr><th>SSS EE + ER</th><th>PhilHealth EE + ER</th><th>Pag-IBIG EE + ER</th><th>Total Government Payment</th></tr>
-            <tr>
-                <td>PHP {{ '%.2f'|format(totals.portal_sss) }}</td>
-                <td>PHP {{ '%.2f'|format(totals.portal_philhealth) }}</td>
-                <td>PHP {{ '%.2f'|format(totals.portal_pagibig) }}</td>
-                <td><strong>PHP {{ '%.2f'|format(totals.portal_total) }}</strong></td>
-            </tr>
-        </table>
+        <dl class="record-metrics">
+            {% for label, amount in [('SSS EE + ER', totals.portal_sss), ('PhilHealth EE + ER', totals.portal_philhealth), ('Pag-IBIG EE + ER', totals.portal_pagibig), ('Total Government Payment', totals.portal_total)] %}
+            <div><dt>{{ label }}</dt><dd>PHP {{ '%.2f'|format(amount) }}</dd></div>
+            {% endfor %}
+        </dl>
     </section>
-    <p><a href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
+    <p><a class="btn" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
 </body>
 </html>

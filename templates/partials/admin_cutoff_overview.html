@@ -1,0 +1,121 @@
+<section class="cutoff-overview" id="cutoff-overview" aria-labelledby="cutoff-overview-title">
+  <header class="cutoff-overview-heading">
+    <div><p class="cutoff-eyebrow">HRIS / {{ selected_company or 'All Companies' }}</p>
+      <h2 id="cutoff-overview-title">This Cutoff at a Glance</h2>
+      <p>{{ cutoff_overview.start.strftime('%b %d') }} – {{ cutoff_overview.end.strftime('%b %d, %Y') }}
+        <span class="cutoff-badge info">As of {{ cutoff_overview.today }}</span></p>
+    </div>
+    <form method="get" class="cutoff-picker">
+      {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
+      <label for="overview-cutoff">Cutoff start (Saturday)</label>
+      <div><input id="overview-cutoff" name="overview_cutoff" type="date" value="{{ cutoff_overview.start }}" required>
+        <button class="btn" type="submit">View</button></div>
+    </form>
+  </header>
+  <nav class="cutoff-period-nav" aria-label="Dashboard cutoff navigation">
+    <a href="{{ url_for('dashboard_admin', company=selected_company or '', overview_cutoff=cutoff_overview.previous) }}#cutoff-overview">Previous cutoff</a>
+    <a href="{{ url_for('dashboard_admin', company=selected_company or '') }}#cutoff-overview">Current cutoff</a>
+    <a href="{{ url_for('dashboard_admin', company=selected_company or '', overview_cutoff=cutoff_overview.next) }}#cutoff-overview">Next cutoff</a>
+  </nav>
+  <div class="cutoff-kpis" aria-label="Click a metric to filter employees">
+    {% for key, label, value, note in [
+      ('all', 'Staff overview', cutoff_overview.rows|length, 'Employees in this company view'),
+      ('attention', 'Needs attention', cutoff_overview.totals.attention, 'Attendance, payroll or requests'),
+      ('missing-out', 'Missing clock-out', cutoff_overview.totals.missing_out, 'Past days only; not today’s open shift'),
+      ('absent', 'Absent recorded', cutoff_overview.totals.absent, 'Explicit absence records only'),
+      ('no-record', 'No record / verify', cutoff_overview.totals.no_record, 'Past scheduled days; not auto-absent'),
+      ('requests', 'Pending requests', cutoff_overview.totals.pending_requests, 'Requests dated within this cutoff')
+    ] %}
+    <button type="button" class="cutoff-kpi" data-cutoff-filter="{{ key }}" aria-pressed="{{ 'true' if key == 'all' else 'false' }}">
+      <span>{{ label }}</span><strong>{{ value }}</strong><small>{{ note }}</small>
+    </button>
+    {% endfor %}
+  </div>
+  <div class="cutoff-payroll-strip">
+    <div><span>Saved finalized net pay / selected cutoff</span><strong>PHP {{ cutoff_overview.finalized_net|currency }}</strong></div>
+    <p>{{ cutoff_overview.totals.finalized }} finalized · {{ cutoff_overview.totals.draft }} drafts · {{ cutoff_overview.totals.not_prepared }} not prepared <small>(attendance-exempt staff excluded)</small></p>
+    <a class="btn" href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_overview.start, company=selected_company or '') }}">Open payroll</a>
+  </div>
+  <p class="cutoff-explainer">Read-only overview. Last pay uses each employee’s latest finalized cutoff before this period, with its exact dates.
+    No record does not automatically mean absent. Today’s open shift is awaiting clock-out, not a confirmed missing clock-out.
+    Current loan balances are live, not historical cutoff balances.</p>
+  <div class="cutoff-tools">
+    <label for="cutoff-search">Find employee <input id="cutoff-search" type="search" placeholder="Name, company or employee ID" autocomplete="off"></label>
+    <label for="cutoff-status">Show
+      <select id="cutoff-status">
+        <option value="all">All employees</option><option value="attention">Needs attention</option>
+        <option value="missing-out">Missing clock-out</option><option value="absent">Absent recorded</option>
+        <option value="no-record">No record / verify</option><option value="late">Late</option>
+        <option value="payroll">Payroll needs review</option><option value="requests">Pending requests</option>
+      </select>
+    </label>
+    <p id="cutoff-result-count" role="status" aria-live="polite">{{ cutoff_overview.rows|length }} employees shown</p>
+  </div>
+  <div class="cutoff-employees">
+    {% for row in cutoff_overview.rows %}
+    <article class="cutoff-employee" data-cutoff-employee="{{ row.employee.id }}"
+             data-search="{{ (row.employee.full_name() ~ ' ' ~ (row.employee.company or '') ~ ' ' ~ row.employee.id)|lower }}"
+             data-flags="{{ row.flags|join(' ') }}">
+      <header>
+        <div><h3>{{ row.employee.full_name() }}</h3><p>{{ row.employee.company or 'Company not assigned' }} · ID {{ row.employee.id }}</p></div>
+        <span class="cutoff-badge {{ 'warning' if row.flags else 'success' }}">{{ 'Needs attention' if row.flags else 'No flagged items' }}</span>
+      </header>
+      <div class="cutoff-employee-pay">
+        <div><span>Last finalized take-home pay</span>
+          {% if row.previous_payroll %}
+          <strong>PHP {{ row.previous_payroll.net_pay|currency }}</strong>
+          <small>{{ row.previous_payroll.cutoff_start }} to {{ row.previous_payroll.cutoff_end }}</small>
+          <a href="{{ url_for('payslip', emp_id=row.employee.id, payroll_id=row.previous_payroll.id) }}">View saved payslip</a>
+          {% elif row.previous_duplicate %}<strong>Review duplicate payroll</strong>
+          {% else %}<strong>No finalized payroll yet.</strong>{% endif %}
+        </div>
+        <div><span>This cutoff payroll</span><strong>{{ row.payroll_state }}</strong>
+          {% if row.current_payroll %}
+          <small>{{ 'Saved net' if row.current_payroll.is_paid else 'Saved draft net (not final)' }}: PHP {{ row.current_payroll.net_pay|currency }}</small>
+          {% endif %}
+          {% if row.employee.payroll_attendance_exempt %}<small>Attendance-exempt / separate payroll handling</small>{% endif %}
+          <a href="{{ url_for('payroll', employee_id=row.employee.id, cutoff_start=cutoff_overview.start) }}">Review payroll</a>
+        </div>
+      </div>
+      <dl class="cutoff-attendance-counts">
+        {% for label, value in [('Completed', row.counts.present), ('Late', row.counts.late), ('Absent', row.counts.absent), ('No out', row.counts.missing_out), ('No record', row.counts.no_record)] %}
+        <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+        {% endfor %}
+      </dl>
+      <div class="cutoff-day-strip" aria-label="Daily attendance status">
+        {% for day in row.days %}
+        <span class="cutoff-day {{ day.tone }}" title="{{ day.date }}: {{ day.status }}"><strong>{{ day.date.strftime('%a %d') }}</strong><span>{{ day.status }}</span></span>
+        {% endfor %}
+      </div>
+      <details>
+        <summary>Daily details, requests &amp; actions</summary>
+        <ul class="cutoff-day-details">
+          {% for day in row.days %}
+          <li><strong>{{ day.date.strftime('%a, %b %d') }}</strong> — {{ day.status }}
+            {% for record in day.records %}
+            <small>In: {{ record.clock_in.strftime('%I:%M %p') if record.clock_in else '—' }} · Out: {{ record.clock_out.strftime('%I:%M %p') if record.clock_out else '—' }}</small>
+            {% endfor %}
+          </li>
+          {% endfor %}
+        </ul>
+        <p>Current remaining loan: <strong>PHP {{ (row.employee.loan_balance or 0)|currency }}</strong></p>
+        <p class="cutoff-request-list">
+          {% for key, label in [('loans', 'loan'), ('leaves', 'leave'), ('overtime', 'OT'), ('corrections', 'attendance correction'), ('skips', 'loan skip')] %}
+          <span>{{ row.requests[key] }} pending {{ label }}</span>
+          {% endfor %}
+        </p>
+        <div class="cutoff-row-actions">
+          <a href="{{ url_for('attendance', employee_id=row.employee.id, cutoff_start=cutoff_overview.start) }}">Attendance / DTR</a>
+          <a href="{{ url_for('loan', company=selected_company or '') }}">Loan accounts</a>
+          <a href="{{ url_for('payroll_loan_review', cutoff_start=cutoff_overview.start) }}">Loan skips</a>
+          {% if row.requests.corrections %}<a href="#attendance-corrections">Review corrections</a>{% endif %}
+          {% if row.requests.overtime %}<a href="{{ url_for('holiday_ot_dashboard', company=selected_company or '', cutoff_start=cutoff_overview.start) }}">Review overtime</a>{% endif %}
+          {% if row.requests.leaves %}<a href="{{ url_for('leave') }}">Review leave</a>{% endif %}
+        </div>
+      </details>
+    </article>
+    {% else %}<p>No staff in this company view.</p>{% endfor %}
+  </div>
+  <p id="cutoff-empty" hidden>No employees match these filters. Change the status or search to see other employees.</p>
+</section>
+<script src="{{ url_for('static', filename='admin_cutoff_overview.js') }}" defer></script>

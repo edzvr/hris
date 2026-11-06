@@ -65,7 +65,7 @@ def test_monthly_deductions_show_per_employee_attendance_adjusted_bases():
         assert b"Attendance Varies" in response.data
         assert b"PHP 21250.00" in response.data
         assert b"PHP 20000.00" in response.data
-        assert b"Cutoffs</th>" in response.data
+        assert b"2 finalized cutoffs" in response.data
         assert b"PHP 300.00" in response.data
         assert b"PHP 125.00" in response.data
 

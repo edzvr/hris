@@ -157,6 +157,7 @@ class Employee(db.Model, UserMixin):
     meal_allowance = db.Column(db.Float, default=0.0)
     incentives = db.Column(db.Float, default=0.0)
     loan_balance = db.Column(db.Float, default=0.0)
+    loan_deduction_per_cutoff = db.Column(db.Float, nullable=False, default=500.0, server_default="500")
     sl_credits = db.Column(db.Integer, default=5)
     payroll_preparation_access = db.Column(db.Boolean, nullable=False, default=False)
     admin_payroll_access = db.Column(db.Boolean, nullable=False, default=False)
@@ -360,6 +361,7 @@ class Loan(db.Model):
     date_filed = db.Column(db.DateTime, default=datetime.utcnow)
     loan_type = db.Column(db.String(30), nullable=False, default="Employee Loan")
     balance_applied = db.Column(db.Boolean, nullable=False, default=False)
+    deduction_per_cutoff = db.Column(db.Float, nullable=False, default=500.0, server_default="500")
 
 
 class LoanDeductionSkipRequest(db.Model):
@@ -524,6 +526,7 @@ class Payroll(db.Model):
     withholding_tax = db.Column(db.Float, default=0.0)
     withholding_tax_override = db.Column(db.Float, nullable=True)
     loan = db.Column(db.Float, default=0.0)
+    loan_deduction_override = db.Column(db.Float, nullable=True)
     sss_loan = db.Column(db.Float, default=0.0)
     pagibig_loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)
