@@ -6458,7 +6458,51 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
             0.0,
         )
     rows.sort(key=lambda row: (not row['is_admin'], row['employee'].last_name or '', row['employee'].first_name or ''))
+    attach_payroll_summary_attendance_and_loans(rows, cutoff_start, cutoff_end)
     return rows
+
+
+def attach_payroll_summary_attendance_and_loans(rows, cutoff_start, cutoff_end, today=None):
+    """Absent/late/missing-punch dates and remaining loan for the summary report (read-only)."""
+    overview = admin_cutoff_overview(
+        cutoff_start, employee_ids=[row['employee'].id for row in rows], today=today,
+    )
+    days_by_employee = {item['employee'].id: item['days'] for item in overview['rows']}
+    holiday_dates = {
+        holiday.date for holiday in Holiday.query.filter(
+            Holiday.date >= cutoff_start, Holiday.date < cutoff_end,
+        ).all()
+    }
+    missing_labels = {
+        'Missing clock-out': 'no out',
+        'Missing clock-in': 'no in',
+        'Incomplete record': 'no in/out',
+    }
+    for row in rows:
+        absent, late, missing = [], [], []
+        for day in days_by_employee.get(row['employee'].id, []):
+            label = day['date'].strftime('%b %d')
+            status = day['status']
+            if status == 'Absent recorded' or (
+                status == 'No record / verify' and day['date'] not in holiday_dates
+            ):
+                absent.append(label)
+            elif status == 'Late':
+                late.append(label)
+            elif status in missing_labels:
+                missing.append(f'{label} ({missing_labels[status]})')
+        record = row['payroll_record']
+        balance = float(row['employee'].loan_balance or 0)
+        if not (record is not None and record.loan_deduction_applied):
+            balance -= float(row['loan'] or 0)
+        row['attendance_notes'] = {
+            'tracked': row['employee'].id in days_by_employee
+            and not row['employee'].payroll_attendance_exempt,
+            'absent': absent,
+            'late': late,
+            'missing_punch': missing,
+        }
+        row['loan_remaining'] = max(balance, 0.0)
 
 
 def daily_rate_history_rows(employee_id):
@@ -6803,17 +6847,22 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
     pdf.drawString(550, 532, 'Prepared by: Admin')
     headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Other Ded.', 'Deductions', 'Net Pay', 'Status']
     x_positions = [25, 165, 195, 250, 297, 350, 400, 445, 495, 552, 622, 700]
-    pdf.setFont('Helvetica-Bold', 8)
-    for x, header in zip(x_positions, headers):
-        pdf.drawString(x, 520, header)
-    y = 503
-    pdf.setFont('Helvetica', 8)
+
+    def draw_table_headers(top):
+        pdf.setFont('Helvetica-Bold', 8)
+        for x, header in zip(x_positions, headers):
+            pdf.drawString(x, top, header)
+        pdf.setFont('Helvetica', 8)
+        return top - 17
+
+    y = draw_table_headers(520)
     current_group = None
     for row in rows:
         group = 'Admin Payroll' if row['is_admin'] else 'Staff Payroll'
+        if y < (72 if group != current_group else 58):
+            pdf.showPage()
+            y = draw_table_headers(570)
         if group != current_group:
-            if y < 58:
-                break
             pdf.setFont('Helvetica-Bold', 9)
             pdf.drawString(30, y, group)
             y -= 14
@@ -6830,12 +6879,54 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
         for x, value in zip(x_positions, values):
             pdf.drawString(x, y, value)
         y -= 18
-        if y < 45:
-            break
+    if y < 50:
+        pdf.showPage()
+        y = 570
     pdf.line(30, y - 5, 760, y - 5)
     pdf.setFont('Helvetica-Bold', 9)
     pdf.drawString(30, y - 22, 'Total Net Pay')
     pdf.drawRightString(760, y - 22, f"PHP {sum(row['net_pay'] for row in rows):,.2f}")
+    y -= 48
+
+    # Attendance exceptions and remaining loan per employee.
+    note_columns = [(25, 150, 'Employee'), (180, 165, 'Absent'), (350, 165, 'Late'),
+                    (520, 160, 'No Clock In / Out')]
+
+    def draw_notes_headers(top):
+        pdf.setFont('Helvetica-Bold', 10)
+        pdf.drawString(30, top, 'ATTENDANCE & LOAN BALANCE')
+        pdf.setFont('Helvetica-Bold', 8)
+        for x, _width, header in note_columns:
+            pdf.drawString(x, top - 16, header)
+        pdf.drawRightString(760, top - 16, 'Remaining Loan')
+        pdf.line(25, top - 20, 760, top - 20)
+        pdf.setFont('Helvetica', 8)
+        return top - 32
+
+    if y < 110:
+        pdf.showPage()
+        y = 570
+    y = draw_notes_headers(y)
+    for row in rows:
+        notes = row.get('attendance_notes') or {}
+        if notes.get('tracked'):
+            cells = [', '.join(notes[key]) or 'None' for key in ('absent', 'late', 'missing_punch')]
+        else:
+            cells = ['-', '-', '-']
+        cells.insert(0, row['employee'].full_name())
+        wrapped = [
+            simpleSplit(text, 'Helvetica', 8, width) or ['']
+            for text, (_x, width, _header) in zip(cells, note_columns)
+        ]
+        height = max(len(lines) for lines in wrapped) * 10
+        if y - height < 85:
+            pdf.showPage()
+            y = draw_notes_headers(570)
+        for lines, (x, _width, _header) in zip(wrapped, note_columns):
+            for index, line in enumerate(lines):
+                pdf.drawString(x, y - index * 10, line)
+        pdf.drawRightString(760, y, f"PHP {row.get('loan_remaining', 0):,.2f}")
+        y -= height + 6
     verification = build_document_verification(
         'payroll_summary',
         employee_id,

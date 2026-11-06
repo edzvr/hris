@@ -95,5 +95,30 @@
             {% endfor %}
         </tbody>
     </table>
+
+    <h2>Attendance &amp; Loan Balance</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Absent</th>
+                <th>Late</th>
+                <th>No Clock In / Out</th>
+                <th>Remaining Loan</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            {% set notes = row.attendance_notes or {} %}
+            <tr>
+                <td>{{ row.employee.full_name() }}</td>
+                {% for key in ['absent', 'late', 'missing_punch'] %}
+                <td>{% if notes.tracked %}{{ notes[key]|join(', ') if notes[key] else 'None' }}{% else %}-{% endif %}</td>
+                {% endfor %}
+                <td>₱{{ row.loan_remaining|default(0)|currency }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </body>
 </html>
