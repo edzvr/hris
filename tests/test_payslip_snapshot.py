@@ -95,6 +95,42 @@ def test_legacy_detail_never_reconstructs_historical_components(people):
         assert payroll_state(db.session.get(Payroll, people[2])) == original
 
 
+def test_uncomputed_unpaid_draft_shows_unfinalized_preview_without_saving(people):
+    with app.app_context():
+        record = db.session.get(Payroll, people[2])
+        record.gross_income = 0
+        record.total_deductions = 0
+        record.net_pay = 0
+        record.payslip_snapshot = None
+        db.session.commit()
+        original = payroll_state(record)
+
+    client = client_for(people[0])
+    response = client.get(f"/payroll/{people[1]}?cutoff_start={START}")
+    assert response.status_code == 200
+    assert b"Draft Payroll Preview" in response.data
+    assert b"Unfinalized preview" in response.data
+    assert b"Legacy payroll" not in response.data
+
+    download = client.get(
+        f"/payroll/{people[1]}?cutoff_start={START}&download=true",
+        follow_redirects=False,
+    )
+    assert download.status_code == 302
+    assert "/recalculate?" in download.headers["Location"]
+
+    for path in (
+        f"/payslip/{people[1]}/{people[2]}",
+        f"/payslip/{people[1]}/{people[2]}/download",
+    ):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 302
+        assert "/recalculate?" in response.headers["Location"]
+
+    with app.app_context():
+        assert payroll_state(db.session.get(Payroll, people[2])) == original
+
+
 @pytest.mark.parametrize("operation", ["inputs", "finalize", "bulk-finalize"])
 def test_duplicate_payroll_blocks_all_new_write_paths(people, operation):
     with app.app_context():

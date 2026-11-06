@@ -8675,6 +8675,16 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     return calculate_payslip_breakdown(emp, payroll_record)
 
 
+def payroll_record_has_uncomputed_draft(record):
+    """True when an unpaid record has no saved totals or itemized snapshot yet."""
+    if record.is_paid or record.payslip_snapshot:
+        return False
+    return all(
+        abs(float(getattr(record, field) or 0)) < 0.005
+        for field in ('gross_income', 'total_deductions', 'net_pay')
+    )
+
+
 def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
     """Return an itemized weekly payslip that reconciles to the payroll record."""
     duplicate_date = db.session.query(Attendance.date).filter(
@@ -9177,7 +9187,29 @@ def payroll(employee_id):
             'recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start
         ))
 
-    payslip = build_payslip_breakdown(emp, payroll_record, worked_days_count, approved_overtime_pay)
+    if payroll_record_has_uncomputed_draft(payroll_record):
+        if request.args.get("download") == "true":
+            flash('This draft has no saved payroll totals. Review and approve its recalculation before downloading a payslip.', 'warning')
+            return redirect(url_for(
+                'recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start
+            ))
+        try:
+            projected, _, _ = draft_payroll_preview(
+                emp, payroll_record, cutoff_start, cutoff_end
+            )
+            payslip = build_payslip_breakdown(emp, projected)
+            payslip['draft_preview'] = True
+        except (ValueError, TypeError, SQLAlchemyError):
+            db.session.rollback()
+            logger.exception('Could not preview uncomputed payroll draft employee %s', emp.id)
+            flash('This draft could not be previewed. No payroll values were saved; review the attendance and payroll source records.', 'danger')
+            return redirect(url_for(
+                'recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start
+            ))
+    else:
+        payslip = build_payslip_breakdown(
+            emp, payroll_record, worked_days_count, approved_overtime_pay
+        )
     verification = None
     qr_bytes = None
     if request.args.get("download") == "true" and payroll_record.id is not None:
@@ -9878,6 +9910,16 @@ def payslip(emp_id, payroll_id):
         flash("Access denied.", "danger")
         return redirect(url_for('dashboard_staff'))
 
+    if payroll_record_has_uncomputed_draft(payroll_record):
+        flash('This unpaid draft has no saved payroll totals and is not an official payslip.', 'warning')
+        if can_manage_admin_payroll(current_user):
+            return redirect(url_for(
+                'recalculate_payroll',
+                employee_id=employee.id,
+                cutoff_start=payroll_record.cutoff_start,
+            ))
+        return redirect(url_for('payroll', employee_id=employee.id))
+
     breakdown = build_payslip_breakdown(employee, payroll_record)
     verification = build_payslip_verification(
         employee.id,
@@ -9909,6 +9951,16 @@ def download_payslip(emp_id, payroll_id):
     payroll_record = Payroll.query.filter_by(id=payroll_id, employee_id=emp_id).first_or_404()
     if current_user.id != emp_id and not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
+
+    if payroll_record_has_uncomputed_draft(payroll_record):
+        flash('This unpaid draft has no saved payroll totals and cannot be downloaded as an official payslip.', 'warning')
+        if can_manage_admin_payroll(current_user):
+            return redirect(url_for(
+                'recalculate_payroll',
+                employee_id=employee.id,
+                cutoff_start=payroll_record.cutoff_start,
+            ))
+        return redirect(url_for('payroll', employee_id=employee.id))
 
     payslip = build_payslip_breakdown(employee, payroll_record)
     verification = build_payslip_verification(

@@ -187,7 +187,13 @@
 
 {% if payslip %}
 <div class="section">
-    <h3>Detailed Payslip</h3>
+    <h3>{{ 'Draft Payroll Preview' if payslip.draft_preview else 'Detailed Payslip' }}</h3>
+    {% if payslip.draft_preview %}
+    <div role="status">
+        <strong>Unfinalized preview — not saved and not an official payslip.</strong>
+        <p>These figures are calculated from current attendance and payroll inputs. Review the draft recalculation and approve it before saving or downloading.</p>
+    </div>
+    {% endif %}
     {% if payslip.loan_remaining_balance is defined %}
     <p><strong>Remaining Loan after this cutoff: ₱{{ "%.2f"|format(payslip.loan_remaining_balance) }}</strong>
         {% if not payroll_record.is_paid %}(projected; balance changes only when finalized){% endif %}</p>
@@ -429,7 +435,7 @@
     </table>
     {% if can_manage_payroll %}
         {% if loan_editable %}
-        <button type="submit" class="btn">Save & Recalculate Payroll</button>
+        <button type="submit" class="btn">{% if payslip.draft_preview %}Save Inputs & Preview Recalculation{% else %}Save & Recalculate Payroll{% endif %}</button>
         {% else %}
         <p>Reopen this finalized payroll to edit and save deductions.</p>
         {% endif %}
