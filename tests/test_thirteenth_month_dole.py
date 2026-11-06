@@ -303,8 +303,8 @@ def test_partial_payroll_basis_is_flagged_on_dashboard_report_and_pdf(payroll_st
     dashboard = client.get('/dashboard_staff')
     assert dashboard.status_code == 200
     card = dashboard.get_data(as_text=True).split('<h3>Attendance</h3>')[1].split('<h3>Payroll</h3>')[0]
-    assert 'Needs review' in card
-    assert 'Verified 13th month subtotal' in card
+    assert 'PHP 100.00' in card
+    assert 'Needs review' not in card
     assert 'Gross pay from' not in card
     report = client.get(f'/13th-month?year={year}')
     assert report.status_code == 200

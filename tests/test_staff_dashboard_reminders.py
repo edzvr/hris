@@ -119,21 +119,13 @@ def test_attendance_card_shows_outstanding_thirteenth_month():
             html = client.get('/dashboard_staff').get_data(as_text=True)
         rows.assert_called_once_with(datetime.now(ZoneInfo('Asia/Manila')).year, staff_id)
         attendance_card = html[html.index('<h3>Attendance</h3>'):html.index('<h3>Payroll</h3>')]
-        assert 'Outstanding prorated 13th month pay' in attendance_card
-        assert 'PHP 5,000.00' in attendance_card
-        assert 'PHP 60,000.00' in attendance_card
-        assert '÷ 12' in attendance_card
+        # Staff card shows the amount only; the breakdown lives on the 13th month page.
         computation = attendance_card[:attendance_card.index('<details>')]
-        assert 'PHP 5,000.00' in computation and 'PHP 60,000.00' in computation
-        assert '70 day(s) × PHP 600.00 (Jan 02–Oct 27)' in computation
-        assert '10 day(s) × PHP 645.00 (Oct 28–Nov 06)' in computation
-        assert 'PHP 42,000.00' in computation and 'PHP 6,450.00' in computation
-        assert 'PHP 1,200.00 holiday premium excluded from 2 day(s)' in computation
-        assert 'Less late / undertime / half day (40.0 hrs, 9 day(s))' in computation
-        assert '− PHP 4,000.00' in computation
-        assert 'Absent days (3)' in computation
-        assert 'Basic pay recorded in HRIS (Sep 01 to today)' in computation
-        assert 'Basic pay before Sep 01, 2026 is computed outside HRIS' in computation
+        assert '13th month pay' in computation
+        assert 'PHP 5,000.00' in computation
+        for removed in ('÷ 12', 'PHP 60,000.00', 'day(s) ×', 'holiday premium excluded',
+                        'Less late', 'Absent days', 'computed outside HRIS', 'Estimate until released'):
+            assert removed not in computation
     finally:
         with app.app_context():
             db.session.rollback()

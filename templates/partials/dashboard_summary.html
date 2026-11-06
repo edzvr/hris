@@ -9,36 +9,8 @@
       <p class="summary-note">No record does not automatically mean absent.</p>
       {% if not dashboard_is_admin and thirteenth_month is defined %}
         <div class="thirteenth-month-block">
-        <h4 class="thirteenth-month-title">Prorated 13th month pay computation ({{ thirteenth_month_year }})</h4>
-        {% if thirteenth_month.calculation_warnings %}
-        <div role="alert">
-          <strong>Needs review: incomplete 13th month computation.</strong>
-          <p>Only verified basic pay is included below. This subtotal is not the final amount.</p>
-          <ul>{% for warning in thirteenth_month.calculation_warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
-        </div>
-        {% endif %}
-        <dl class="thirteenth-month-summary">
-          {% if thirteenth_month.source != 'payroll' %}
-          {% for line in thirteenth_month.rate_lines %}
-          <dt>{{ line.days }} day(s) × PHP {{ line.rate|currency }} ({{ line.first_date.strftime('%b %d') }}–{{ line.last_date.strftime('%b %d') }})</dt><dd>PHP {{ line.amount|currency }}</dd>
-          {% else %}
-          <dt>Days paid: 0</dt><dd>PHP 0.00</dd>
-          {% endfor %}
-          <dt>Less late / undertime / half day ({{ thirteenth_month.hours_short }} hrs, {{ thirteenth_month.short_days }} day(s))</dt><dd>− PHP {{ thirteenth_month.short_deduction|currency }}</dd>
-          <dt>Absent days ({{ thirteenth_month.absent_days }}): no pay, not counted</dt><dd>PHP 0.00</dd>
-          {% endif %}
-          {% if thirteenth_month.payroll_periods %}
-          <dt>Basic pay from {{ thirteenth_month.payroll_periods }} finalized payroll cutoff(s) without attendance</dt><dd>PHP {{ thirteenth_month.payroll_basic|currency }}</dd>
-          {% endif %}
-          {% set coverage_start = thirteenth_month.coverage_start %}
-          <dt><strong>Basic pay recorded in HRIS ({{ coverage_start.strftime('%b %d') if coverage_start else 'Jan 01' }} to today)</strong></dt><dd><strong>PHP {{ thirteenth_month.basic_pay|currency }}</strong></dd>
-          <dt>Divided by</dt><dd>÷ 12</dd>
-          <dt><strong>{{ 'Verified 13th month subtotal' if thirteenth_month.calculation_warnings else 'Outstanding prorated 13th month pay' }}</strong></dt><dd><strong>PHP {{ thirteenth_month.thirteenth_month|currency }}</strong></dd>
-        </dl>
-        {% if coverage_start and (coverage_start.month, coverage_start.day) != (1, 1) %}
-        <p class="summary-note"><strong>Covers HRIS records only.</strong> Basic pay before {{ coverage_start.strftime('%b %d, %Y') }} is computed outside HRIS and is not included in this amount.</p>
-        {% endif %}
-        <p class="summary-note">Basic pay earned after unpaid absences, late time, undertime and half day ÷ 12. These reductions are not deducted again from 13th month pay. Overtime, allowances and incentives are excluded. Uses the daily rate in effect on each completed attendance date{% if thirteenth_month.payroll_periods %}; cutoffs without attendance use saved basic pay from finalized payslips, never gross or net pay{% endif %}. Holiday premiums are not included; a worked holiday counts at 1x basic pay only{% if thirteenth_month.holiday_days %} (PHP {{ thirteenth_month.holiday_excluded|currency }} holiday premium excluded from {{ thirteenth_month.holiday_days }} day(s)){% endif %}. Estimate until released.</p>
+        <h4 class="thirteenth-month-title">13th month pay ({{ thirteenth_month_year }})</h4>
+        <p class="summary-big"><strong>PHP {{ thirteenth_month.thirteenth_month|currency }}</strong></p>
         <a href="{{ url_for('thirteenth_month') }}">View 13th month pay</a>
         </div>
       {% endif %}
