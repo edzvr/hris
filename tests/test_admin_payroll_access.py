@@ -276,7 +276,12 @@ def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
                 for action in card['actions']
             )
             assert any(
-                action.get('href') == url_for('payroll', employee_id=staff_id, download='true')
+                action.get('href') == url_for(
+                    'payroll', employee_id=staff_id, cutoff_start='2026-10-03', download='true')
+                for action in card['actions']
+            )
+            assert any(
+                action.get('href') == url_for('payroll', employee_id=staff_id, cutoff_start='2026-10-03')
                 for action in card['actions']
             )
         with app.app_context():

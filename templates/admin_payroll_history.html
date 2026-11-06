@@ -15,6 +15,13 @@
         th { background: #1976d2; color: #fff; }
         button, .btn { display: inline-block; padding: 8px 12px; margin: 4px; border: 0; border-radius: 4px; text-decoration: none; }
         button { background: #1976d2; color: #fff; cursor: pointer; }
+        .btn { background: #1976d2; color: #fff; }
+        .payslip-latest { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; background: #eef5fc; border-radius: 8px; font-size: 14px; }
+        .payslip-list { list-style: none; margin: 8px 0 0; padding: 0; }
+        .payslip-list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid #e5e7eb; }
+        .payslip-list small { display: block; color: #64748b; margin-top: 3px; }
+        .payslip-actions { display: flex; gap: 6px; }
+        .payslip-actions .btn { margin: 0; }
     </style>
 </head>
 <body>
@@ -42,42 +49,39 @@
                 <div><dt>Deductions</dt><dd>₱{{ employee_records|map(attribute='total_deductions')|reject('none')|sum|currency }}</dd></div>
                 <div><dt>Net Pay</dt><dd>₱{{ employee_records|map(attribute='net_pay')|reject('none')|sum|currency }}</dd></div>
             </dl>
-            <details><summary>View payroll history</summary>
-            <div class="record-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Cutoff</th>
-                    <th>Employee / Company</th>
-                    <th>Gross Income</th>
-                    <th>Deductions</th>
-                    <th>Net Pay</th>
-                    <th>Status</th>
-                    <th>Payslip</th>
-                </tr>
-            </thead>
-            <tbody>
+            {% set latest = employee_records|selectattr('is_paid')|first %}
+            {% if latest %}
+            <div class="payslip-latest">
+                <span>Latest payslip: {{ latest.cutoff_start }} to {{ latest.cutoff_end }}</span>
+                <span class="payslip-actions">
+                    <a class="btn" href="{{ url_for('payslip', emp_id=latest.employee_id, payroll_id=latest.id) }}">View</a>
+                    <a class="btn" href="{{ url_for('download_payslip', emp_id=latest.employee_id, payroll_id=latest.id) }}">Download</a>
+                </span>
+            </div>
+            {% endif %}
+            <details><summary>View payroll history ({{ employee_records|length }})</summary>
+            <ul class="payslip-list">
                 {% for record in employee_records %}
-                <tr>
-                    <td>{{ record.cutoff_start }} to {{ record.cutoff_end }}</td>
-                    <td>{{ record.employee.full_name() }} / {{ record.employee.company or 'N/A' }}</td>
-                    <td>₱{{ '%.2f'|format(record.gross_income or 0) }}</td>
-                    <td>₱{{ '%.2f'|format(record.total_deductions or 0) }}</td>
-                    <td><strong>₱{{ '%.2f'|format(record.net_pay or 0) }}</strong></td>
-                    <td>{{ 'Finalized' if record.is_paid else 'Not finalized' }}</td>
-                    <td>
+                <li>
+                    <div>
+                        <strong>{{ record.cutoff_start }} to {{ record.cutoff_end }}</strong>
+                        <small>{{ 'Finalized' if record.is_paid else 'Not finalized' }}
+                            &middot; Gross ₱{{ '%.2f'|format(record.gross_income or 0) }}
+                            &middot; Ded. ₱{{ '%.2f'|format(record.total_deductions or 0) }}
+                            &middot; <b>Net ₱{{ '%.2f'|format(record.net_pay or 0) }}</b></small>
+                    </div>
+                    <span class="payslip-actions">
                         {% if record.is_paid %}
                         <a class="btn" href="{{ url_for('payslip', emp_id=record.employee_id, payroll_id=record.id) }}">View</a>
                         <a class="btn" href="{{ url_for('download_payslip', emp_id=record.employee_id, payroll_id=record.id) }}">Download</a>
                         {% else %}
-                        —
+                        <small>No payslip yet</small>
                         {% endif %}
-                    </td>
-                </tr>
+                    </span>
+                </li>
                 {% endfor %}
-            </tbody>
-        </table>
-            </div></details>
+            </ul>
+            </details>
         </article>
         {% else %}
         <p class="record-empty">No payroll history found for this selection.</p>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holidays</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem auto; max-width: 860px; padding: 0 1rem; color: #203040; }
+        .card { border: 1px solid #d8e0e8; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+        form.add { display: flex; gap: .75rem; flex-wrap: wrap; align-items: end; }
+        label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
+        input, select { padding: .6rem; }
+        button, a.btn { display: inline-block; padding: .6rem 1rem; border: 0; border-radius: 6px; background: #176b55; color: white; text-decoration: none; cursor: pointer; }
+        button.remove { background: #b42318; padding: .4rem .8rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #e3e8ee; padding: .55rem; text-align: left; }
+        .regular { color: #8a1c1c; font-weight: bold; }
+        .alert { padding: .75rem; margin-bottom: .75rem; border-radius: 6px; background: #eef4f7; }
+        .alert.danger { background: #fdecea; }
+        .note { color: #526174; font-size: .9rem; }
+        @media (max-width: 600px) { th:nth-child(2), td:nth-child(2) { display: none; } }
+    </style>
+</head>
+<body>
+    <p><a class="dashboard-back-link" href="{{ url_for('dashboard_admin') }}">Back to Admin Dashboard</a></p>
+    <section class="card">
+        <h1>Holidays</h1>
+        <p class="note">Payroll detects these dates automatically. Worked Special Non-Working days are paid 130% (150% on rest day).
+            Worked Regular Holidays are paid 200% (260% on rest day). An unworked Regular Holiday is paid 100% when the staff
+            actually worked (completed Clock In/Out) on the workday before and after it; paid leave does not qualify. Official national holidays are added automatically;
+            add Eid and local holidays here when proclaimed. Saving an existing date updates it.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="alert {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+        <form class="add" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Date <input type="date" name="date" required></label>
+            <label>Name <input type="text" name="description" maxlength="100" placeholder="e.g. Eidul Adha" required></label>
+            <label>Type
+                <select name="holiday_type">
+                    {% for holiday_type in holiday_types %}<option value="{{ holiday_type }}">{{ holiday_type }}</option>{% endfor %}
+                </select>
+            </label>
+            <button type="submit">Save Holiday</button>
+        </form>
+    </section>
+    <section class="card">
+        <h2>
+            <a class="btn" href="{{ url_for('manage_holidays', year=year - 1) }}">&lsaquo;</a>
+            {{ year }}
+            <a class="btn" href="{{ url_for('manage_holidays', year=year + 1) }}">&rsaquo;</a>
+        </h2>
+        {% if holidays %}
+        <table>
+            <thead><tr><th>Date</th><th>Day</th><th>Name</th><th>Type</th><th></th></tr></thead>
+            <tbody>
+            {% for holiday in holidays %}
+                <tr>
+                    <td>{{ holiday.date.strftime('%b %d') }}</td>
+                    <td>{{ holiday.date.strftime('%a') }}</td>
+                    <td>{{ holiday.description }}</td>
+                    <td class="{{ 'regular' if holiday.holiday_type == holiday_types[0] }}">{{ holiday.holiday_type }}</td>
+                    <td>
+                        <form method="POST" onsubmit="return confirm('Remove this holiday?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="date" value="{{ holiday.date.isoformat() }}">
+                            <input type="hidden" name="action" value="delete">
+                            <button class="remove" type="submit">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No holidays recorded for {{ year }}.</p>
+        {% endif %}
+    </section>
+</body>
+</html>

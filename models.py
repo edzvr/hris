@@ -255,6 +255,17 @@ class Attendance(db.Model):
         return f"<Attendance {self.date} - {self.status}>"
 
 
+class DailyRateHistory(db.Model):
+    __tablename__ = "daily_rate_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
+    daily_rate = db.Column(db.Float, nullable=False)
+    effective_date = db.Column(db.Date, nullable=False)
+    note = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class AttendanceReconciliation(db.Model):
     __tablename__ = "attendance_reconciliations"
 

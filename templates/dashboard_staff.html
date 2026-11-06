@@ -42,6 +42,9 @@
           margin-bottom: 24px;
         }
 
+        .loan-balance-card { border-left: 5px solid #1f7fdf; }
+        .loan-balance-amount { font-size: 1.8rem; margin: 6px 0 10px; }
+
         .stats { display:flex; justify-content:space-around; text-align:center; margin:20px; }
         .stats .card { width:22%; }
 
@@ -70,6 +73,62 @@
         .status.out { color:#e74c3c; }
         .clock { font-size:20px; font-weight:bold; margin-top:10px; color:#212529; }
         .hours { font-size:18px; margin-top:5px; color:#212529; }
+        .time-hub { display:flex; flex-direction:column; align-items:center; gap:8px; margin:6px auto 14px; }
+        .clock-ring { position:relative; display:block; width:min(180px, 55vw); aspect-ratio:1; padding:0; border:0; border-radius:50%; cursor:pointer; user-select:none;
+          background:radial-gradient(circle at 30% 25%, #ffffff, #eef3f8 70%); box-shadow:0 10px 28px rgba(18,44,59,.16), inset 0 2px 6px rgba(255,255,255,.9);
+          transition:transform .18s ease, box-shadow .18s ease; -webkit-tap-highlight-color:transparent; }
+        .clock-ring:hover { box-shadow:0 14px 34px rgba(18,44,59,.22); }
+        .clock-ring:active { transform:scale(.96); }
+        .clock-ring:focus-visible { outline:3px solid #1f7fdf; outline-offset:4px; }
+        .clock-ring svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+        .ring-track { fill:none; stroke:#dfe6ee; stroke-width:8; }
+        .ring-progress { fill:none; stroke:#27ae60; stroke-width:8; stroke-linecap:round; stroke-dasharray:327; stroke-dashoffset:327;
+          transition:stroke-dashoffset .8s ease, stroke .4s ease; }
+        .ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+        .time-hub .clock { margin:0; font-size:clamp(28px, 9vw, 34px); font-weight:800; letter-spacing:-1px; line-height:1.05; font-variant-numeric:tabular-nums; }
+        .time-hub .clock small { font-size:.4em; font-weight:700; letter-spacing:0; margin-left:2px; color:#5b6b7a; }
+        .clock-label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#5b6b7a; }
+        .clock-sub { margin-top:4px; font-size:13px; color:#5b6b7a; max-width:80%; }
+        .time-hub.flip .ring-center { animation:clockFlip .35s ease; }
+        .time-hub.pulse .clock-ring { animation:clockPulse .7s ease; }
+        @keyframes clockFlip { from { opacity:0; transform:rotateX(70deg); } to { opacity:1; transform:none; } }
+        @keyframes clockPulse { 0% { box-shadow:0 0 0 0 rgba(39,174,96,.55); } 100% { box-shadow:0 0 0 26px rgba(39,174,96,0); } }
+        .status-chip { display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px; font-size:14px; background:#eef1f4; color:#3d4a56; }
+        .status-chip i { width:10px; height:10px; border-radius:50%; background:#9aa5b1; }
+        .status-chip[data-status="in"] { background:#e7f7ee; color:#17643c; }
+        .status-chip[data-status="in"] i { background:#27ae60; animation:liveDot 1.6s infinite; }
+        .status-chip[data-status="lunch"] { background:#fff4d6; color:#6b4f00; }
+        .status-chip[data-status="lunch"] i { background:#f39c12; }
+        .status-chip[data-status="done"] { background:#e6f1fd; color:#164f8a; }
+        .status-chip[data-status="done"] i { background:#1f7fdf; }
+        @keyframes liveDot { 0%,100% { box-shadow:0 0 0 0 rgba(39,174,96,.6); } 50% { box-shadow:0 0 0 6px rgba(39,174,96,0); } }
+        .time-hub .hours { margin:0; font-size:15px; font-weight:600; }
+        .ring-hint { color:#7a8794; font-size:12px; }
+        .lunch-panel { display:flex; align-items:center; gap:12px; max-width:560px; margin:4px auto 12px; padding:12px 16px; border-radius:12px;
+          background:#fff4d6; color:#6b4f00; font-weight:700; text-align:left; border-left:6px solid #f39c12; }
+        .lunch-panel[data-phase="soon"], .lunch-panel[data-phase="ending"] { background:#ffe8cc; border-left-color:#e67e22; animation:lunchNudge 1.6s ease-in-out infinite; }
+        .lunch-icon { font-size:28px; }
+        .lunch-countdown { font-size:22px; font-variant-numeric:tabular-nums; }
+        @keyframes lunchNudge { 0%,100% { transform:none; } 50% { transform:scale(1.02); } }
+        .break-schedule { list-style:none; max-width:560px; margin:0 auto 12px; padding:10px 14px; border-radius:10px; background:#f3f6f9;
+          color:#3d4a56; font-size:13px; line-height:1.45; text-align:left; }
+        .break-schedule li { display:flex; gap:8px; }
+        .break-schedule li + li { margin-top:6px; }
+        .dark-mode .break-schedule { background:#232b34; color:#d6dde4; }
+        @media (prefers-reduced-motion: reduce) { .lunch-panel { animation:none !important; } }
+        #attendanceForm .btn { transition:transform .12s ease, opacity .2s ease, box-shadow .2s ease; }
+        #attendanceForm .btn:active { transform:scale(.96); }
+        #attendanceForm[data-state="in"] button[name="clockin"],
+        #attendanceForm[data-state="out"] button[name="clockout"] { opacity:.45; box-shadow:none; }
+        #attendanceForm[data-state="out"] button[name="clockin"],
+        #attendanceForm[data-state="in"] button[name="clockout"] { box-shadow:0 6px 16px rgba(0,0,0,.18); }
+        .dark-mode .clock-ring { background:radial-gradient(circle at 30% 25%, #2b3440, #1c232c 70%); box-shadow:0 10px 28px rgba(0,0,0,.4); }
+        .dark-mode .ring-track { stroke:#36414d; }
+        .dark-mode .time-hub .clock, .dark-mode .time-hub .hours { color:#f1f4f7; }
+        .dark-mode .clock-label, .dark-mode .clock-sub, .dark-mode .time-hub .clock small { color:#aeb9c4; }
+        @media (prefers-reduced-motion: reduce) {
+          .time-hub *, .time-hub.flip .ring-center, .time-hub.pulse .clock-ring { animation:none !important; transition:none !important; }
+        }
 
         .dashboard-links {
           display: grid;
@@ -190,7 +249,19 @@
     .dashboard-tools > summary { background:#fff; border:1px solid #dce5de; padding:14px; border-radius:8px; }
     .dashboard-tools .stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0; }
     .dashboard-tools .stats h3 { font-size:16px; }
-    @media(max-width:600px) { .dashboard-links { grid-template-columns:minmax(0,1fr); } .dashboard-tools .stats { grid-template-columns:minmax(0,1fr); } }
+    @media(max-width:600px) { .dashboard-tools .stats { grid-template-columns:minmax(0,1fr); } }
+    .staff-shortcuts h2 { margin-top:0; }
+    .shortcut-hint, .attendance-correction-hint { margin:10px 0 0; font-size:14px; }
+    .attendance-correction-hint a { font-weight:700; }
+    .staff-extra-tools { display:flex; flex-wrap:wrap; gap:8px; }
+    @media(max-width:760px) {
+      header { padding:10px 14px; }
+      header p { display:none; }
+      #attendanceForm { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+      #attendanceForm .btn { margin:0; min-height:56px; font-size:17px; }
+      .monthly-action-reminder { padding:10px 12px; }
+      .monthly-action-reminder ul { display:block; padding-left:18px; }
+    }
   </style>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <meta name="theme-color" content="#1f7fdf">
@@ -206,27 +277,6 @@
         <h1>Welcome, {{ current_user.first_name }} {{ current_user.last_name }}!</h1>
         <p>This is your Staff dashboard.</p>
     </header>
-
-    <section class="container card" aria-label="My Analytics">
-        <h2>My Analytics</h2>
-        <p>View your own attendance, saved payroll trends, approved OT, quiz and approved evaluation summaries,
-            and reporting merit/demerit. Other employees' records are not included.</p>
-        <a href="{{ url_for('my_analytics') }}" class="btn">View My Analytics</a>
-    </section>
-
-    <section class="container card" aria-label="Company reminders">
-        <h2>Company reminders</h2>
-        <p>Scheduled by admins for your company. Times shown in Philippine time.</p>
-        <ul>
-        {% for event in upcoming_company_reminders %}
-            <li><strong>{{ event.at.strftime('%b %d, %Y %I:%M %p') }} PHT — {{ event.reminder.title }}</strong>
-                <p style="white-space:pre-wrap;">{{ event.reminder.notes }}</p></li>
-        {% else %}
-            <li>No company reminders scheduled in the next 31 days.</li>
-        {% endfor %}
-        </ul>
-        <a href="{{ url_for('company_reminders') }}" class="btn">View company reminder calendar</a>
-    </section>
 
     <!-- Clock In/Out Buttons + Real-time clock -->
     <div class="container card" style="text-align:center;">
@@ -249,10 +299,21 @@
           </li>
         </ul>
       </aside>
-      <div id="clock" class="clock">--</div>
-      <div id="hoursWorked" class="hours">--</div>
-      <div class="progress-container" style="max-width:560px; margin:10px auto;">
-        <div id="progressBar" class="progress-bar"></div>
+      <div class="time-hub" id="timeHub" data-mode="time">
+        <div role="button" tabindex="0" class="clock-ring" id="clockRing" aria-label="Tap to switch between current time and worked hours">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+            <circle id="progressBar" class="ring-progress" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <span class="ring-center">
+            <span id="clockLabel" class="clock-label">Oras ngayon</span>
+            <span id="clock" class="clock">--:--</span>
+            <span id="clockSub" class="clock-sub">--</span>
+          </span>
+        </div>
+        <span id="clockStatus" class="status-chip" data-status="out"><i aria-hidden="true"></i><b>Not clocked in</b></span>
+        <div id="hoursWorked" class="hours">--</div>
+        <small class="ring-hint">I-tap ang orasan para makita ang oras o worked hours</small>
       </div>
        <div id="attendanceState"
          data-clocked-in="{{ 'true' if clocked_in else 'false' }}"
@@ -260,23 +321,33 @@
          data-worked-hours="{{ worked_hours }}"></div>
        <div id="attendanceMessage" role="status" aria-live="polite"
          style="display:none; margin:12px auto; max-width:560px; padding:10px; border-radius:6px; color:#fff;"></div>
-       <div id="lunchBreakPanel" role="status" aria-live="polite"
-         style="display:none; margin:12px auto; max-width:560px; padding:14px; border-radius:8px; background:#fff4d6; color:#6b4f00; font-weight:700;">
-         <div style="font-size:2rem;" aria-hidden="true">&#8987;</div>
-         <div id="lunchBreakTitle">Lunch break</div>
-         <div id="lunchBreakCountdown">00:00:00</div>
+       <aside id="missingPunchReminder" class="attendance-correction-reminder" role="alert" hidden>
+         <h2>⚠️ May kulang kang punch sa mga nakaraang araw</h2>
+         <p>Hindi ito maisasama sa payroll hangga't hindi naitatama at naaaprubahan.</p>
+         <ul id="missingPunchList"></ul>
+       </aside>
+       <div id="lunchBreakPanel" class="lunch-panel" role="status" aria-live="polite" style="display:none;">
+         <span class="lunch-icon" aria-hidden="true">🍽️</span>
+         <div>
+           <div id="lunchBreakTitle">Lunch break</div>
+           <div id="lunchBreakCountdown" class="lunch-countdown">0:00</div>
+         </div>
        </div>
+       <ul class="break-schedule" aria-label="Break at lunch schedule">
+         <li><span aria-hidden="true">☕</span> <span><strong>Break:</strong> allowed ang 15 mins sa umaga at 15 mins sa hapon. Hindi kailangang mag-Clock Out.</span></li>
+         <li><span aria-hidden="true">🍽️</span> <span><strong>Lunch:</strong> 12:00–1:00 PM. Kusang naka-pause ang timer at may paalala 5 mins bago magsimula at bago matapos.</span></li>
+       </ul>
 
       <form id="attendanceForm" method="POST" action="{{ url_for('attendance_action', employee_id=current_user.id) }}" data-api="{{ url_for('attendance_api', employee_id=current_user.id) }}">
         <button type="submit" name="clockin" class="btn btn-green">🟢 Clock In</button>
         <button type="submit" name="clockout" class="btn btn-red">🔴 Clock Out</button>
       </form>
+      {% if attendance_correction_alerts %}
       <aside class="attendance-correction-reminder" role="alert" aria-live="polite">
         <h2>Paalala sa attendance at payroll</h2>
         <p>Huwag kalimutang mag-Clock In sa pagpasok at mag-Clock Out bago umuwi.</p>
         <p>Kung nakalimutan ang alinman, magsumite agad ng Attendance Correction. Ang kulang na time-in o time-out ay hindi maisasama sa payroll hangga't hindi naitatama at naaaprubahan.</p>
         <a href="{{ url_for('attendance_correction') }}">Magsumite ng Attendance Correction</a>
-        {% if attendance_correction_alerts %}
         <ul>
           {% for alert in attendance_correction_alerts %}
           <li>
@@ -296,9 +367,51 @@
           </li>
           {% endfor %}
         </ul>
-        {% endif %}
       </aside>
+      {% else %}
+      <p class="attendance-correction-hint">Nakalimutang mag-Clock In/Out? <a href="{{ url_for('attendance_correction') }}">Magsumite ng Attendance Correction</a>.</p>
+      {% endif %}
     </div>
+
+    <nav class="container card dashboard-section staff-shortcuts" aria-label="Staff shortcuts">
+        <h2>Shortcuts</h2>
+        <div class="dashboard-links">
+            <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+            <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
+            <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
+            <a href="{{ url_for('apply_ot') }}" class="btn btn-primary">🕒 Apply for OT</a>
+            <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Attendance Correction</a>
+            <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
+        </div>
+        <p class="shortcut-hint">Nasa <strong>Staff menu</strong> (itaas, kaliwa) ang iba pang pages.</p>
+    </nav>
+
+    {% set remaining_loan = (current_user.loan_balance or 0)|float %}
+    {% set loan_deduction = (current_user.loan_deduction_per_cutoff or 500)|float %}
+    <section class="container card dashboard-section loan-balance-card" aria-label="Remaining loan balance">
+        <h2>💸 Remaining Loan Balance</h2>
+        <p class="loan-balance-amount"><strong>PHP {{ remaining_loan|currency }}</strong></p>
+        {% if remaining_loan > 0 %}
+        <p>Deduction per cutoff: <strong>PHP {{ loan_deduction|currency }}</strong>
+            &middot; Approx. <strong>{{ (remaining_loan / loan_deduction)|round(0, 'ceil')|int }}</strong> cutoff(s) remaining</p>
+        {% else %}
+        <p>You have no outstanding loan.</p>
+        {% endif %}
+        <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">View Loan Details</a>
+    </section>
+
+    <section class="container card dashboard-section" aria-label="Company reminders">
+        <h2>Company reminders</h2>
+        <ul>
+        {% for event in upcoming_company_reminders %}
+            <li><strong>{{ event.at.strftime('%b %d, %Y %I:%M %p') }} PHT — {{ event.reminder.title }}</strong>
+                <p style="white-space:pre-wrap;">{{ event.reminder.notes }}</p></li>
+        {% else %}
+            <li>No company reminders scheduled in the next 31 days.</li>
+        {% endfor %}
+        </ul>
+        <a href="{{ url_for('company_reminders') }}" class="btn">View company reminder calendar</a>
+    </section>
 
     {% set dashboard_is_admin = false %}
     {% include 'partials/dashboard_summary.html' %}
@@ -315,7 +428,7 @@
     <details class="dashboard-tools">
     <summary>All staff tools, resources &amp; account settings</summary>
     <div class="container card dashboard-section">
-        <h2>Quick Actions</h2>
+        <h2>Downloads &amp; Tools</h2>
       <div style="margin-bottom:14px; padding:12px; border-left:4px solid #1f7fdf; background:#eef6ff;">
             <strong>Paperless records reminder:</strong> The company keeps payroll and attendance records online.
             Download and keep your finalized Saturday-to-Friday payslip and attendance record for your personal file.
@@ -323,32 +436,14 @@
         <br><a href="{{ url_for('download_payslip', emp_id=current_user.id, payroll_id=latest_payslip.id) }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Download Latest Payslip</a>
         {% endif %}
           <a href="{{ url_for('attendance', employee_id=current_user.id, format='pdf') }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Download Attendance Record</a>
-        <a href="{{ url_for('staff_guide') }}" class="btn btn-primary" style="display:inline-block; margin-top:8px;">Open Staff Guide</a>
       </div>
-        <div class="dashboard-links">
-            <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
+        <p><a href="{{ url_for('my_analytics') }}" class="btn btn-primary">📈 View My Analytics</a>
+            &nbsp;Your own attendance, payroll, OT, quiz, and evaluation trends.</p>
+        <div class="staff-extra-tools">
             {% if current_user.payroll_preparation_access %}
             <a href="{{ url_for('biometric_import') }}" class="btn btn-primary">📥 Biometric Upload</a>
             <a href="{{ url_for('payroll_summary', company=('Trece-Uno' if current_user.company and current_user.company.lower().startswith('trece') else 'Auto Expert'), view='true') }}" class="btn btn-primary">📊 View Company Payroll Summary</a>
             {% endif %}
-            <a href="{{ url_for('staff_guide') }}" class="btn btn-primary">📘 Staff Guide</a>
-            <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Request Attendance Correction</a>
-            <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
-            <a href="{{ url_for('thirteenth_month') }}" class="btn btn-primary">💰 13th-Month Pay</a>
-            <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
-            <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
-              <a href="{{ url_for('quiz', employee_id=current_user.id) }}" class="btn btn-primary">📝 Take Quiz</a>
-              <a href="{{ url_for('apply_ot') }}" class="btn btn-primary">🕒 Apply for OT</a>
-            <a href="{{ url_for('assessment', action='menu') }}" class="btn btn-primary">🧠 Performance</a>
-            <a href="{{ url_for('peer_evaluation') }}" class="btn btn-primary">📝 Monthly Peer Evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
-            <a href="{{ url_for('merit_demerit', employee_id=current_user.id) }}" class="btn btn-primary">⭐ Merit / Demerit</a>
-            <a href="{{ url_for('employee_liabilities') }}" class="btn btn-primary">🧾 My Liabilities</a>
-            <a href="{{ url_for('hr_documents') }}" class="btn btn-primary">📄 My HR Documents</a>
-            <a href="{{ url_for('staff_concerns') }}" class="btn btn-primary">💬 Suggestions / Hinaing</a>
-            <a href="{{ url_for('profile', user_id=current_user.id) }}" class="btn btn-primary">👤 My Profile</a>
-            <a href="{{ url_for('bulletin') }}" class="btn btn-primary">📢 Company Bulletin</a>
-            <a href="{{ url_for('company_files') }}" class="btn btn-primary">📁 Company Files</a>
-            <a href="{{ url_for('submit_incident') }}" class="btn btn-primary">⚠️ Incident Report</a>
             <button type="button" class="btn btn-primary" onclick="toggleStaffSettings()">⚙️ Settings</button>
             <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
         </div>
@@ -457,10 +552,50 @@
     </details>
 <script>
     // Real-time Clock
+    const TARGET_HOURS = 8;
+    const RING_LENGTH = 2 * Math.PI * 52;
+    const timeHub = document.getElementById('timeHub');
+    let latestWork = { hours: 0, onLunch: false, clockedIn: false, clockInTime: null };
+
+    function formatDuration(totalHours) {
+      const minutes = Math.max(Math.round(totalHours * 60), 0);
+      return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
+    }
+
     function updateClock() {
         const now = new Date();
-        document.getElementById('clock').innerText = now.toLocaleString();
+        const clockEl = document.getElementById('clock');
+        const labelEl = document.getElementById('clockLabel');
+        const subEl = document.getElementById('clockSub');
+        if (timeHub.dataset.mode === 'work') {
+          labelEl.textContent = latestWork.onLunch ? 'Lunch break' : 'Worked today';
+          clockEl.innerHTML = `${formatDuration(latestWork.hours)}<small> hrs</small>`;
+          const left = TARGET_HOURS - latestWork.hours;
+          subEl.textContent = left > 0 ? `${formatDuration(left)} left of ${TARGET_HOURS} hrs` : `${TARGET_HOURS} hrs completed 🎉`;
+        } else {
+          labelEl.textContent = 'Oras ngayon';
+          const time = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          const seconds = String(now.getSeconds()).padStart(2, '0');
+          clockEl.innerHTML = `${time.replace(/\s?([AP]M)$/i, '')}<small>:${seconds} ${(time.match(/[AP]M$/i) || [''])[0]}</small>`;
+          subEl.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+        }
     }
+
+    function toggleClockView() {
+      timeHub.dataset.mode = timeHub.dataset.mode === 'work' ? 'time' : 'work';
+      timeHub.classList.remove('flip');
+      void timeHub.offsetWidth;
+      timeHub.classList.add('flip');
+      updateClock();
+    }
+    const clockRing = document.getElementById('clockRing');
+    clockRing.addEventListener('click', toggleClockView);
+    clockRing.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleClockView();
+      }
+    });
     setInterval(updateClock, 1000);
     updateClock();
 
@@ -469,11 +604,11 @@
     const lunchPanel = document.getElementById('lunchBreakPanel');
     const lunchTitle = document.getElementById('lunchBreakTitle');
     const lunchCountdown = document.getElementById('lunchBreakCountdown');
-    let lastLunchState = '';
+    const LUNCH_WARN_MINUTES = 5;
+    let lastLunchPhase = null;
 
-    function notifyLunch(title, message, state) {
-      if (lastLunchState === state) return;
-      lastLunchState = state;
+    function notifyLunch(title, message) {
+      if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(title, { body: message });
       }
@@ -490,28 +625,47 @@
       }
     }
 
+    function formatCountdown(ms) {
+      const total = Math.max(Math.ceil(ms / 1000), 0);
+      const m = Math.floor(total / 60);
+      const s = String(total % 60).padStart(2, '0');
+      return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${s}` : `${m}:${s}`;
+    }
+
+    const LUNCH_ALERTS = {
+      soon: ['Lunch break in 5 minutes', 'Lunch starts at 12:00 PM. Tapusin muna ang ginagawa.'],
+      lunch: ['Lunch break na 🍽️', 'Naka-pause ang work timer hanggang 1:00 PM.'],
+      ending: ['5 minutes left sa lunch', 'Bumalik sa trabaho bago mag-1:00 PM.'],
+      after: ['Balik trabaho', 'Tapos na ang lunch break. Tuloy na ang work timer.'],
+    };
+
     function updateLunchBreak(now) {
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 0, 0);
-      if (now >= start && now < end) {
-        const remaining = end - now;
-        const totalSeconds = Math.ceil(remaining / 1000);
-        const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-        const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-        const seconds = String(totalSeconds % 60).padStart(2, '0');
-        lunchPanel.style.display = 'block';
-        lunchTitle.textContent = 'Lunch break: timer paused';
-        lunchCountdown.textContent = `${hours}:${minutes}:${seconds} until 1:00 PM`;
-        notifyLunch('Lunch break', 'Work timer paused until 1:00 PM.', 'lunch-start');
-        return true;
+      const at = (h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+      const start = at(12, 0);
+      const end = at(13, 0);
+      const warnMs = LUNCH_WARN_MINUTES * 60 * 1000;
+      const phase = now < start - warnMs ? 'before'
+        : now < start ? 'soon'
+        : now < end - warnMs ? 'lunch'
+        : now < end ? 'ending' : 'after';
+
+      lunchPanel.dataset.phase = phase;
+      if (phase === 'soon') {
+        lunchTitle.textContent = 'Malapit na ang lunch break';
+        lunchCountdown.textContent = `${formatCountdown(start - now)} bago mag-12:00 PM`;
+      } else if (phase === 'lunch' || phase === 'ending') {
+        lunchTitle.textContent = phase === 'ending' ? 'Malapit nang matapos ang lunch' : 'Lunch break · naka-pause ang timer';
+        lunchCountdown.textContent = `${formatCountdown(end - now)} bago mag-1:00 PM`;
       }
-      if (now >= end) {
-        lunchPanel.style.display = 'none';
-        notifyLunch('Resume work', 'Lunch break ended. Work timer has resumed.', 'lunch-end');
-      } else {
-        lunchPanel.style.display = 'none';
+      lunchPanel.style.display = phase === 'before' || phase === 'after' ? 'none' : 'block';
+
+      // Alert only on transitions seen while the page is open, never on first load.
+      const clockedIn = attendanceState && attendanceState.dataset.clockedIn === 'true';
+      if (lastLunchPhase !== null && phase !== lastLunchPhase && phase !== 'before' && clockedIn) {
+        notifyLunch(...LUNCH_ALERTS[phase]);
       }
-      return false;
+      lastLunchPhase = phase;
+      return phase === 'lunch' || phase === 'ending';
     }
 
     function parseClockInTimestamp(value) {
@@ -550,10 +704,30 @@
       const hours = Math.floor(elapsedMinutes / 60);
       const minutes = elapsedMinutes % 60;
       const displayHours = `${hours}:${String(minutes).padStart(2, '0')}`;
-      hoursEl.innerText = onLunch ? 'Lunch break' : displayHours + ' hrs';
-      const progress = Math.min((diffHrs / 8) * 100, 100);
-      progressEl.style.width = progress + '%';
-      progressEl.style.backgroundColor = progress < 50 ? '#27ae60' : progress < 75 ? '#f39c12' : '#e74c3c';
+      const left = Math.max(TARGET_HOURS - diffHrs, 0);
+      hoursEl.innerText = onLunch
+        ? `Lunch break · ${displayHours} hrs worked`
+        : `${displayHours} hrs worked · ${left > 0 ? formatDuration(left) + ' left' : 'target reached'}`;
+      const progress = Math.min(diffHrs / TARGET_HOURS, 1);
+      progressEl.style.strokeDasharray = RING_LENGTH;
+      progressEl.style.strokeDashoffset = RING_LENGTH * (1 - progress);
+      progressEl.style.stroke = progress >= 1 ? '#1f7fdf' : onLunch ? '#f39c12' : '#27ae60';
+
+      latestWork = { hours: diffHrs, onLunch, clockedIn: isClockedIn, clockInTime };
+      const statusEl = document.getElementById('clockStatus');
+      const status = onLunch && isClockedIn ? 'lunch' : progress >= 1 ? 'done' : isClockedIn ? 'in' : 'out';
+      const since = clockInTime ? clockInTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      const statusText = {
+        out: completedHours > 0 ? 'Clocked out' : 'Not clocked in',
+        in: `Clocked in since ${since}`,
+        lunch: 'Lunch break · timer paused',
+        done: `${TARGET_HOURS} hrs done${isClockedIn ? ' · pwede nang mag-Clock Out' : ''}`,
+      }[status];
+      statusEl.dataset.status = status;
+      statusEl.querySelector('b').textContent = statusText;
+      const form = document.getElementById('attendanceForm');
+      if (form) form.dataset.state = isClockedIn ? 'in' : 'out';
+      updateClock();
     }
 
     if ('Notification' in window && Notification.permission === 'default') {
@@ -584,7 +758,7 @@
       button.draggable = true;
       button.dataset.actionId = button.dataset.actionId || `staff-action-${index}`;
     });
-    const savedOrder = JSON.parse(localStorage.getItem('hrisStaffActionOrder') || '[]');
+    const savedOrder = JSON.parse(localStorage.getItem('hrisStaffShortcutOrder') || '[]');
     savedOrder.forEach(id => {
       const button = grid.querySelector(`[data-action-id="${id}"]`);
       if (button) grid.appendChild(button);
@@ -597,7 +771,7 @@
       button.addEventListener('dragend', () => {
         button.classList.remove('dragging');
         draggedButton = null;
-        localStorage.setItem('hrisStaffActionOrder', JSON.stringify(
+        localStorage.setItem('hrisStaffShortcutOrder', JSON.stringify(
           [...grid.querySelectorAll('.btn')].map(item => item.dataset.actionId)
         ));
       });
@@ -666,7 +840,7 @@
 
   function resetStaffDashboardSettings() {
     localStorage.removeItem('hrisStaffDashboardSettings');
-    localStorage.removeItem('hrisStaffActionOrder');
+    localStorage.removeItem('hrisStaffShortcutOrder');
     localStorage.removeItem('hrisTopbarSize');
     window.location.reload();
   }
@@ -707,6 +881,28 @@
     messageBox.style.display = 'block';
   }
 
+  function showMissingPunchReminder(items) {
+    const box = document.getElementById('missingPunchReminder');
+    const list = document.getElementById('missingPunchList');
+    if (!box || !list || !Array.isArray(items) || !items.length) return;
+    list.replaceChildren();
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.append(`${item.label}: ${item.missing} — `);
+      if (item.correction_pending) {
+        li.append('may correction request nang Pending; hintayin ang Admin review.');
+      } else {
+        const link = document.createElement('a');
+        link.href = item.correction_url;
+        link.textContent = 'Isumite ang correction';
+        li.append(link);
+      }
+      list.append(li);
+    });
+    box.hidden = false;
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   // AJAX submit for attendance form to show real-time success message without navigation
   const attendanceForm = document.getElementById('attendanceForm');
   if (attendanceForm) {
@@ -735,6 +931,11 @@
           attendanceState.dataset.clockIn = data.clock_in || '';
           attendanceState.dataset.workedHours = data.worked_hours || 0;
           updateHoursWorked();
+          if (navigator.vibrate) navigator.vibrate(data.clocked_in ? [40, 60, 40] : 80);
+          timeHub.classList.remove('pulse');
+          void timeHub.offsetWidth;
+          timeHub.classList.add('pulse');
+          showMissingPunchReminder(data.missing_punches);
         }
       } catch (err) {
         const clickedButton = e.submitter;

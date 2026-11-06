@@ -106,15 +106,28 @@ def test_philhealth_uses_emr_not_actual_earnings(calculator):
     five_day = calculator.philhealth.compute(645, 5)
     assert (five_day.emr, five_day.basis, five_day.premium) == (D("14028.75"), D("14028.75"), D("701.44"))
     assert (five_day.employee, five_day.employer) == (D("350.72"), D("350.72"))
+    # Company comparison table: 26 working days a month.
     six_day = calculator.philhealth.compute(755, 6)
-    assert six_day.emr == D("19692.92")
-    assert six_day.premium == D("984.65")
+    assert six_day.emr == D("19630.00")
+    assert six_day.premium == D("981.50")
+    assert (six_day.employee, six_day.employer) == (D("490.75"), D("490.75"))
+
+
     assert six_day.employee + six_day.employer == six_day.premium
     assert calculator.philhealth.compute(300, 5).basis == D("10000.00")
     assert calculator.philhealth.compute(10000, 6).basis == D("100000.00")
     # Same PhilHealth whether the employee worked 10 or 20 days in the month.
     assert calculator.monthly(6450, 645, 5).philhealth == calculator.monthly(12900, 645, 5).philhealth
     assert calculator.monthly(0, 645, 5).philhealth.total == D("0.00")
+
+
+def test_sss_basis_is_capped_at_26_days_in_five_cutoff_months(calculator):
+    for rate, days, sss_ee, ph_ee in ((645, 30, D("850.00"), D("419.25")),
+                                      (755, 30, D("975.00"), D("490.75")),
+                                      (645, 24, D("775.00"), D("419.25"))):
+        monthly = calculator.monthly(rate * days, rate, 6)
+        assert (monthly.sss.employee, monthly.philhealth.employee, monthly.pagibig.employee) == (
+            sss_ee, ph_ee, D("200.00"))
 
 
 def test_pagibig_rates_and_cap(calculator):
@@ -152,10 +165,49 @@ def test_last_cutoff_true_up_matches_exact_monthly_amount(calculator):
         assert sum(item[key] for item in prior) + last[key] == value
     assert monthly_ee == exact["sss"] + exact["philhealth"] + exact["pagibig"]
 
-    # Over-deduction earlier in the month is refunded on the last cutoff.
-    inflated = [dict(item, sss=item["sss"] + D("500")) for item in prior]
-    refund, _ = PayrollService.allocate(calculator, bases, 4, inflated, 645, 5)
-    assert refund["sss"] == last["sss"] - D("2000")
+    # Over-deduction earlier in the month reduces the last cutoff, but never below zero.
+    inflated = [dict(item, sss=item["sss"] + D("50")) for item in prior]
+    reduced, _ = PayrollService.allocate(calculator, bases, 4, inflated, 645, 5)
+    assert reduced["sss"] == max(last["sss"] - D("200"), D("0"))
+    over = [dict(item, philhealth=item["philhealth"] + D("500")) for item in prior]
+    clamped, _ = PayrollService.allocate(calculator, bases, 4, over, 645, 5)
+    assert clamped["philhealth"] == D("0")
+    assert clamped["sss"] == last["sss"] and clamped["pagibig"] == last["pagibig"]
+
+
+def test_october_legacy_priors_do_not_make_last_cutoff_philhealth_negative(calculator):
+    # Oct 3-24 were finalized with the legacy formula (~PHP 87.94 PhilHealth each) before
+    # the new rules were deployed; the Oct 31 true-up must not become -1.03.
+    bases = [D("3547.50")] * 5
+    legacy_prior = [{"sss": D("175"), "philhealth": D("87.94"), "pagibig": D("40")}] * 4
+    last, _ = PayrollService.allocate(calculator, bases, 4, legacy_prior, 645, 5)
+    assert all(value >= 0 for value in last.values())
+    assert last["philhealth"] == D("0")
+
+
+def test_seeded_rules_switch_once_to_six_day_workweek():
+    from models import GovContributionSetting
+    from services.government_contributions import (
+        OFFICIAL_SOURCES, apply_six_day_workweek_default,
+    )
+    with app.app_context():
+        setting = GovContributionSetting.query.order_by(GovContributionSetting.effective_month).first()
+        original = (setting.default_workweek, setting.source_reference)
+        try:
+            setting.default_workweek, setting.source_reference = 5, OFFICIAL_SOURCES
+            db.session.commit()
+            assert apply_six_day_workweek_default() >= 1
+            assert db.session.get(GovContributionSetting, setting.id).default_workweek == 6
+            # A later administrator choice of 5-day is never overwritten.
+            setting.default_workweek = 5
+            db.session.commit()
+            assert apply_six_day_workweek_default() == 0
+            assert db.session.get(GovContributionSetting, setting.id).default_workweek == 5
+        finally:
+            setting.default_workweek, setting.source_reference = original
+            db.session.commit()
+        philhealth = GovernmentContributionCalculator.for_month(OCTOBER).philhealth.compute(645, 6)
+        assert (philhealth.emr, philhealth.employee) == (D("16770.00"), D("419.25"))
 
 
 def test_payroll_uses_true_up_from_october_and_legacy_before(people):
@@ -213,7 +265,7 @@ def test_dashboard_preview_portal_and_validations(people):
     preview = client.get("/admin/government-contributions/preview?month=2026-10&employee_id=%d" % people["worker"])
     text = preview.get_data(as_text=True)
     assert preview.status_code == 200
-    assert "₱14,028.75" in text and "₱350.72" in text and "TRUE COST TO COMPANY" in text
+    assert "₱16,770.00" in text and "₱419.25" in text and "TRUE COST TO COMPANY" in text
     assert "<h4>Pedro Twin" not in text
     assert "Duplicate SSS number shared with Pedro Twin" in text
     assert text.index("TRUE COST TO COMPANY") < text.index("<h3>Contribution Reminders")

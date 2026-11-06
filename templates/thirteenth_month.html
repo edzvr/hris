@@ -24,6 +24,10 @@
         <h1>13th-Month Pay</h1>
         <p>Computed from prorated basic salary earned during the selected calendar year, divided by 12.</p>
         <p>Unpaid absences, late time, half-day, undertime, and holiday without pay reduce the 13th-month basis only when they reduce the employee's earned basic pay; they are not deducted again from the final 13th-month amount. Overtime, allowances, incentives, and statutory or loan deductions are excluded from the basis.</p>
+        <p>Each payroll cutoff is reconciled: completed attendance is used when present; cutoffs without attendance use only saved basic pay from finalized payroll breakdowns, never gross or net pay. Unverified cutoffs, or finalized payslips showing more basic pay than attendance, are marked for review.</p>
+        {% if incomplete %}
+        <p role="alert"><strong>Needs review:</strong> This report is incomplete. Amounts and totals are verified subtotals only, not final 13th-month entitlements.</p>
+        {% endif %}
         <form method="get" class="actions">
             <label for="year">Calendar year</label>
             <input id="year" type="number" name="year" min="2000" max="{{ year + 1 }}" value="{{ year }}" required>
@@ -44,7 +48,13 @@
             <tbody>
             {% for row in rows %}
                 <tr>
-                    <td>{{ row.employee.full_name() }}</td>
+                    <td>{{ row.employee.full_name() }}
+                        {% if row.calculation_warnings %}
+                        <div><strong>Needs review</strong>
+                            <ul>{% for warning in row.calculation_warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+                        </div>
+                        {% endif %}
+                    </td>
                     <td>PHP {{ '%.2f'|format(row.basic_pay) }}</td>
                     <td>PHP {{ '%.2f'|format(row.thirteenth_month) }}</td>
                 </tr>
@@ -52,7 +62,7 @@
                 <tr><td colspan="3">No payroll or attendance records found for {{ year }}.</td></tr>
             {% endfor %}
                 <tr class="total">
-                    <td>Total</td>
+                    <td>{{ 'Verified subtotal (incomplete)' if incomplete else 'Total' }}</td>
                     <td>PHP {{ '%.2f'|format(total_basic) }}</td>
                     <td>PHP {{ '%.2f'|format(total_thirteenth) }}</td>
                 </tr>

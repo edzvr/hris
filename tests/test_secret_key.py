@@ -48,3 +48,32 @@ def test_qr_signed_with_legacy_key_still_verifies():
         finally:
             db.session.delete(record)
             db.session.commit()
+
+
+def test_payslip_qr_is_invalid_after_payroll_is_reopened_or_changed():
+    from models import Payroll
+    with app.app_context():
+        employee = Employee(first_name='Qr', last_name='Release', role='staff', company='Trece-Uno')
+        payroll = Payroll(employee=employee, cutoff_start=date(2026, 10, 3), cutoff_end=date(2026, 10, 9),
+                          is_paid=True, gross_income=4000, total_deductions=500, net_pay=3500)
+        db.session.add_all([employee, payroll])
+        db.session.commit()
+        with app.test_request_context():
+            doc_id = hris.build_payslip_verification(
+                employee.id, payroll.id, payroll.cutoff_start, payroll.cutoff_end, payroll.net_pay)['document_id']
+        client = app.test_client()
+        try:
+            ok = client.get(f'/verify-document/{doc_id}').data
+            assert b'This document is authentic' in ok and b'OK to release: PHP 3500.00' in ok
+            payroll.net_pay = 3400
+            db.session.commit()
+            changed = client.get(f'/verify-document/{doc_id}').data
+            assert b'DO NOT RELEASE' in changed and b'OK to release' not in changed
+            payroll.net_pay, payroll.is_paid = 3500, False
+            db.session.commit()
+            assert b'DO NOT RELEASE' in client.get(f'/verify-document/{doc_id}').data
+        finally:
+            PayslipVerification.query.filter_by(document_id=doc_id).delete()
+            db.session.delete(payroll)
+            db.session.delete(employee)
+            db.session.commit()

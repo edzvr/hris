@@ -62,7 +62,7 @@
             <label>Default PhilHealth workweek
                 <select name="default_workweek">
                     <option value="5" {% if form.default_workweek|string != '6' %}selected{% endif %}>5-day (x261/12)</option>
-                    <option value="6" {% if form.default_workweek|string == '6' %}selected{% endif %}>6-day (x313/12)</option>
+                    <option value="6" {% if form.default_workweek|string == '6' %}selected{% endif %}>6-day (x26 days/month)</option>
                 </select>
             </label>
             <label>PhilHealth rate (%)<input name="philhealth_rate" value="{{ form.philhealth_rate or '' }}" required></label>

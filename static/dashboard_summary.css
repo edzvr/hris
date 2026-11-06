@@ -9,6 +9,10 @@
 .summary-panel a { display: block; padding: 10px 0; min-height: 44px; box-sizing: border-box; color: #176b4d; font-size: 15px; }
 .summary-panel summary, .dashboard-tools > summary { padding: 12px 0; cursor: pointer; font-size: 16px; font-weight: 600; min-height: 44px; box-sizing: border-box; }
 .summary-panel .summary-note { font-size: 13px; color: #627269; }
+.thirteenth-month-title { margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid #dce5de; font-size: 16px; }
+.thirteenth-month-summary { padding: 10px 12px; border-radius: 8px; background: #f3f8f5; }
+.thirteenth-month-summary dt:last-of-type, .thirteenth-month-summary dd:last-of-type { padding-top: 8px; border-top: 1px solid #dce5de; }
+.dark-mode .thirteenth-month-summary, .admin-dark-mode .thirteenth-month-summary { background: transparent; }
 .admin-dark-mode .summary-panel { background: #37474f; color: #ecf0f1; }
 .admin-dark-mode .summary-panel a { color: #a8ddbe; }
 .dark-mode .summary-panel { background:#2c3e50; color:#ecf0f1; }

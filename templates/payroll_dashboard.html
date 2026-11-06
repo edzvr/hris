@@ -94,6 +94,7 @@
             <p class="muted">Unpaid amounts are current calculation previews, not saved historical payslips.
                 Use Preview Draft Recalculation on the employee payroll page to approve and save a draft.
                 Finalized payroll retains its saved totals.</p>
+            <p class="muted"><strong>Auto-finalize:</strong> every Friday 10:00 PM, only employees marked <em>Ready</em> are finalized automatically. <em>Needs Review</em> stays for Admin. Reopening a payslip makes its old QR show "DO NOT RELEASE".</p>
             <p class="page-subtitle">Cutoff: {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} (Saturday–Friday)</p>
         </div>
         <a class="btn" href="{{ url_for('admin_payroll_history') }}">View Payroll History</a>
@@ -123,7 +124,7 @@
         </details>
     </section>
 
-    <details class="panel report-tools">
+    <details class="panel report-tools" open>
         <summary>Reports and payroll tools</summary>
         <div class="report-links">
             <a class="btn" href="{{ url_for('payroll_summary', company='Trece-Uno', cutoff_start=start_cutoff, view='true') }}">View Trece-Uno Summary</a>
@@ -226,6 +227,9 @@
                         <div class="deduction-cell"><span>Deductions</span><strong>₱{{ p.deductions|currency }}</strong></div>
                         <div class="payroll-net"><span>Net Pay</span><strong>₱{{ p.net_pay|currency }}</strong></div>
                     </div>
+                    {% if p.rice_exempt > 0.004 %}
+                    <p class="payroll-card-company">Net = Gross + ₱{{ p.rice_exempt|currency }} rice subsidy (non-taxable) − Deductions</p>
+                    {% endif %}
                     <details class="payroll-detail-toggle">
                       <summary>View / Edit Details</summary>
                       {% if p.review_reasons %}<p class="review-needed">{{ p.review_reasons|join(', ') }}</p>{% endif %}
@@ -308,7 +312,8 @@
                     </div>
                     </details>
                     <div class="payroll-card-actions">
-                        <a href="{{ url_for('payroll', employee_id=p.emp.id, download='true') }}" class="btn">📄 Download Payslip</a>
+                        <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">👁 View Payslip</a>
+                        <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d'), download='true') }}" class="btn">📄 Download Payslip</a>
                     </div>
                 </article>
                 {% else %}

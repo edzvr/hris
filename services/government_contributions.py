@@ -24,7 +24,8 @@ CENT = Decimal("0.01")
 ZERO = Decimal("0.00")
 # Payroll months starting here use these database rules; earlier saved history is untouched.
 RULES_START = date(2026, 10, 1)
-WORKWEEK_DAYS = {5: 261, 6: 313}
+# Company policy: a Mon-Sat (6-day) staff MBS is daily rate x 26 days a month (x312/12).
+WORKWEEK_DAYS = {5: 261, 6: 312}
 AMOUNT_KEYS = (
     "sss", "philhealth", "pagibig",
     "employer_sss", "employer_sss_ec", "employer_philhealth", "employer_pagibig",
@@ -34,6 +35,7 @@ OFFICIAL_SOURCES = (
     "PHP 10,000 floor, PHP 100,000 ceiling); Pag-IBIG Circular 460 (PHP 10,000 maximum "
     "fund salary, Feb 2024)"
 )
+SIX_DAY_WORKWEEK_NOTE = "; Mon-Sat 6-day workweek company default"
 
 
 class ContributionSettingsError(ValueError):
@@ -182,13 +184,13 @@ def official_default_values():
         "philhealth_rate": Decimal("0.05"),
         "philhealth_floor": Decimal("10000"),
         "philhealth_ceiling": Decimal("100000"),
-        "default_workweek": 5,
+        "default_workweek": 6,
         "pagibig_low_threshold": Decimal("1500"),
         "pagibig_employee_rate_low": Decimal("0.01"),
         "pagibig_employee_rate_high": Decimal("0.02"),
         "pagibig_employer_rate": Decimal("0.02"),
         "pagibig_max_fund_salary": Decimal("10000"),
-        "source_reference": OFFICIAL_SOURCES,
+        "source_reference": OFFICIAL_SOURCES + SIX_DAY_WORKWEEK_NOTE,
     }
 
 
@@ -216,6 +218,24 @@ def ensure_default_settings():
         return False
     logger.info("Seeded official government contribution settings effective 2025-01.")
     return True
+
+
+def apply_six_day_workweek_default():
+    """One-time switch of the untouched seeded rules to the Mon-Sat (daily rate x 26) PhilHealth basis.
+
+    Only rows still carrying the original seeded source text are changed, and the source text is
+    updated, so administrator-edited versions and later choices are never overwritten.
+    """
+    settings = GovContributionSetting.query.filter_by(
+        default_workweek=5, source_reference=OFFICIAL_SOURCES,
+    ).all()
+    for setting in settings:
+        setting.default_workweek = 6
+        setting.source_reference = OFFICIAL_SOURCES + SIX_DAY_WORKWEEK_NOTE
+    if settings:
+        db.session.commit()
+        logger.info("Switched %s contribution setting(s) to the 6-day workweek default.", len(settings))
+    return len(settings)
 
 
 class ContributionSettingsRepository:
@@ -448,9 +468,14 @@ class GovernmentContributionCalculator:
     def monthly(self, compensation, daily_rate, workweek=None):
         compensation = money(compensation)
         has_compensation = compensation > 0
+        philhealth = self.philhealth.compute(daily_rate, workweek, has_compensation)
+        # Company policy: SSS/Pag-IBIG use actual basic earned, capped at the monthly MBS
+        # (daily rate x 26 for Mon-Sat), so 5-cutoff months do not jump to a higher bracket.
+        if philhealth.emr > 0:
+            compensation = min(compensation, philhealth.emr)
         return MonthlyContribution(
             sss=self.sss.compute(compensation),
-            philhealth=self.philhealth.compute(daily_rate, workweek, has_compensation),
+            philhealth=philhealth,
             pagibig=self.pagibig.compute(compensation),
         )
 
@@ -460,7 +485,10 @@ class PayrollService:
 
     Earlier cutoffs deduct an estimate from that cutoff's pace; the last cutoff
     of the payroll month deducts the exact monthly amount minus what earlier
-    cutoffs already deducted (negative means a refund of over-deduction).
+    cutoffs already deducted. Employee deductions never go below zero: an
+    over-deduction (e.g. earlier cutoffs saved under the legacy formula) stays
+    visible as the deducted-vs-due difference in the contribution report
+    instead of a negative payslip deduction. Employer shares reconcile exactly.
     """
 
     @staticmethod
@@ -486,6 +514,8 @@ class PayrollService:
             for key in AMOUNT_KEYS:
                 already[key] += money(previous.get(key, 0))
         amounts = {key: value - already[key] for key, value in monthly.amounts().items()}
+        for key in ("sss", "philhealth", "pagibig"):
+            amounts[key] = max(amounts[key], ZERO)
         return amounts, monthly.employee_total
 
 

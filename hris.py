@@ -1,5 +1,5 @@
 # ------------------ HRIS MAIN APP ------------------
-import os, random, logging, re, hashlib, csv, base64
+import os, sys, random, logging, re, hashlib, csv, base64
 import secrets
 import json
 import sqlite3
@@ -266,6 +266,7 @@ from models import (
     Attendance,
     AttendanceCorrection,
     AttendanceReconciliation,
+    DailyRateHistory,
     Holiday,
     LeaveRequest,
     LeaveHistory,
@@ -322,6 +323,7 @@ from services.government_contributions import (
     LaborCostService as GovLaborCostService,
     PayrollService as GovPayrollService,
     PortalPaymentService as GovPortalPaymentService,
+    apply_six_day_workweek_default,
     bracket_values as gov_bracket_values,
     ensure_default_settings as ensure_default_contribution_settings,
     format_sss_table,
@@ -1325,6 +1327,80 @@ def normalize_employee_names():
         db.session.commit()
 
 
+TRECE_WAGE_INCREASE_DATE = date(2026, 10, 28)
+TRECE_PREVIOUS_MINIMUM_RATE = 600.0
+TRECE_NEW_MINIMUM_RATE = 645.0
+
+
+def seed_trece_minimum_wage_history():
+    """One-time history for Trece minimum earners: PHP 600 until Oct 27, 2026, PHP 645 from Oct 28."""
+    employees = Employee.query.filter(
+        Employee.company.ilike('trece%'),
+        Employee.daily_rate == TRECE_NEW_MINIMUM_RATE,
+    ).all()
+    changed = False
+    for employee in employees:
+        if DailyRateHistory.query.filter_by(employee_id=employee.id).first():
+            continue
+        db.session.add_all([
+            DailyRateHistory(
+                employee_id=employee.id, daily_rate=TRECE_PREVIOUS_MINIMUM_RATE,
+                effective_date=date(TRECE_WAGE_INCREASE_DATE.year, 1, 1),
+                note='Trece minimum wage before Oct 28, 2026',
+            ),
+            DailyRateHistory(
+                employee_id=employee.id, daily_rate=TRECE_NEW_MINIMUM_RATE,
+                effective_date=TRECE_WAGE_INCREASE_DATE,
+                note='Trece minimum wage increase',
+            ),
+        ])
+        changed = True
+    if changed:
+        db.session.commit()
+
+
+REGULAR_HOLIDAY = 'Regular Holiday'
+SPECIAL_HOLIDAY = 'Special Non-Working Holiday'
+# Proclamation No. 1006 (2025). Eid holidays are proclaimed separately; special working days get no premium.
+PH_HOLIDAYS = {
+    2026: [
+        (date(2026, 1, 1), "New Year's Day", REGULAR_HOLIDAY),
+        (date(2026, 2, 17), 'Chinese New Year', SPECIAL_HOLIDAY),
+        (date(2026, 4, 2), 'Maundy Thursday', REGULAR_HOLIDAY),
+        (date(2026, 4, 3), 'Good Friday', REGULAR_HOLIDAY),
+        (date(2026, 4, 4), 'Black Saturday', SPECIAL_HOLIDAY),
+        (date(2026, 4, 9), 'Araw ng Kagitingan', REGULAR_HOLIDAY),
+        (date(2026, 5, 1), 'Labor Day', REGULAR_HOLIDAY),
+        (date(2026, 6, 12), 'Independence Day', REGULAR_HOLIDAY),
+        (date(2026, 8, 21), 'Ninoy Aquino Day', SPECIAL_HOLIDAY),
+        (date(2026, 8, 31), 'National Heroes Day', REGULAR_HOLIDAY),
+        (date(2026, 11, 1), "All Saints' Day", SPECIAL_HOLIDAY),
+        (date(2026, 11, 2), "All Souls' Day", SPECIAL_HOLIDAY),
+        (date(2026, 11, 30), 'Bonifacio Day', REGULAR_HOLIDAY),
+        (date(2026, 12, 8), 'Feast of the Immaculate Conception', SPECIAL_HOLIDAY),
+        (date(2026, 12, 24), 'Christmas Eve', SPECIAL_HOLIDAY),
+        (date(2026, 12, 25), 'Christmas Day', REGULAR_HOLIDAY),
+        (date(2026, 12, 30), 'Rizal Day', REGULAR_HOLIDAY),
+        (date(2026, 12, 31), 'Last Day of the Year', SPECIAL_HOLIDAY),
+    ],
+}
+
+
+def seed_ph_holidays():
+    """Add official national holidays that are missing; never overwrite admin-entered dates."""
+    existing = {holiday.date for holiday in Holiday.query.all()}
+    missing = [
+        Holiday(date=day, description=name, holiday_type=holiday_type)
+        for entries in PH_HOLIDAYS.values()
+        for day, name, holiday_type in entries
+        if day not in existing
+    ]
+    if missing:
+        db.session.add_all(missing)
+        db.session.commit()
+    return len(missing)
+
+
 with app.app_context():
     db.create_all()
     ensure_app_secret_key()
@@ -1345,6 +1421,9 @@ with app.app_context():
     normalize_employee_names()
     sync_postgres_id_sequences()
     ensure_default_contribution_settings()
+    apply_six_day_workweek_default()
+    seed_trece_minimum_wage_history()
+    seed_ph_holidays()
 
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
@@ -1379,6 +1458,15 @@ def send_calendar_reminder_emails():
             logger.exception('Calendar email dispatcher failed; review reminder delivery status.')
 
 
+def run_scheduled_payroll_auto_finalize():
+    with app.app_context():
+        try:
+            auto_finalize_ready_payroll()
+        except Exception:
+            db.session.rollback()
+            logger.exception('Scheduled payroll auto-finalize failed')
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler()
@@ -1408,6 +1496,13 @@ try:
                               args=['resume'], id='lunch_resume_reminder', replace_existing=True)
         except Exception:
             logger.exception('Failed to register monthly peer-eval reminder job')
+
+    if scheduler and 'pytest' not in sys.modules:
+        scheduler.add_job(
+            run_scheduled_payroll_auto_finalize, 'cron', day_of_week='fri', hour=22, minute=0,
+            timezone=ZoneInfo('Asia/Manila'), id='payroll_auto_finalize',
+            replace_existing=True, max_instances=1, misfire_grace_time=6 * 3600, coalesce=True,
+        )
 
     if scheduler:
         scheduler.add_job(
@@ -1669,8 +1764,8 @@ def inject_authenticated_sidebar(response):
     )
     if not is_admin:
         navigation_groups = [
-            ('Attendance', {'attendance', 'attendance_correction', 'apply_ot', 'my_analytics'}),
-            ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'payroll_summary', 'payroll_loan_review', 'thirteenth_month', 'employee_liabilities'}),
+            ('Attendance', {'attendance', 'attendance_correction', 'apply_ot'}),
+            ('Payroll & Reports', {'payroll', 'payroll_dashboard', 'payroll_summary', 'payroll_loan_review', 'thirteenth_month', 'employee_liabilities', 'my_analytics'}),
             ('Loan & Leave', {'loan', 'leave'}),
             ('Performance', {'assessment', 'quiz', 'peer_evaluation', 'merit_demerit'}),
             ('Documents & Updates', {'hr_documents', 'bulletin', 'company_files', 'monthly_reminders'}),
@@ -2778,6 +2873,65 @@ def manage_job_descriptions():
 
     options = JobDescriptionOption.query.order_by(JobDescriptionOption.name.asc()).all()
     return render_template('admin_job_descriptions.html', options=options)
+
+
+def holiday_csrf_token():
+    return session.setdefault('holiday_csrf', secrets.token_urlsafe(32))
+
+
+@app.route('/admin/holidays', methods=['GET', 'POST'])
+@login_required
+def manage_holidays():
+    if current_user.role.lower() != 'admin':
+        abort(403)
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    year = request.values.get('year', type=int) or today.year
+    if request.method == 'POST':
+        if not secrets.compare_digest(
+            holiday_csrf_token().encode(), request.form.get('csrf_token', '').encode()
+        ):
+            abort(400)
+        try:
+            holiday_date = date.fromisoformat(request.form.get('date', ''))
+        except ValueError:
+            flash('Enter a valid holiday date.', 'danger')
+            return redirect(url_for('manage_holidays', year=year))
+        year = holiday_date.year
+        existing = Holiday.query.filter_by(date=holiday_date).first()
+        if request.form.get('action') == 'delete':
+            if existing:
+                db.session.delete(existing)
+                db.session.commit()
+                flash(f'Removed holiday on {holiday_date:%b %d, %Y}.', 'success')
+            return redirect(url_for('manage_holidays', year=year))
+        description = request.form.get('description', '').strip()
+        holiday_type = request.form.get('holiday_type', '')
+        if not description or len(description) > 100:
+            flash('Enter a holiday name of 1 to 100 characters.', 'danger')
+        elif holiday_type not in (REGULAR_HOLIDAY, SPECIAL_HOLIDAY):
+            flash('Choose Regular Holiday or Special Non-Working Holiday.', 'danger')
+        else:
+            if existing:
+                existing.description = description
+                existing.holiday_type = holiday_type
+            else:
+                db.session.add(Holiday(
+                    date=holiday_date, description=description, holiday_type=holiday_type,
+                ))
+            db.session.commit()
+            flash(
+                f'Saved {description} ({holiday_type}) on {holiday_date:%b %d, %Y}. '
+                'Draft payrolls use it on the next recalculation; finalized payrolls are unchanged.',
+                'success',
+            )
+        return redirect(url_for('manage_holidays', year=year))
+    holidays = Holiday.query.filter(
+        Holiday.date >= date(year, 1, 1), Holiday.date <= date(year, 12, 31),
+    ).order_by(Holiday.date).all()
+    return render_template(
+        'admin_holidays.html', holidays=holidays, year=year,
+        holiday_types=(REGULAR_HOLIDAY, SPECIAL_HOLIDAY), csrf_token=holiday_csrf_token(),
+    )
 
 
 # ------------------ PROFILE (SELF / ADMIN) ------------------
@@ -4505,6 +4659,62 @@ def generate_ai_insights(emp):
     return insights
 
 
+def missing_punch_alerts(employee_id, today, before_today_only=False):
+    """Incomplete punches from the current and previous cutoff (Saturday-based)."""
+    cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)
+    window_start = cutoff_start - timedelta(days=7)
+    last_date = today - timedelta(days=1) if before_today_only else today
+    records = Attendance.query.filter(
+        Attendance.employee_id == employee_id,
+        Attendance.date >= window_start,
+        Attendance.date <= last_date,
+        db.or_(Attendance.clock_in.is_(None), Attendance.clock_out.is_(None)),
+    ).order_by(Attendance.date.desc()).all()
+    # Today's open clock-in is still an active shift, not a missing punch.
+    records = [
+        record for record in records
+        if not (record.date == today and record.clock_in is not None and record.clock_out is None)
+    ]
+    pending_dates = set()
+    if records:
+        pending_dates = {
+            correction.correction_date
+            for correction in AttendanceCorrection.query.filter(
+                AttendanceCorrection.employee_id == employee_id,
+                AttendanceCorrection.correction_date.in_([record.date for record in records]),
+                AttendanceCorrection.status == 'Pending',
+            ).all()
+        }
+    return [
+        {
+            'date': record.date,
+            'missing_clock_in': record.clock_in is None,
+            'missing_clock_out': record.clock_out is None,
+            'correction_pending': record.date in pending_dates,
+        }
+        for record in records
+    ]
+
+
+def missing_punch_payload(alerts):
+    payload = []
+    for alert in alerts:
+        if alert['missing_clock_in'] and alert['missing_clock_out']:
+            missing = 'walang Clock In at Clock Out'
+        elif alert['missing_clock_in']:
+            missing = 'walang Clock In'
+        else:
+            missing = 'walang Clock Out'
+        payload.append({
+            'date': alert['date'].isoformat(),
+            'label': alert['date'].strftime('%b %d, %Y'),
+            'missing': missing,
+            'correction_pending': alert['correction_pending'],
+            'correction_url': url_for('attendance_correction', correction_date=alert['date'].isoformat()),
+        })
+    return payload
+
+
 @app.route('/dashboard_staff', methods=["GET", "POST"])
 @login_required
 def dashboard_staff():
@@ -4537,38 +4747,15 @@ def dashboard_staff():
                 (manila_now - today_log.clock_in).total_seconds() / 3600,
                 0.0
             )
-    cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)
-    cutoff_attendance = Attendance.query.filter(
-        Attendance.employee_id == current_user.id,
-        Attendance.date >= cutoff_start,
-        Attendance.date <= today,
-    ).order_by(Attendance.date.desc()).all()
-    attendance_dates = [record.date for record in cutoff_attendance]
-    pending_correction_dates = set()
-    if attendance_dates:
-        pending_correction_dates = {
-            correction.correction_date
-            for correction in AttendanceCorrection.query.filter(
-                AttendanceCorrection.employee_id == current_user.id,
-                AttendanceCorrection.correction_date.in_(attendance_dates),
-                AttendanceCorrection.status == 'Pending',
-            ).all()
-        }
-    attendance_correction_alerts = [
-        {
-            'date': record.date,
-            'missing_clock_in': record.clock_in is None,
-            'missing_clock_out': record.clock_out is None,
-            'correction_pending': record.date in pending_correction_dates,
-        }
-        for record in cutoff_attendance
-        if (record.clock_in is None or record.clock_out is None)
-        and not (
-            record.date == today
-            and record.clock_in is not None
-            and record.clock_out is None
-        )
-    ]
+    attendance_correction_alerts = missing_punch_alerts(current_user.id, today)
+    thirteenth_month_rows = build_thirteenth_month_rows(today.year, current_user.id)
+    thirteenth_month = thirteenth_month_rows[0] if thirteenth_month_rows else {
+        'basic_pay': 0.0, 'thirteenth_month': 0.0, 'payroll_periods': 0, 'source': 'attendance',
+        'daily_rate': float(current_user.daily_rate or 0), 'rate_lines': [], 'days_paid': 0, 'full_day_pay': 0.0,
+        'short_deduction': 0.0, 'hours_short': 0.0, 'short_days': 0, 'absent_days': 0,
+        'holiday_days': 0, 'holiday_excluded': 0.0,
+        'calculation_warnings': [], 'attendance_basic': 0.0, 'payroll_basic': 0.0, 'coverage_start': None,
+    }
     insights = generate_ai_insights(current_user)
     month_start = today.replace(day=1)
     monthly_reminder = monthly_reminder_status(current_user, month_start)
@@ -4598,6 +4785,8 @@ def dashboard_staff():
         monthly_reminder=monthly_reminder,
         latest_payslip=latest_payslip,
         attendance_correction_alerts=attendance_correction_alerts,
+        thirteenth_month=thirteenth_month,
+        thirteenth_month_year=today.year,
         summary=dashboard_summary(current_user)
     )
 
@@ -5279,40 +5468,58 @@ def payroll_extra_pay(attendance, daily_rate):
     return restday_pay + overtime_pay
 
 
-def scheduled_workday_near(employee, holiday_date, direction):
+def present_near_holiday(employee_id, holiday_date, direction):
+    """Handbook rule: actually worked (completed attendance) on the nearest workday before/after the holiday.
+
+    Paid leave does not qualify. Sundays and holidays not worked are skipped, as DOLE requires
+    when the adjacent day is non-working.
+    """
     target = holiday_date + timedelta(days=direction)
-    for _ in range(7):
-        if target.weekday() != 6:
-            return target
+    for _ in range(14):
+        if completed_attendance_on(employee_id, target):
+            return True
+        if target.weekday() != 6 and not Holiday.query.filter_by(date=target).first():
+            return False
         target += timedelta(days=direction)
-    return holiday_date + timedelta(days=direction)
+    return False
 
 
-def paid_attendance_or_leave(employee_id, target_date):
-    attended = Attendance.query.filter(
+def completed_attendance_on(employee_id, target_date):
+    return Attendance.query.filter(
         Attendance.employee_id == employee_id,
         Attendance.date == target_date,
         Attendance.clock_out != None,
     ).first() is not None
-    if attended:
-        return True
-    return LeaveRequest.query.filter(
-        LeaveRequest.employee_id == employee_id,
-        LeaveRequest.status == 'Approved',
-        LeaveRequest.is_paid.is_(True),
-        LeaveRequest.start_date <= target_date,
-        LeaveRequest.end_date >= target_date,
-    ).first() is not None
 
 
 def eligible_for_regular_holiday_pay(attendance):
-    employee = attendance.employee or db.session.get(Employee, attendance.employee_id)
-    before_date = scheduled_workday_near(employee, attendance.date, -1)
-    after_date = scheduled_workday_near(employee, attendance.date, 1)
     return (
-        paid_attendance_or_leave(attendance.employee_id, before_date)
-        and paid_attendance_or_leave(attendance.employee_id, after_date)
+        present_near_holiday(attendance.employee_id, attendance.date, -1)
+        and present_near_holiday(attendance.employee_id, attendance.date, 1)
     )
+
+
+def unworked_regular_holiday_dates(employee, cutoff_start, cutoff_end, attendance_records):
+    """Regular holidays in [cutoff_start, cutoff_end) not worked but payable at 100%."""
+    if getattr(employee, 'payroll_attendance_exempt', False):
+        return []
+    worked_dates = {record.date for record in attendance_records}
+    holidays = Holiday.query.filter(
+        Holiday.date >= cutoff_start,
+        Holiday.date < cutoff_end,
+        Holiday.holiday_type == REGULAR_HOLIDAY,
+    ).order_by(Holiday.date).all()
+    return [
+        holiday.date for holiday in holidays
+        if holiday.date not in worked_dates
+        and present_near_holiday(employee.id, holiday.date, -1)
+        and present_near_holiday(employee.id, holiday.date, 1)
+    ]
+
+
+def unworked_regular_holiday_pay(employee, cutoff_start, cutoff_end, attendance_records, daily_rate):
+    dates = unworked_regular_holiday_dates(employee, cutoff_start, cutoff_end, attendance_records)
+    return float(daily_rate or 0) * len(dates)
 
 
 def regular_attendance_hours(attendance):
@@ -6160,6 +6367,7 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
         attendance = payroll_attendance_records(emp, cutoff_start, cutoff_end)
         daily_rate = float(emp.daily_rate or 0)
         basic_pay = sum(regular_day_pay(record, daily_rate) for record in attendance)
+        basic_pay += unworked_regular_holiday_pay(emp, cutoff_start, cutoff_end, attendance, daily_rate)
         overtime_pay = sum(
             payroll_extra_pay(record, daily_rate)
             for record in attendance
@@ -6253,7 +6461,71 @@ def build_company_payroll_summary(company, cutoff_start, cutoff_end, include_adm
     return rows
 
 
+def daily_rate_history_rows(employee_id):
+    return DailyRateHistory.query.filter_by(employee_id=employee_id).order_by(
+        DailyRateHistory.effective_date, DailyRateHistory.id
+    ).all()
+
+
+def daily_rate_on(employee, day, history=None):
+    """Daily rate in effect on `day`; falls back to the employee's current rate without history."""
+    history = daily_rate_history_rows(employee.id) if history is None else history
+    if not history:
+        return float(employee.daily_rate or 0)
+    rate = float(history[0].daily_rate or 0)
+    for entry in history:
+        if entry.effective_date > day:
+            break
+        rate = float(entry.daily_rate or 0)
+    return rate
+
+
+def record_daily_rate_change(employee, old_rate, new_rate, effective_date=None):
+    old_rate, new_rate = float(old_rate or 0), float(new_rate or 0)
+    if abs(old_rate - new_rate) < 0.005:
+        return
+    effective_date = effective_date or datetime.now(ZoneInfo('Asia/Manila')).date()
+    history = daily_rate_history_rows(employee.id)
+    if not history:
+        db.session.add(DailyRateHistory(
+            employee_id=employee.id, daily_rate=old_rate,
+            effective_date=date(effective_date.year, 1, 1), note='Rate before first recorded change',
+        ))
+    existing = next((entry for entry in history if entry.effective_date == effective_date), None)
+    if existing:
+        existing.daily_rate = new_rate
+    else:
+        db.session.add(DailyRateHistory(
+            employee_id=employee.id, daily_rate=new_rate, effective_date=effective_date,
+            note='Daily rate updated by admin',
+        ))
+
+
+def thirteenth_month_saved_basic(record):
+    """Return (basic_pay, error) from a finalized payslip snapshot; never gross or net pay."""
+    try:
+        snapshot = json.loads(record.payslip_snapshot or 'null')
+    except (ValueError, TypeError):
+        return None, 'Saved payslip breakdown is unreadable.'
+    if not isinstance(snapshot, dict) or snapshot.get('snapshot_version') != 1:
+        return None, 'A supported saved basic-pay breakdown is required.'
+    saved_basic = snapshot.get('basic_pay')
+    if (
+        isinstance(saved_basic, bool)
+        or not isinstance(saved_basic, (int, float))
+        or not isfinite(saved_basic)
+        or saved_basic < 0
+    ):
+        return None, 'Saved basic pay is missing or invalid.'
+    return float(saved_basic), None
+
+
 def build_thirteenth_month_rows(year, employee_id=None):
+    """DOLE PD 851: total basic salary earned in the year / 12.
+
+    Basic salary uses the daily rate in effect on each worked date, prorated for
+    late/undertime/half day. Holiday pay, premiums and overtime are excluded.
+    """
     query = Employee.query.filter(Employee.role.ilike('%staff%'))
     if employee_id is not None:
         query = query.filter(Employee.id == employee_id)
@@ -6268,23 +6540,122 @@ def build_thirteenth_month_rows(year, employee_id=None):
             Attendance.date >= year_start,
             Attendance.date <= year_end,
             Attendance.clock_out != None,
-        ).all()
-        basic_pay = sum(
-            regular_day_pay(record, float(employee.daily_rate or 0))
-            for record in attendance_records
-        )
+        ).order_by(Attendance.date).all()
+        history = daily_rate_history_rows(employee.id)
+        basic_pay = full_day_pay = hours_short = holiday_excluded = 0.0
+        days_paid = short_days = holiday_days = 0
+        rate_lines = {}
+        attendance_basic_by_date = {}
+        for record in attendance_records:
+            attendance_basic_by_date.setdefault(record.date, 0.0)
+            daily_rate = daily_rate_on(employee, record.date, history)
+            day_pay = regular_day_pay(record, daily_rate)
+            hours = regular_attendance_hours(record)
+            if day_pay <= 0 or hours <= 0:
+                continue
+            base_pay = daily_rate * hours / 8.0
+            if day_pay - base_pay > 0.005:
+                holiday_days += 1
+                holiday_excluded += day_pay - base_pay
+            basic_pay += base_pay
+            attendance_basic_by_date[record.date] += base_pay
+            full_day_pay += daily_rate
+            days_paid += 1
+            line = rate_lines.setdefault(round(daily_rate, 2), {
+                'rate': round(daily_rate, 2), 'days': 0, 'amount': 0.0,
+                'first_date': record.date, 'last_date': record.date,
+            })
+            line['days'] += 1
+            line['amount'] += daily_rate
+            line['last_date'] = record.date
+            if hours < 8.0:
+                hours_short += 8.0 - hours
+                short_days += 1
+        absent_days = Attendance.query.filter(
+            Attendance.employee_id == employee.id,
+            Attendance.date >= year_start,
+            Attendance.date <= year_end,
+            Attendance.status == 'Absent',
+        ).count()
         payroll_records = Payroll.query.filter(
             Payroll.employee_id == employee.id,
-            Payroll.cutoff_start >= year_start,
+            Payroll.cutoff_end >= year_start,
             Payroll.cutoff_start <= year_end,
         ).all()
-        if not attendance_records:
-            basic_pay = sum(float(record.gross_income or 0) for record in payroll_records)
+        source = 'attendance'
+        calculation_warnings = []
+        attendance_basic = basic_pay
+        payroll_basic = 0.0
+        payroll_periods = 0
+        counted_starts = list(attendance_basic_by_date)
+        for record in sorted(payroll_records, key=lambda item: item.cutoff_start):
+            period = f'Cutoff {record.cutoff_start} to {record.cutoff_end}'
+            covered_dates = [
+                day for day in attendance_basic_by_date
+                if record.cutoff_start <= day <= record.cutoff_end
+            ]
+            saved_basic, snapshot_error = thirteenth_month_saved_basic(record)
+            if covered_dates:
+                # Attendance is the basis; a finalized payslip with more basic pay means punches are missing.
+                crosses_year = record.cutoff_start < year_start or record.cutoff_end > year_end
+                if record.is_paid and saved_basic is not None and not crosses_year:
+                    attendance_period_basic = sum(attendance_basic_by_date[day] for day in covered_dates)
+                    if saved_basic - attendance_period_basic > 1.0:
+                        calculation_warnings.append(
+                            f'{period}: completed attendance shows PHP {attendance_period_basic:,.2f} basic pay '
+                            f'but the finalized payslip shows PHP {saved_basic:,.2f}. '
+                            'Missing Clock In/Out may be understating 13th-month pay; review attendance.'
+                        )
+                continue
+            if not record.is_paid:
+                if float(record.gross_income or 0) > 0:
+                    calculation_warnings.append(
+                        f'{period}: draft payroll has pay but no completed attendance, so it is not counted. '
+                        'Complete attendance or finalize the payroll.'
+                    )
+                continue
+            error = snapshot_error
+            if record.cutoff_start < year_start or record.cutoff_end > year_end:
+                error = 'Cutoff crosses calendar years; restore attendance to allocate basic pay.'
+            if error:
+                calculation_warnings.append(
+                    f'{period}: no completed attendance and basic pay is unverified, so it is excluded. '
+                    'Restore completed attendance or the historical basic-pay breakdown.'
+                )
+                logger.warning(
+                    '13th-month basis excluded payroll #%s for employee #%s: %s',
+                    record.id, employee.id, error,
+                )
+                continue
+            payroll_basic += saved_basic
+            payroll_periods += 1
+            counted_starts.append(record.cutoff_start)
+        basic_pay = attendance_basic + payroll_basic
+        coverage_start = min(counted_starts) if counted_starts else None
+        if payroll_periods:
+            source = 'mixed' if attendance_basic_by_date else 'payroll'
         rows.append({
             'employee': employee,
             'basic_pay': round(basic_pay, 2),
             'thirteenth_month': round(basic_pay / 12, 2),
-            'payroll_periods': len(payroll_records),
+            'payroll_periods': payroll_periods,
+            'attendance_basic': round(attendance_basic, 2),
+            'payroll_basic': round(payroll_basic, 2),
+            'source': source,
+            'coverage_start': coverage_start,
+            'calculation_warnings': calculation_warnings,
+            'daily_rate': round(float(employee.daily_rate or 0), 2),
+            'rate_lines': [
+                {**line, 'amount': round(line['amount'], 2)} for line in rate_lines.values()
+            ],
+            'days_paid': days_paid,
+            'full_day_pay': round(full_day_pay, 2),
+            'short_deduction': round(full_day_pay - attendance_basic, 2),
+            'hours_short': round(hours_short, 2),
+            'short_days': short_days,
+            'absent_days': absent_days,
+            'holiday_days': holiday_days,
+            'holiday_excluded': round(holiday_excluded, 2),
         })
     return rows
 
@@ -6335,7 +6706,7 @@ def thirteenth_month_pdf(year, rows, verification):
     y -= 18
     pdf.setFont('Helvetica', 9)
     for row in rows:
-        if y < 90:
+        if y < (120 if row['calculation_warnings'] else 90):
             pdf.showPage()
             y = 750
             pdf.setFont('Helvetica', 9)
@@ -6343,12 +6714,31 @@ def thirteenth_month_pdf(year, rows, verification):
         pdf.drawRightString(390, y, f'PHP {row["basic_pay"]:,.2f}')
         pdf.drawRightString(540, y, f'PHP {row["thirteenth_month"]:,.2f}')
         y -= 16
+        if row['calculation_warnings']:
+            pdf.setFont('Helvetica-Bold', 8)
+            pdf.drawString(50, y, 'INCOMPLETE - verified subtotal only; needs review')
+            y -= 12
+            pdf.setFont('Helvetica', 8)
+            for warning in row['calculation_warnings']:
+                for line in simpleSplit(warning, 'Helvetica', 8, 490):
+                    if y < 90:
+                        pdf.showPage()
+                        y = 750
+                        pdf.setFont('Helvetica', 8)
+                    pdf.drawString(50, y, line)
+                    y -= 12
+            y -= 4
+            pdf.setFont('Helvetica', 9)
 
     total_basic = sum(row['basic_pay'] for row in rows)
     total_thirteenth = sum(row['thirteenth_month'] for row in rows)
+    if y < 110:
+        pdf.showPage()
+        y = 750
     pdf.line(50, max(y, 70), 540, max(y, 70))
     pdf.setFont('Helvetica-Bold', 9)
-    pdf.drawString(50, max(y - 16, 54), 'TOTAL')
+    incomplete = any(row['calculation_warnings'] for row in rows)
+    pdf.drawString(50, max(y - 16, 54), 'VERIFIED SUBTOTAL (INCOMPLETE)' if incomplete else 'TOTAL')
     pdf.drawRightString(390, max(y - 16, 54), f'PHP {total_basic:,.2f}')
     pdf.drawRightString(540, max(y - 16, 54), f'PHP {total_thirteenth:,.2f}')
     pdf.setFont('Helvetica-Oblique', 8)
@@ -6397,6 +6787,7 @@ def thirteenth_month():
         year=year,
         total_basic=total_basic,
         total_thirteenth=total_thirteenth,
+        incomplete=any(row['calculation_warnings'] for row in rows),
         is_admin=has_payroll_access,
     )
 
@@ -7293,6 +7684,14 @@ def verify_document(verification_id):
         for key in (app.secret_key, LEGACY_DOCUMENT_HASH_KEY)
     }
     is_valid = employee is not None and record.verification_hash in expected_hashes and (record.document_type != 'payslip' or payroll is not None)
+    # A payslip QR stays valid only while its payroll is finalized with the same net pay;
+    # reopening or recalculating invalidates previously downloaded copies.
+    superseded = bool(
+        is_valid and record.document_type == 'payslip' and payroll is not None
+        and (not payroll.is_paid or abs(float(payroll.net_pay or 0) - float(record.net_pay or 0)) >= 0.01)
+    )
+    if superseded:
+        is_valid = False
     company_name = payroll_company_name(employee) if employee else 'AUTO-EXPERT AUTO SUPPLY / TRECE-UNO AUTO SUPPLY'
     company_key = str(employee.company or '').lower() if employee else ''
     if company_key.startswith('trece'):
@@ -7311,7 +7710,7 @@ def verify_document(verification_id):
                     <div><h1 style="margin:0;color:#176b4d;">{{ company_name }}</h1><p style="margin:5px 0 0;"><strong>Email:</strong> {{ email }}</p><p style="margin:5px 0 0;"><strong>Contact No.:</strong> {{ contact_no }}</p></div>
                 </div>
                 <h2 style="color:{{ '#176b4d' if is_valid else '#c0392b' }};">{% if is_valid %}This document is authentic{% else %}Verification Failed{% endif %}</h2>
-                {% if is_valid %}<p>This document matches the official HRIS record and was generated by the system.</p>{% else %}<p>This document could not be verified against the official HRIS records.</p>{% endif %}
+                {% if is_valid %}<p>This document matches the official HRIS record and was generated by the system.</p>{% if record.document_type == 'payslip' %}<p style="font-size:1.15rem;font-weight:700;color:#176b4d;">OK to release: PHP {{ "%.2f"|format(record.net_pay or 0) }}</p>{% endif %}{% elif superseded %}<p style="font-weight:700;">DO NOT RELEASE. This payslip was reopened or recalculated after it was downloaded. Ask the employee to download the latest payslip.</p>{% else %}<p>This document could not be verified against the official HRIS records.</p>{% endif %}
                 <section style="background:#f8faf9;border-left:5px solid #2879ad;padding:16px;margin-top:16px;">
                     <p><strong>Document ID:</strong> {{ record.document_id }}</p>
                     <p><strong>Employee:</strong> {{ employee_name }}</p>
@@ -7324,7 +7723,7 @@ def verify_document(verification_id):
                 <p style="font-size:.92rem;color:#546e7a;margin-top:18px;">For validation questions, contact the email/contact number shown above and provide the Document ID.</p>
             </main>
         </body></html>
-    ''', record=record, employee_name=(employee.full_name() if employee else 'Unknown Employee'), is_valid=is_valid, company_name=company_name, logo=logo, email=email, contact_no=contact_no,
+    ''', record=record, employee_name=(employee.full_name() if employee else 'Unknown Employee'), is_valid=is_valid, superseded=superseded, company_name=company_name, logo=logo, email=email, contact_no=contact_no,
         recorded_at=format_recorded_time(record.created_at))
 
 
@@ -7626,6 +8025,15 @@ def attendance_action(employee_id):
         db.session.commit()
         notify_attendance_event(emp, "clockin", event_now)
         flash("🟢 Clocked in successfully!", "success")
+        for alert in missing_punch_payload(
+            missing_punch_alerts(employee_id, event_now.date(), before_today_only=True)
+        ):
+            if not alert['correction_pending']:
+                flash(
+                    f"⚠️ Paalala: {alert['label']} — {alert['missing']}. "
+                    "Magsumite ng Attendance Correction para maisama sa payroll.",
+                    "warning",
+                )
 
     elif "clockout" in request.form:
         day_logs = Attendance.query.filter_by(
@@ -7710,7 +8118,10 @@ def attendance_api(employee_id):
             )
             return jsonify(status="success", message="🟢 Clocked in successfully!",
                            clocked_in=True, clock_in=log.clock_in.isoformat(),
-                           worked_hours=worked_hours)
+                           worked_hours=worked_hours,
+                           missing_punches=missing_punch_payload(
+                               missing_punch_alerts(employee_id, event_now.date(), before_today_only=True)
+                           ))
 
         elif "clockout" in request.form:
             day_logs = Attendance.query.filter_by(
@@ -8140,7 +8551,7 @@ def review_attendance_correction(correction_id, action):
 from flask import send_file
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
+from reportlab.lib.utils import ImageReader, simpleSplit
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
@@ -8347,6 +8758,12 @@ def calculate_payslip_breakdown(emp, payroll_record):
         overtime_amounts[key] += amount
         overtime_hours[key] += hours
 
+    unworked_holiday_dates = unworked_regular_holiday_dates(
+        emp, payroll_record.cutoff_start, payroll_record.cutoff_end + timedelta(days=1),
+        attendance_records,
+    )
+    regular_holiday += daily_rate * len(unworked_holiday_dates)
+
     calculated_overtime_pay = sum(overtime_amounts.values())
 
     gross_income = float(payroll_record.gross_income or 0)
@@ -8443,6 +8860,7 @@ def calculate_payslip_breakdown(emp, payroll_record):
         "special_holiday": special_holiday,
         "special_holiday_ot": special_holiday_ot,
         "regular_holiday": regular_holiday,
+        "unworked_regular_holiday_days": len(unworked_holiday_dates),
         "regular_holiday_ot": regular_holiday_ot,
         "late_ut": late_ut,
         "sss": sss,
@@ -8560,7 +8978,9 @@ def payroll(employee_id):
 
     if request.method == 'POST':
         # Update payroll fields
-        emp.daily_rate = float(request.form.get('daily_rate', emp.daily_rate))
+        new_daily_rate = float(request.form.get('daily_rate', emp.daily_rate))
+        record_daily_rate_change(emp, emp.daily_rate, new_daily_rate)
+        emp.daily_rate = new_daily_rate
         emp.allowance = float(request.form.get('allowance', emp.allowance))
         emp.incentives = float(request.form.get('incentives', emp.incentives))
 
@@ -8661,7 +9081,11 @@ def payroll(employee_id):
     worked_days_count = payroll_worked_days_count(emp, paid_attendance)
 
     daily_rate = emp.daily_rate or 0
+    unworked_holiday_pay = unworked_regular_holiday_pay(
+        emp, cutoff_start, cutoff_end, paid_attendance, daily_rate
+    )
     basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
+    basic_pay += unworked_holiday_pay
     approved_overtime_pay = sum(
         payroll_extra_pay(attendance, daily_rate)
         for attendance in paid_attendance
@@ -8680,7 +9104,7 @@ def payroll(employee_id):
 
     cutoff_salary = sum(
         regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
-    )
+    ) + unworked_holiday_pay
     contribution_salary = cutoff_salary + rice_taxable
     contributions = cutoff_statutory_contributions(emp, cutoff_start, contribution_salary)
     deductions = contributions['employee']
@@ -8956,6 +9380,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
     attendance = payroll_attendance_records(employee, cutoff_start, cutoff_end)
     daily_rate = float(employee.daily_rate or 0)
     basic_pay = sum(regular_day_pay(item, daily_rate) for item in attendance)
+    basic_pay += unworked_regular_holiday_pay(employee, cutoff_start, cutoff_end, attendance, daily_rate)
     overtime_pay = sum(
         payroll_extra_pay(item, daily_rate)
         for item in attendance if attendance_overtime_is_payable(item)
@@ -9150,6 +9575,90 @@ def finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
     record.confirmation_note = None
     record.confirmed_at = None
     return True
+
+
+def payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end):
+    """Open punches, pending corrections, or pending leave that must be settled before finalizing."""
+    issues = []
+    incomplete = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date >= cutoff_start, Attendance.date < cutoff_end,
+        db.or_(Attendance.clock_in.is_(None), Attendance.clock_out.is_(None)),
+    ).count()
+    if incomplete:
+        issues.append('Incomplete clock in/out')
+    if AttendanceCorrection.query.filter(
+        AttendanceCorrection.employee_id == employee.id,
+        AttendanceCorrection.correction_date >= cutoff_start,
+        AttendanceCorrection.correction_date < cutoff_end,
+        AttendanceCorrection.status == 'Pending',
+    ).count():
+        issues.append('Attendance correction pending')
+    if LeaveRequest.query.filter(
+        LeaveRequest.employee_id == employee.id,
+        LeaveRequest.status == 'Pending',
+        LeaveRequest.start_date < cutoff_end, LeaveRequest.end_date >= cutoff_start,
+    ).count():
+        issues.append('Leave request pending')
+    return issues
+
+
+def payroll_auto_finalize_blockers(employee, cutoff_start, cutoff_end):
+    reasons = []
+    if float(employee.daily_rate or 0) <= 0:
+        reasons.append('Missing daily rate')
+    paid_attendance = payroll_attendance_records(employee, cutoff_start, cutoff_end)
+    if payroll_worked_days_count(employee, paid_attendance) == 0:
+        reasons.append('No completed attendance')
+    if any(
+        payroll_overtime_hours(attendance) > 0 and not attendance_overtime_is_payable(attendance)
+        for attendance in paid_attendance
+    ):
+        reasons.append('OT needs approval')
+    return reasons + payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end)
+
+
+def auto_finalize_ready_payroll(today=None):
+    """Finalize only 'Ready' payroll for the cutoff ending today; everything else waits for Admin."""
+    today = today or datetime.now(ZoneInfo('Asia/Manila')).date()
+    cutoff_start, _ = current_payroll_cutoff(today)
+    cutoff_end = cutoff_start + timedelta(days=7)
+    finalized, skipped = [], {}
+    employees = Employee.query.filter(
+        Employee.payroll_attendance_exempt.is_(False),
+        Employee.first_name.isnot(None), Employee.first_name != '',
+        Employee.last_name.isnot(None), Employee.last_name != '',
+    ).order_by(Employee.id).all()
+    for employee in employees:
+        try:
+            records = Payroll.query.filter_by(
+                employee_id=employee.id, cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1),
+            ).all()
+            if len(records) > 1:
+                skipped[employee.full_name()] = ['Multiple payroll records']
+                continue
+            record = records[0] if records else None
+            if record is not None and record.is_paid:
+                continue
+            reasons = payroll_auto_finalize_blockers(employee, cutoff_start, cutoff_end)
+            if reasons:
+                skipped[employee.full_name()] = reasons
+                continue
+            if record is None:
+                record = Payroll(employee_id=employee.id, cutoff_start=cutoff_start,
+                                 cutoff_end=cutoff_end - timedelta(days=1))
+                db.session.add(record)
+            if finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
+                finalized.append(employee.full_name())
+            db.session.commit()
+        except (TypeError, ValueError, SQLAlchemyError):
+            db.session.rollback()
+            skipped[employee.full_name()] = ['Finalization error']
+            logger.exception('Auto-finalize failed for employee %s', employee.id)
+    logger.info('Auto-finalized payroll %s: %d finalized, %d need review %s',
+                cutoff_start, len(finalized), len(skipped), skipped)
+    return finalized, skipped
 
 
 @app.route('/payroll/zero-review', methods=['GET', 'POST'])
@@ -9538,7 +10047,9 @@ def payroll_dashboard():
             other_deductions = request.form.get(f'other_deductions_{emp.id}')
             try:
                 if daily_rate is not None:
-                    emp.daily_rate = max(float(daily_rate), 0)
+                    new_daily_rate = max(float(daily_rate), 0)
+                    record_daily_rate_change(emp, emp.daily_rate, new_daily_rate)
+                    emp.daily_rate = new_daily_rate
                 if allowance is not None:
                     emp.allowance = max(float(allowance), 0)
                 if rice_allowance is not None:
@@ -9648,7 +10159,11 @@ def payroll_dashboard():
         worked_days_count = payroll_worked_days_count(emp, paid_attendance)
 
         daily_rate = float(emp.daily_rate or 0)
+        unworked_holiday_pay = unworked_regular_holiday_pay(
+            emp, cutoff_start, cutoff_end, paid_attendance, daily_rate
+        )
         basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
+        basic_pay += unworked_holiday_pay
         ot_records = [
             attendance for attendance in paid_attendance
             if payroll_overtime_hours(attendance) > 0
@@ -9681,7 +10196,7 @@ def payroll_dashboard():
 
         cutoff_salary = sum(
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
-        )
+        ) + unworked_holiday_pay
         contribution_salary = cutoff_salary + rice_taxable
         contributions = cutoff_statutory_contributions(emp, cutoff_start, contribution_salary)
         deduction_values = contributions['employee']
@@ -9754,6 +10269,8 @@ def payroll_dashboard():
             for attendance in ot_records
         ):
             review_reasons.append('OT needs approval')
+        if not (payroll_record and payroll_record.is_paid):
+            review_reasons.extend(payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end))
         review_status = 'Needs Review' if review_reasons else 'Ready'
         if not emp.payroll_attendance_exempt:
             accounting_totals['total_net_pay'] += net_pay
@@ -9786,6 +10303,7 @@ def payroll_dashboard():
             "gross_income": gross_income,
             "deductions": deductions,
             "net_pay": net_pay,
+            "rice_exempt": round(net_pay - gross_income + deductions, 2),
             "is_paid": bool(payroll_record and payroll_record.is_paid),
             "review_status": review_status,
             "review_reasons": review_reasons,

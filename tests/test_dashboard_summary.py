@@ -6,7 +6,9 @@ from models import Attendance, Employee, Evaluation, LeaveRequest, Loan, Payroll
 
 def test_summary_uses_saved_payroll_balances_and_role_scope():
     with app.app_context():
-        today = dashboard_summary()['today']
+        baseline = dashboard_summary()
+        today = baseline['today']
+        baseline_loan_balance = baseline['loan_balance']
         first = Employee(first_name='Summary', last_name='First', role='staff', company='Trece-Uno', loan_balance=321, sil_credits=3)
         second = Employee(first_name='Summary', last_name='Second', role='staff', company='Auto Expert', loan_balance=654)
         admin = Employee(first_name='Summary', last_name='Admin', role='admin')
@@ -44,7 +46,7 @@ def test_summary_uses_saved_payroll_balances_and_role_scope():
             assert company['net_pay'] == 3600
             assert company['attendance_count'] == 2
             assert company['average_rating'] == 3
-            assert company['loan_balance'] == 975
+            assert company['loan_balance'] == baseline_loan_balance + 975
         finally:
             db.session.rollback()
 
@@ -80,8 +82,7 @@ def test_empty_summary_and_authenticated_dashboard_links():
                 assert html.index('id="attendanceForm"') < html.index('Summary &amp; Reports')
                 assert 'name="clockin"' in html and 'name="clockout"' in html
                 assert 'All staff tools' in html
-                assert 'Download Auto Expert Summary' in html
-                assert 'Download Trece-Uno Summary' in html
+                assert 'View Company Payroll Summary' in html
     finally:
         with app.app_context():
             db.session.rollback()

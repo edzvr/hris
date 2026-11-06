@@ -166,9 +166,9 @@
                 <label class="form-field">Work Location<input type="text" name="work_location" value="{{ emp.work_location or '' }}"></label>
                 <label class="form-field">PhilHealth Workweek (EMR basis)
                     <select name="contribution_workweek">
-                        <option value="" {% if not emp.contribution_workweek %}selected{% endif %}>Company default (5-day, x261/12)</option>
+                        <option value="" {% if not emp.contribution_workweek %}selected{% endif %}>Company default (from contribution settings)</option>
                         <option value="5" {% if emp.contribution_workweek == 5 %}selected{% endif %}>5-day workweek (x261/12)</option>
-                        <option value="6" {% if emp.contribution_workweek == 6 %}selected{% endif %}>6-day workweek (x313/12)</option>
+                        <option value="6" {% if emp.contribution_workweek == 6 %}selected{% endif %}>6-day workweek (x26 days/month)</option>
                     </select>
                 </label>
                 <label class="form-field">Tax Status<input type="text" name="tax_status" maxlength="30" value="{{ emp.tax_status or '' }}" placeholder="e.g. Single / Married / Minimum wage earner"></label>
