@@ -36,7 +36,7 @@ def render_dashboard(loan_balance, deduction):
 
 def test_staff_dashboard_shows_remaining_loan_balance_card():
     html = render_dashboard(2750.0, 500.0)
-    card = html[html.index('Remaining Loan Balance'):html.index('Summary &amp; Reports')]
+    card = html[html.index('Remaining Loan Balance'):html.index('aria-label="Company reminders"')]
     assert 'PHP 2,750.00' in card
     assert 'PHP 500.00' in card
     assert '<strong>6</strong> cutoff(s) remaining' in card
@@ -44,7 +44,7 @@ def test_staff_dashboard_shows_remaining_loan_balance_card():
 
 def test_staff_dashboard_loan_card_without_balance():
     html = render_dashboard(0.0, 500.0)
-    card = html[html.index('Remaining Loan Balance'):html.index('Summary &amp; Reports')]
+    card = html[html.index('Remaining Loan Balance'):html.index('aria-label="Company reminders"')]
     assert 'PHP 0.00' in card
     assert 'You have no outstanding loan.' in card
 
@@ -52,11 +52,11 @@ def test_staff_dashboard_loan_card_without_balance():
 def test_staff_dashboard_puts_clock_and_shortcuts_first_for_mobile():
     html = render_dashboard(0.0, 500.0)
     order = [html.index(marker) for marker in (
-        'id="attendanceForm"', 'aria-label="Staff shortcuts"', 'Remaining Loan Balance',
-        'aria-label="Company reminders"', 'Summary &amp; Reports', '<details class="dashboard-tools">',
+        'id="attendanceForm"', 'Summary &amp; Reports', 'aria-label="Staff shortcuts"', 'Remaining Loan Balance',
+        'aria-label="Company reminders"', '<details class="dashboard-tools">',
         'View My Analytics',
     )]
     assert order == sorted(order)
     assert 'Quick Actions' not in html
-    shortcuts = html[order[1]:order[2]]
+    shortcuts = html[order[2]:order[3]]
     assert shortcuts.count('class="btn btn-primary"') == 6

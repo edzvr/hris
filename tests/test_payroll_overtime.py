@@ -522,7 +522,7 @@ def test_rice_allowance_defaults_to_95_per_worked_day_without_paying_the_ceiling
     ) == (570, 0)
 
 
-def test_trece_rice_subsidy_is_capped_at_26_workdays_per_month():
+def test_trece_rice_subsidy_is_paid_for_every_worked_day_in_five_cutoff_month():
     employee = SimpleNamespace(
         id=17,
         company="Trece-Uno",
@@ -543,11 +543,12 @@ def test_trece_rice_subsidy_is_capped_at_26_workdays_per_month():
             employee, date(2026, 10, 31), worked_days=6
         )
 
-    assert rice_days == 2
+    assert rice_days == 6
     assert rice_used == 2280
+    # PHP 570 for 6 days; only PHP 220 fits under the PHP 2,500 monthly de minimis ceiling.
     assert rice_allowance_breakdown(
         employee, rice_days, cutoff_count=5, monthly_used=rice_used
-    ) == (190, 0)
+    ) == (220, 350)
 
 
 def test_other_de_minimis_is_combined_for_display_but_keeps_category_limits():

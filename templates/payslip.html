@@ -37,7 +37,7 @@
             <p><strong>Employee ID:</strong> {{ employee.id }}</p>
             <p><strong>Cut-Off:</strong> {{ payroll.cutoff_start.strftime('%m-%d-%Y') }} ~ {{ payroll.cutoff_end.strftime('%m-%d-%Y') }}</p>
             <p><strong>Position/Department:</strong> {{ (employee.job_description if payslip.legacy else payslip.job_description) or 'N/A' }} / {{ company or 'N/A' }}</p>
-            <p><strong>{{ 'Current Daily Rate (not historical)' if payslip.legacy else 'Snapshot Daily Rate' }}:</strong> ₱{{ (employee.daily_rate or 0 if payslip.legacy else payslip.daily_rate)|currency }}</p>
+            <p><strong>{{ 'Current Daily Rate (not historical)' if payslip.legacy else ('Daily Rate' if payslip.reconstructed else 'Snapshot Daily Rate') }}:</strong> ₱{{ (employee.daily_rate or 0 if payslip.legacy else payslip.daily_rate)|currency }}</p>
             <p><strong>Reference:</strong> {{ verification.document_id }}</p>
             <p><strong>Generated:</strong> {{ generated_at.strftime('%Y-%m-%d %I:%M %p') }} PHT</p>
         </div>

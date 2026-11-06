@@ -8610,14 +8610,8 @@ def rice_allowance_month_context(employee, cutoff_start, worked_days):
         float(configured_amount or RICE_SUBSIDY_PER_DAY),
         0.0,
     )
-    if str(getattr(employee, 'company', '') or '').lower().startswith('trece'):
-        prior_days = min(prior_days, 26)
-        current_days = min(
-            max(float(worked_days or 0), 0.0),
-            max(26 - prior_days, 0),
-        )
-    else:
-        current_days = max(float(worked_days or 0), 0.0)
+    # Rice is paid for every day worked; amounts above the monthly de minimis ceiling become taxable.
+    current_days = max(float(worked_days or 0), 0.0)
     return current_days, prior_days * daily_amount
 
 
@@ -8660,7 +8654,14 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
         data['employee'] = emp
         return data
     if payroll_record.id is not None:
-        # Legacy totals are authoritative; missing historical earnings cannot be reconstructed.
+        # Rebuild the itemized layout only when it reconciles exactly to the saved totals.
+        try:
+            rebuilt = calculate_payslip_breakdown(emp, payroll_record, use_rate_history=True)
+        except (ValueError, TypeError, ZeroDivisionError):
+            rebuilt = None
+        if rebuilt is not None:
+            rebuilt['reconstructed'] = True
+            return rebuilt
         return {
             'employee': emp,
             'legacy': True,
@@ -8674,7 +8675,7 @@ def build_payslip_breakdown(emp, payroll_record, worked_days_count=0, overtime_p
     return calculate_payslip_breakdown(emp, payroll_record)
 
 
-def calculate_payslip_breakdown(emp, payroll_record):
+def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
     """Return an itemized weekly payslip that reconciles to the payroll record."""
     duplicate_date = db.session.query(Attendance.date).filter(
         Attendance.employee_id == emp.id,
@@ -8693,6 +8694,11 @@ def calculate_payslip_breakdown(emp, payroll_record):
     )
 
     daily_rate = float(emp.daily_rate or 0)
+    rate_history = daily_rate_history_rows(emp.id) if use_rate_history else None
+    rate_for = (
+        (lambda day: daily_rate_on(emp, day, rate_history))
+        if rate_history else (lambda day: daily_rate)
+    )
     basic_pay = 0.0
     basic_hours = 0.0
     late_ut = 0.0
@@ -8711,9 +8717,10 @@ def calculate_payslip_breakdown(emp, payroll_record):
     overtime_hours = {key: 0.0 for key in overtime_amounts}
     for attendance in attendance_records:
         holiday = Holiday.query.filter_by(date=attendance.date).first()
-        day_pay = regular_day_pay(attendance, daily_rate)
+        day_rate = rate_for(attendance.date)
+        day_pay = regular_day_pay(attendance, day_rate)
         attendance_hours = regular_attendance_hours(attendance)
-        full_day_pay = regular_day_pay(attendance, daily_rate, hours_override=8)
+        full_day_pay = regular_day_pay(attendance, day_rate, hours_override=8)
         daily_shortfall = max(full_day_pay - day_pay, 0.0)
         shortfall_hours = max(8.0 - attendance_hours, 0.0)
         trece_sunday = is_trece_sunday(emp, attendance.date)
@@ -8739,7 +8746,7 @@ def calculate_payslip_breakdown(emp, payroll_record):
         if not attendance_overtime_is_payable(attendance):
             continue
         restday_amount, amount, paid_restday_hours, hours = restday_pay_breakdown(
-            attendance, daily_rate
+            attendance, day_rate
         )
         rest_day_pay += restday_amount
         rest_day_hours += paid_restday_hours
@@ -8762,7 +8769,7 @@ def calculate_payslip_breakdown(emp, payroll_record):
         emp, payroll_record.cutoff_start, payroll_record.cutoff_end + timedelta(days=1),
         attendance_records,
     )
-    regular_holiday += daily_rate * len(unworked_holiday_dates)
+    regular_holiday += sum(rate_for(day) for day in unworked_holiday_dates)
 
     calculated_overtime_pay = sum(overtime_amounts.values())
 
@@ -8830,7 +8837,7 @@ def calculate_payslip_breakdown(emp, payroll_record):
     return {
         "snapshot_version": 1,
         "legacy": False,
-        "daily_rate": daily_rate,
+        "daily_rate": rate_for(payroll_record.cutoff_end),
         "company": emp.company,
         "employee_name": emp.full_name(),
         "job_description": emp.job_description,
@@ -9205,7 +9212,7 @@ def payroll(employee_id):
     c.drawString(50, 730, f'Employee: {payslip.get("employee_name", emp.full_name())} (ID: {emp.id})')
     c.drawString(50, 714, f"Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}")
     c.drawString(50, 698, f'Position: {payslip.get("job_description", emp.job_description) or "N/A"}')
-    rate_label = 'Current rate' if payslip.get('legacy') else 'Snapshot rate'
+    rate_label = 'Current rate' if payslip.get('legacy') else ('Daily rate' if payslip.get('reconstructed') else 'Snapshot rate')
     c.drawString(300, 714, f'{rate_label}: PHP {float(payslip.get("daily_rate", emp.daily_rate) or 0):.2f}')
     c.drawString(300, 698, f"Department: {snapshot_company or 'N/A'}")
     c.drawString(
@@ -9928,7 +9935,7 @@ def download_payslip(emp_id, payroll_id):
     pdf.drawString(50, 730, f'Employee: {payslip.get("employee_name", employee.full_name())} (ID: {employee.id})')
     pdf.drawString(50, 714, f'Cutoff: {payroll_record.cutoff_start} to {payroll_record.cutoff_end}')
     pdf.drawString(50, 698, f'Position: {payslip.get("job_description", employee.job_description) or "N/A"}')
-    rate_label = 'Current rate' if payslip.get('legacy') else 'Snapshot rate'
+    rate_label = 'Current rate' if payslip.get('legacy') else ('Daily rate' if payslip.get('reconstructed') else 'Snapshot rate')
     pdf.drawString(300, 714, f'{rate_label}: PHP {float(payslip.get("daily_rate", employee.daily_rate) or 0):,.2f}')
     pdf.drawString(300, 698, f'Reference: {verification["document_id"]}')
     pdf.drawString(50, 682, f'Department: {snapshot_company or "N/A"}')

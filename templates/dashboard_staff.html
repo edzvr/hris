@@ -73,24 +73,23 @@
         .status.out { color:#e74c3c; }
         .clock { font-size:20px; font-weight:bold; margin-top:10px; color:#212529; }
         .hours { font-size:18px; margin-top:5px; color:#212529; }
-        .time-hub { display:flex; flex-direction:column; align-items:center; gap:8px; margin:6px auto 14px; }
-        .clock-ring { position:relative; display:block; width:min(180px, 55vw); aspect-ratio:1; padding:0; border:0; border-radius:50%; cursor:pointer; user-select:none;
-          background:radial-gradient(circle at 30% 25%, #ffffff, #eef3f8 70%); box-shadow:0 10px 28px rgba(18,44,59,.16), inset 0 2px 6px rgba(255,255,255,.9);
+        .time-hub { max-width:560px; margin:12px auto 14px; }
+        .clock-strip { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:12px 16px; border-radius:14px;
+          background:#fff; border:1px solid #dde4ec; box-shadow:0 4px 14px rgba(18,44,59,.08); cursor:pointer; user-select:none; text-align:left;
           transition:transform .18s ease, box-shadow .18s ease; -webkit-tap-highlight-color:transparent; }
-        .clock-ring:hover { box-shadow:0 14px 34px rgba(18,44,59,.22); }
-        .clock-ring:active { transform:scale(.96); }
-        .clock-ring:focus-visible { outline:3px solid #1f7fdf; outline-offset:4px; }
-        .clock-ring svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
-        .ring-track { fill:none; stroke:#dfe6ee; stroke-width:8; }
-        .ring-progress { fill:none; stroke:#27ae60; stroke-width:8; stroke-linecap:round; stroke-dasharray:327; stroke-dashoffset:327;
-          transition:stroke-dashoffset .8s ease, stroke .4s ease; }
-        .ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
-        .time-hub .clock { margin:0; font-size:clamp(28px, 9vw, 34px); font-weight:800; letter-spacing:-1px; line-height:1.05; font-variant-numeric:tabular-nums; }
-        .time-hub .clock small { font-size:.4em; font-weight:700; letter-spacing:0; margin-left:2px; color:#5b6b7a; }
-        .clock-label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#5b6b7a; }
-        .clock-sub { margin-top:4px; font-size:13px; color:#5b6b7a; max-width:80%; }
-        .time-hub.flip .ring-center { animation:clockFlip .35s ease; }
-        .time-hub.pulse .clock-ring { animation:clockPulse .7s ease; }
+        .clock-strip:hover { box-shadow:0 6px 18px rgba(18,44,59,.14); }
+        .clock-strip:active { transform:scale(.98); }
+        .clock-strip:focus-visible { outline:3px solid #1f7fdf; outline-offset:3px; }
+        .strip-time { display:flex; flex-direction:column; min-width:0; }
+        .strip-meta { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+        .strip-bar { width:100%; height:8px; border-radius:999px; background:#dfe6ee; overflow:hidden; }
+        .strip-progress { height:100%; width:0; border-radius:999px; background:#27ae60; transition:width .8s ease, background .4s ease; }
+        .time-hub .clock { margin:0; font-size:clamp(24px, 7vw, 30px); font-weight:800; letter-spacing:-.5px; line-height:1.1; font-variant-numeric:tabular-nums; }
+        .time-hub .clock small { font-size:.45em; font-weight:700; letter-spacing:0; margin-left:2px; color:#5b6b7a; }
+        .clock-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#5b6b7a; }
+        .clock-sub { font-size:13px; color:#5b6b7a; }
+        .time-hub.flip .strip-time { animation:clockFlip .35s ease; }
+        .time-hub.pulse .clock-strip { animation:clockPulse .7s ease; }
         @keyframes clockFlip { from { opacity:0; transform:rotateX(70deg); } to { opacity:1; transform:none; } }
         @keyframes clockPulse { 0% { box-shadow:0 0 0 0 rgba(39,174,96,.55); } 100% { box-shadow:0 0 0 26px rgba(39,174,96,0); } }
         .status-chip { display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px; font-size:14px; background:#eef1f4; color:#3d4a56; }
@@ -102,8 +101,8 @@
         .status-chip[data-status="done"] { background:#e6f1fd; color:#164f8a; }
         .status-chip[data-status="done"] i { background:#1f7fdf; }
         @keyframes liveDot { 0%,100% { box-shadow:0 0 0 0 rgba(39,174,96,.6); } 50% { box-shadow:0 0 0 6px rgba(39,174,96,0); } }
-        .time-hub .hours { margin:0; font-size:15px; font-weight:600; }
-        .ring-hint { color:#7a8794; font-size:12px; }
+        .time-hub .hours { margin:0; font-size:14px; font-weight:600; }
+        .ring-hint { display:block; margin-top:6px; color:#7a8794; font-size:12px; text-align:center; }
         .lunch-panel { display:flex; align-items:center; gap:12px; max-width:560px; margin:4px auto 12px; padding:12px 16px; border-radius:12px;
           background:#fff4d6; color:#6b4f00; font-weight:700; text-align:left; border-left:6px solid #f39c12; }
         .lunch-panel[data-phase="soon"], .lunch-panel[data-phase="ending"] { background:#ffe8cc; border-left-color:#e67e22; animation:lunchNudge 1.6s ease-in-out infinite; }
@@ -122,12 +121,12 @@
         #attendanceForm[data-state="out"] button[name="clockout"] { opacity:.45; box-shadow:none; }
         #attendanceForm[data-state="out"] button[name="clockin"],
         #attendanceForm[data-state="in"] button[name="clockout"] { box-shadow:0 6px 16px rgba(0,0,0,.18); }
-        .dark-mode .clock-ring { background:radial-gradient(circle at 30% 25%, #2b3440, #1c232c 70%); box-shadow:0 10px 28px rgba(0,0,0,.4); }
-        .dark-mode .ring-track { stroke:#36414d; }
+        .dark-mode .clock-strip { background:#1c232c; border-color:#36414d; box-shadow:0 4px 14px rgba(0,0,0,.4); }
+        .dark-mode .strip-bar { background:#36414d; }
         .dark-mode .time-hub .clock, .dark-mode .time-hub .hours { color:#f1f4f7; }
         .dark-mode .clock-label, .dark-mode .clock-sub, .dark-mode .time-hub .clock small { color:#aeb9c4; }
         @media (prefers-reduced-motion: reduce) {
-          .time-hub *, .time-hub.flip .ring-center, .time-hub.pulse .clock-ring { animation:none !important; transition:none !important; }
+          .time-hub *, .time-hub.flip .strip-time, .time-hub.pulse .clock-strip { animation:none !important; transition:none !important; }
         }
 
         .dashboard-links {
@@ -299,33 +298,31 @@
           </li>
         </ul>
       </aside>
-      <div class="time-hub" id="timeHub" data-mode="time">
-        <div role="button" tabindex="0" class="clock-ring" id="clockRing" aria-label="Tap to switch between current time and worked hours">
-          <svg viewBox="0 0 120 120" aria-hidden="true">
-            <circle class="ring-track" cx="60" cy="60" r="52"></circle>
-            <circle id="progressBar" class="ring-progress" cx="60" cy="60" r="52"></circle>
-          </svg>
-          <span class="ring-center">
-            <span id="clockLabel" class="clock-label">Oras ngayon</span>
-            <span id="clock" class="clock">--:--</span>
-            <span id="clockSub" class="clock-sub">--</span>
-          </span>
-        </div>
-        <span id="clockStatus" class="status-chip" data-status="out"><i aria-hidden="true"></i><b>Not clocked in</b></span>
-        <div id="hoursWorked" class="hours">--</div>
-        <small class="ring-hint">I-tap ang orasan para makita ang oras o worked hours</small>
-      </div>
        <div id="attendanceState"
          data-clocked-in="{{ 'true' if clocked_in else 'false' }}"
          data-clock-in="{{ clock_in_iso }}"
          data-worked-hours="{{ worked_hours }}"></div>
        <div id="attendanceMessage" role="status" aria-live="polite"
          style="display:none; margin:12px auto; max-width:560px; padding:10px; border-radius:6px; color:#fff;"></div>
-       <aside id="missingPunchReminder" class="attendance-correction-reminder" role="alert" hidden>
-         <h2>⚠️ May kulang kang punch sa mga nakaraang araw</h2>
-         <p>Hindi ito maisasama sa payroll hangga't hindi naitatama at naaaprubahan.</p>
-         <ul id="missingPunchList"></ul>
-       </aside>
+      <form id="attendanceForm" method="POST" action="{{ url_for('attendance_action', employee_id=current_user.id) }}" data-api="{{ url_for('attendance_api', employee_id=current_user.id) }}">
+        <button type="submit" name="clockin" class="btn btn-green">🟢 Clock In</button>
+        <button type="submit" name="clockout" class="btn btn-red">🔴 Clock Out</button>
+      </form>
+      <div class="time-hub" id="timeHub" data-mode="time">
+        <div role="button" tabindex="0" class="clock-strip" id="clockRing" aria-label="Tap to switch between current time and worked hours">
+          <span class="strip-time">
+            <span id="clockLabel" class="clock-label">Oras ngayon</span>
+            <span id="clock" class="clock">--:--</span>
+            <span id="clockSub" class="clock-sub">--</span>
+          </span>
+          <span class="strip-meta">
+            <span id="clockStatus" class="status-chip" data-status="out"><i aria-hidden="true"></i><b>Not clocked in</b></span>
+            <span id="hoursWorked" class="hours">--</span>
+          </span>
+          <span class="strip-bar" aria-hidden="true"><span id="progressBar" class="strip-progress"></span></span>
+        </div>
+        <small class="ring-hint">I-tap para makita ang oras o worked hours</small>
+      </div>
        <div id="lunchBreakPanel" class="lunch-panel" role="status" aria-live="polite" style="display:none;">
          <span class="lunch-icon" aria-hidden="true">🍽️</span>
          <div>
@@ -337,11 +334,11 @@
          <li><span aria-hidden="true">☕</span> <span><strong>Break:</strong> allowed ang 15 mins sa umaga at 15 mins sa hapon. Hindi kailangang mag-Clock Out.</span></li>
          <li><span aria-hidden="true">🍽️</span> <span><strong>Lunch:</strong> 12:00–1:00 PM. Kusang naka-pause ang timer at may paalala 5 mins bago magsimula at bago matapos.</span></li>
        </ul>
-
-      <form id="attendanceForm" method="POST" action="{{ url_for('attendance_action', employee_id=current_user.id) }}" data-api="{{ url_for('attendance_api', employee_id=current_user.id) }}">
-        <button type="submit" name="clockin" class="btn btn-green">🟢 Clock In</button>
-        <button type="submit" name="clockout" class="btn btn-red">🔴 Clock Out</button>
-      </form>
+       <aside id="missingPunchReminder" class="attendance-correction-reminder" role="alert" hidden>
+         <h2>⚠️ May kulang kang punch sa mga nakaraang araw</h2>
+         <p>Hindi ito maisasama sa payroll hangga't hindi naitatama at naaaprubahan.</p>
+         <ul id="missingPunchList"></ul>
+       </aside>
       {% if attendance_correction_alerts %}
       <aside class="attendance-correction-reminder" role="alert" aria-live="polite">
         <h2>Paalala sa attendance at payroll</h2>
@@ -372,6 +369,9 @@
       <p class="attendance-correction-hint">Nakalimutang mag-Clock In/Out? <a href="{{ url_for('attendance_correction') }}">Magsumite ng Attendance Correction</a>.</p>
       {% endif %}
     </div>
+
+    {% set dashboard_is_admin = false %}
+    {% include 'partials/dashboard_summary.html' %}
 
     <nav class="container card dashboard-section staff-shortcuts" aria-label="Staff shortcuts">
         <h2>Shortcuts</h2>
@@ -412,9 +412,6 @@
         </ul>
         <a href="{{ url_for('company_reminders') }}" class="btn">View company reminder calendar</a>
     </section>
-
-    {% set dashboard_is_admin = false %}
-    {% include 'partials/dashboard_summary.html' %}
 
     {% if current_user.admin_payroll_access %}
     <div class="container card dashboard-section">
@@ -553,7 +550,6 @@
 <script>
     // Real-time Clock
     const TARGET_HOURS = 8;
-    const RING_LENGTH = 2 * Math.PI * 52;
     const timeHub = document.getElementById('timeHub');
     let latestWork = { hours: 0, onLunch: false, clockedIn: false, clockInTime: null };
 
@@ -709,9 +705,8 @@
         ? `Lunch break · ${displayHours} hrs worked`
         : `${displayHours} hrs worked · ${left > 0 ? formatDuration(left) + ' left' : 'target reached'}`;
       const progress = Math.min(diffHrs / TARGET_HOURS, 1);
-      progressEl.style.strokeDasharray = RING_LENGTH;
-      progressEl.style.strokeDashoffset = RING_LENGTH * (1 - progress);
-      progressEl.style.stroke = progress >= 1 ? '#1f7fdf' : onLunch ? '#f39c12' : '#27ae60';
+      progressEl.style.width = `${progress * 100}%`;
+      progressEl.style.background = progress >= 1 ? '#1f7fdf' : onLunch ? '#f39c12' : '#27ae60';
 
       latestWork = { hours: diffHrs, onLunch, clockedIn: isClockedIn, clockInTime };
       const statusEl = document.getElementById('clockStatus');

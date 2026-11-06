@@ -374,3 +374,49 @@ def test_ambiguous_source_records_block_draft_recalculation(people, kind):
     assert response.status_code == 302
     with app.app_context():
         assert payroll_state(db.session.get(Payroll, people[2])) == original
+
+
+def test_legacy_payslip_rebuilds_itemized_layout_when_it_matches_saved_totals():
+    from models import DailyRateHistory
+    with app.app_context():
+        staff = Employee(
+            first_name="Rebuilt", last_name="Legacy", role="staff", daily_rate=645,
+            company="Trece-Uno", loan_balance=0, rice_allowance_per_day=95,
+        )
+        db.session.add(staff)
+        db.session.flush()
+        staff_id = staff.id
+        db.session.add_all([
+            DailyRateHistory(employee_id=staff_id, daily_rate=600, effective_date=date(2031, 1, 1)),
+            DailyRateHistory(employee_id=staff_id, daily_rate=645, effective_date=date(2031, 10, 28)),
+        ])
+        for day in (27, 28):
+            db.session.add(Attendance(
+                employee_id=staff_id, date=date(2031, 10, day), status="Present",
+                clock_in=datetime(2031, 10, day, 8), clock_out=datetime(2031, 10, day, 17),
+                hours=8, company=staff.company,
+            ))
+        record = Payroll(
+            employee_id=staff_id, cutoff_start=date(2031, 10, 25), cutoff_end=date(2031, 10, 31),
+            gross_income=1245, total_deductions=100, other_deductions=100, net_pay=1335,
+        )
+        db.session.add(record)
+        db.session.commit()
+        try:
+            detail = build_payslip_breakdown(staff, record)
+            assert not detail["legacy"] and detail["reconstructed"]
+            assert detail["basic_pay"] == 1245
+            assert detail["rice_allowance_days"] == 2
+            assert detail["rice_allowance"] == 190
+            assert detail["net_pay"] == 1335
+            assert "Basic Pay" in str(weekly_payslip_table_data(detail))
+
+            record.net_pay = 1300
+            mismatch = build_payslip_breakdown(staff, record)
+            assert mismatch["legacy"] and mismatch["net_pay"] == 1300
+        finally:
+            db.session.rollback()
+            for model in (Payroll, Attendance, DailyRateHistory):
+                model.query.filter_by(employee_id=staff_id).delete()
+            Employee.query.filter_by(id=staff_id).delete()
+            db.session.commit()

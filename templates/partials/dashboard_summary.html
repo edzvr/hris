@@ -1,13 +1,14 @@
-<section class="summary-workspace" aria-label="Dashboard summaries and reports">
+<section class="summary-workspace{% if not dashboard_is_admin %} staff-summary{% endif %}" aria-label="Dashboard summaries and reports">
   <h2>Summary &amp; Reports</h2>
   <p>{{ summary.month_start }} to {{ summary.today }}: attendance records. Payroll amounts below are saved finalized records, not estimates.</p>
   <div class="summary-grid">
-    <section class="summary-panel">
+    <section class="summary-panel summary-panel--attendance">
       <h3>Attendance</h3>
-      <p><strong>{{ summary.attendance_count }}</strong> records this month</p>
+      <p class="summary-big"><strong>{{ summary.attendance_count }}</strong> <span>records this month</span></p>
       <dl><dt>Present</dt><dd>{{ summary.present }}</dd><dt>Late</dt><dd>{{ summary.late }}</dd><dt>Absent recorded</dt><dd>{{ summary.absent }}</dd></dl>
       <p class="summary-note">No record does not automatically mean absent.</p>
       {% if not dashboard_is_admin and thirteenth_month is defined %}
+        <div class="thirteenth-month-block">
         <h4 class="thirteenth-month-title">Prorated 13th month pay computation ({{ thirteenth_month_year }})</h4>
         {% if thirteenth_month.calculation_warnings %}
         <div role="alert">
@@ -39,9 +40,10 @@
         {% endif %}
         <p class="summary-note">Basic pay earned after unpaid absences, late time, undertime and half day ÷ 12. These reductions are not deducted again from 13th month pay. Overtime, allowances and incentives are excluded. Uses the daily rate in effect on each completed attendance date{% if thirteenth_month.payroll_periods %}; cutoffs without attendance use saved basic pay from finalized payslips, never gross or net pay{% endif %}. Holiday premiums are not included; a worked holiday counts at 1x basic pay only{% if thirteenth_month.holiday_days %} (PHP {{ thirteenth_month.holiday_excluded|currency }} holiday premium excluded from {{ thirteenth_month.holiday_days }} day(s)){% endif %}. Estimate until released.</p>
         <a href="{{ url_for('thirteenth_month') }}">View 13th month pay</a>
+        </div>
       {% endif %}
-      <a href="{{ url_for('holiday_ot_dashboard') if dashboard_is_admin else url_for('attendance', employee_id=current_user.id) }}">View attendance details</a>
-      <details><summary>Attendance actions &amp; reports</summary>
+      <a href="{{ url_for('holiday_ot_dashboard') if dashboard_is_admin else url_for('attendance', employee_id=current_user.id) }}">View attendance →</a>
+      <details><summary>More actions</summary>
         {% if dashboard_is_admin %}
           <a href="{{ url_for('biometric_import') }}">Biometric upload</a>
           <a href="#attendance-corrections">Review attendance corrections</a>
@@ -53,15 +55,15 @@
         {% endif %}
       </details>
     </section>
-    <section class="summary-panel">
+    <section class="summary-panel summary-panel--payroll">
       <h3>Payroll</h3>
       {% if summary.latest_payroll %}
+        <p class="summary-big"><strong>PHP {{ summary.net_pay|currency }}</strong> <span>finalized net pay</span></p>
         <p>{{ summary.latest_payroll.cutoff_start }} to {{ summary.latest_payroll.cutoff_end }}</p>
-        <p><strong>PHP {{ summary.net_pay|currency }}</strong> finalized net pay</p>
         <p>{{ summary.finalized_count }} finalized / {{ summary.draft_count }} drafts for this cutoff</p>
       {% else %}<p>No finalized payroll yet.</p>{% endif %}
-      <a href="{{ url_for('payroll_dashboard') if dashboard_is_admin else url_for('payroll', employee_id=current_user.id) }}">View payroll details</a>
-      <details><summary>Payroll history &amp; reports</summary>
+      <a href="{{ url_for('payroll_dashboard') if dashboard_is_admin else url_for('payroll', employee_id=current_user.id) }}">View payroll →</a>
+      <details><summary>More actions</summary>
         {% if dashboard_is_admin %}
           <a href="{{ url_for('admin_payroll_history') }}">Payroll history</a>
           <a href="{{ url_for('monthly_deductions') }}">Monthly deductions</a>
@@ -73,30 +75,32 @@
         <a href="{{ url_for('employee_liabilities') }}">Liabilities</a>
       </details>
     </section>
-    <section class="summary-panel">
+    <section class="summary-panel summary-panel--loan">
       <h3>Loan &amp; Leave</h3>
+      {% if not dashboard_is_admin %}<p class="summary-big"><strong>PHP {{ summary.loan_balance|currency }}</strong> <span>outstanding loan</span></p>{% endif %}
       <dl><dt>Outstanding loan balance</dt><dd>PHP {{ summary.loan_balance|currency }}</dd>
         <dt>Pending loan requests</dt><dd>{{ summary.pending_loans }}</dd>
         <dt>Pending leave requests</dt><dd>{{ summary.pending_leaves }}</dd>
         <dt>Approved leave requests (all time)</dt><dd>{{ summary.approved_leaves }}</dd>
         {% if not dashboard_is_admin %}<dt>SIL credits</dt><dd>{{ current_user.sil_credits if current_user.sil_eligible else 'Not eligible' }}</dd>{% endif %}
       </dl>
-      <details><summary>Requests, balances &amp; statements</summary>
+      <details><summary>Requests &amp; balances</summary>
         <a href="{{ url_for('loan') }}">Loan details / requests</a>
         <a href="{{ url_for('leave') }}">Leave details / requests</a>
       </details>
     </section>
-    <section class="summary-panel">
+    <section class="summary-panel summary-panel--performance">
       <h3>Performance</h3>
+      {% if not dashboard_is_admin %}<p class="summary-big"><strong>{{ '%.2f'|format(summary.average_rating) if summary.average_rating is not none else '—' }}</strong> <span>average approved rating</span></p>{% endif %}
       <dl><dt>Approved rated evaluations</dt><dd>{{ summary.approved_evaluations }}</dd>
         <dt>Average approved rating</dt><dd>{{ '%.2f'|format(summary.average_rating) if summary.average_rating is not none else 'No approved rating yet' }}</dd>
         <dt>Pending evaluation review</dt><dd>{{ summary.pending_evaluations }}</dd>
       </dl>
-      <a href="{{ url_for('evaluation_dashboard') if dashboard_is_admin else url_for('assessment', action='menu') }}">View performance details</a>
+      <a href="{{ url_for('evaluation_dashboard') if dashboard_is_admin else url_for('assessment', action='menu') }}">View performance →</a>
       {% if not dashboard_is_admin and peer_evaluation_pending %}
         <p><a href="{{ url_for('peer_evaluation') }}">Monthly peer evaluation is due</a></p>
       {% endif %}
-      <details><summary>Evaluation &amp; quiz actions</summary>
+      <details><summary>More actions</summary>
         {% if dashboard_is_admin %}<a href="{{ url_for('admin_quiz_upload') }}">Quiz questionnaire</a>
         {% else %}
           <a href="{{ url_for('peer_evaluation') }}">Monthly peer evaluation{% if peer_evaluation_pending %} (Due){% endif %}</a>
@@ -105,7 +109,7 @@
         {% endif %}
       </details>
     </section>
-    <section class="summary-panel">
+    <section class="summary-panel summary-panel--reports">
       <h3>Reports &amp; Documents</h3>
       <p>Open the relevant report to choose the period and available download.</p>
       <details><summary>Open report center</summary>

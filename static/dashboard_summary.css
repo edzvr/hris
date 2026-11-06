@@ -87,3 +87,32 @@
   .cutoff-day-strip { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .cutoff-tools label { width:100%; }
 }
+
+/* Staff dashboard: compact summary cards */
+.staff-summary .summary-grid { gap: 12px; }
+.staff-summary .summary-panel { padding: 16px; border-radius: 14px; box-shadow: 0 2px 8px #1b3a2a0d; }
+.staff-summary .summary-panel h3 { margin: 0 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: #4b5d53; }
+.staff-summary .summary-big { margin: 0 0 8px; }
+.staff-summary .summary-big strong { display: block; font-size: 26px; line-height: 1.15; color: #12352a; }
+.staff-summary .summary-big span { font-size: 13px; color: #627269; }
+.staff-summary .summary-panel dl { gap: 4px 10px; font-size: 13px; margin: 8px 0; }
+.staff-summary .summary-panel dt { color: #627269; }
+.staff-summary .summary-panel dd { font-weight: 600; }
+.staff-summary .summary-panel > a { font-weight: 600; padding: 8px 0; }
+.staff-summary .summary-panel summary { font-size: 14px; padding: 8px 0; color: #4b5d53; }
+.staff-summary .summary-panel--payroll { background: #f0faf4; border-color: #cfe9da; }
+.staff-summary .summary-panel--loan { background: #fff8e8; border-color: #f1e0b4; }
+.staff-summary .summary-panel--performance { background: #f5f2fd; border-color: #ddd5f3; }
+.staff-summary .summary-panel--reports { grid-column: 1 / -1; }
+.staff-summary .thirteenth-month-block { margin-top: 8px; font-size: 13px; }
+.dark-mode .staff-summary .summary-panel { background: #2c3e50; border-color: #3d5165; }
+.dark-mode .staff-summary .summary-big strong { color: #ecf0f1; }
+.dark-mode .staff-summary .summary-panel h3, .dark-mode .staff-summary .summary-panel dt,
+.dark-mode .staff-summary .summary-big span, .dark-mode .staff-summary .summary-panel summary { color: #c5d3dc; }
+@media(max-width:600px) {
+  .staff-summary .summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  .staff-summary .summary-panel { padding: 12px; }
+  .staff-summary .summary-panel--attendance { grid-column: 1 / -1; }
+  .staff-summary .summary-big strong { font-size: 21px; }
+}
+@media(max-width:360px) { .staff-summary .summary-grid { grid-template-columns: minmax(0,1fr); } }
