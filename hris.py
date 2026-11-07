@@ -8522,6 +8522,15 @@ def attendance_correction():
                 or not effective_clock_in
             ):
                 raise ValueError
+            if any(
+                value is not None and value.date() != correction_date
+                for value in (requested_clock_in, requested_clock_out)
+            ) or (requested_clock_out is not None and requested_clock_out <= effective_clock_in):
+                flash(
+                    'Clock in and clock out must be on the correction date, and clock out must be after clock in.',
+                    'danger',
+                )
+                return redirect(url_for('attendance_correction', correction_date=correction_date.isoformat()))
             db.session.add(AttendanceCorrection(
                 employee_id=current_user.id,
                 correction_date=correction_date,
@@ -8575,6 +8584,16 @@ def review_attendance_correction(correction_id, action):
             )
             return redirect(url_for('dashboard_admin'))
         attendance_record = attendance_records[0] if attendance_records else None
+        if any(
+            value is not None and value.date() != correction.correction_date
+            for value in (correction.requested_clock_in, correction.requested_clock_out)
+        ):
+            flash(
+                'The requested time is on a different date from the correction date. '
+                'Reject it and ask the staff to submit again with the correct date.',
+                'danger',
+            )
+            return redirect(url_for('dashboard_admin'))
         if correction.attendance_id and (
             attendance_record is None
             or attendance_record.id != correction.attendance_id
@@ -8609,7 +8628,23 @@ def review_attendance_correction(correction_id, action):
             if attendance_record.clock_out else None
         )
         correction.attendance = attendance_record
-        flash('Attendance correction approved. Recalculate the employee payroll.', 'success')
+        correction_cutoff, _ = current_payroll_cutoff(correction.correction_date)
+        affected_payroll = Payroll.query.filter_by(
+            employee_id=correction.employee_id, cutoff_start=correction_cutoff,
+        ).first()
+        if affected_payroll is not None and affected_payroll.is_paid:
+            flash(
+                f'Attendance correction approved, but the {correction_cutoff:%b %d} cutoff payroll is already '
+                'finalized and was NOT changed. Payroll Dashboard → Reopen / Recalculate, then '
+                '"Preview Draft Recalculation" → Approve → Finalize.',
+                'warning',
+            )
+        else:
+            flash(
+                f'Attendance correction approved. Open the {correction_cutoff:%b %d} cutoff payroll and '
+                'click "Preview Draft Recalculation" to apply it.',
+                'success',
+            )
     else:
         correction.status = 'Rejected'
         correction.reviewed_by = current_user.id
@@ -9982,10 +10017,10 @@ def reopen_payroll(employee_id):
         payroll_record.confirmation_note = None
         payroll_record.confirmed_at = None
         db.session.commit()
-        flash('Payroll reopened and its loan deduction was reversed. Open the payroll page to recalculate it.', 'success')
+        flash('Payroll reopened and its loan deduction was reversed. Click "Preview Draft Recalculation" below to apply attendance changes.', 'success')
     else:
         flash('No payroll record found for the current cutoff.', 'warning')
-    return redirect(url_for('payroll', employee_id=employee_id))
+    return redirect(url_for('payroll', employee_id=employee_id, cutoff_start=cutoff_start.isoformat()))
 
 
 @app.route('/payslip/<int:emp_id>/<int:payroll_id>')

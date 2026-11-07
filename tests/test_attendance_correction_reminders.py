@@ -334,3 +334,64 @@ def test_biometric_preview_marks_duplicate_rows_from_same_upload():
             db.session.delete(db.session.get(Employee, employee_id))
             db.session.delete(db.session.get(Employee, admin_id))
             db.session.commit()
+
+
+def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
+    from datetime import date
+    from models import Payroll
+
+    correction_date = date(2026, 11, 5)
+    with app.app_context():
+        admin = Employee(first_name='Fix', last_name='Admin', role='admin')
+        staff = Employee(first_name='Fix', last_name='Staff', role='staff', company='Trece-Uno')
+        db.session.add_all([admin, staff])
+        db.session.flush()
+        attendance = Attendance(employee_id=staff.id, date=correction_date, status='Present',
+                                clock_in=datetime(2026, 11, 5, 8))
+        payroll = Payroll(employee_id=staff.id, cutoff_start=date(2026, 10, 31),
+                          cutoff_end=date(2026, 11, 6), is_paid=True)
+        db.session.add_all([attendance, payroll])
+        db.session.flush()
+        wrong = AttendanceCorrection(employee_id=staff.id, correction_date=correction_date,
+                                     requested_clock_out=datetime(2026, 11, 7, 17),
+                                     reason='Forgot out', attendance=attendance)
+        right = AttendanceCorrection(employee_id=staff.id, correction_date=correction_date,
+                                     requested_clock_out=datetime(2026, 11, 5, 17),
+                                     reason='Forgot out', attendance=attendance)
+        db.session.add_all([wrong, right])
+        db.session.commit()
+        ids = admin.id, staff.id
+        wrong_id, right_id, attendance_id = wrong.id, right.id, attendance.id
+    try:
+        staff_client = app.test_client()
+        with app.app_context():
+            log_in(staff_client, db.session.get(Employee, ids[1]))
+        response = staff_client.post('/attendance/correction', data={
+            'correction_date': '2026-11-05', 'requested_clock_in': '2026-11-05T08:00',
+            'requested_clock_out': '2026-11-07T17:00', 'reason': 'Wrong date',
+        }, follow_redirects=True)
+        assert b'must be on the correction date' in response.data
+
+        admin_client = app.test_client()
+        with app.app_context():
+            log_in(admin_client, db.session.get(Employee, ids[0]))
+        with patch('hris.send_notification_email'):
+            response = admin_client.post(f'/admin/attendance-correction/{wrong_id}/approve', follow_redirects=False)
+            with admin_client.session_transaction() as session:
+                messages = [message for _, message in session.get('_flashes', [])]
+            assert any('different date' in message for message in messages)
+            admin_client.post(f'/admin/attendance-correction/{right_id}/approve')
+            with admin_client.session_transaction() as session:
+                messages = [message for _, message in session.get('_flashes', [])]
+        assert any('already finalized and was NOT changed' in message for message in messages)
+        with app.app_context():
+            assert db.session.get(AttendanceCorrection, wrong_id).status == 'Pending'
+            assert db.session.get(Attendance, attendance_id).clock_out == datetime(2026, 11, 5, 17)
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            AttendanceCorrection.query.filter(AttendanceCorrection.employee_id == ids[1]).delete()
+            Attendance.query.filter(Attendance.employee_id == ids[1]).delete()
+            Payroll.query.filter(Payroll.employee_id == ids[1]).delete()
+            Employee.query.filter(Employee.id.in_(ids)).delete(synchronize_session=False)
+            db.session.commit()
