@@ -1173,6 +1173,8 @@ def ensure_document_verification_columns():
         statements.append("ALTER TABLE payslip_verifications ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     if 'verification_hash' not in columns:
         statements.append("ALTER TABLE payslip_verifications ADD COLUMN verification_hash VARCHAR(128) NOT NULL DEFAULT ''")
+    if 'superseded_at' not in columns:
+        statements.append("ALTER TABLE payslip_verifications ADD COLUMN superseded_at TIMESTAMP")
     for statement in statements:
         db.session.execute(text(statement))
     if db.engine.dialect.name == 'postgresql' and 'payroll_id' in columns:
@@ -3591,19 +3593,50 @@ def apply_liability_deduction(employee_id, amount):
             liability.status = 'Fully Paid'
 
 
-def reverse_liability_deduction(employee_id, amount):
+def liability_reversal_states(employee_id, amount):
     remaining = max(float(amount or 0), 0.0)
     records = EmployeeLiability.query.filter_by(employee_id=employee_id).order_by(EmployeeLiability.updated_at.desc()).all()
     for liability in records:
-        if remaining <= 0:
-            break
-        reversed_amount = min(float(liability.amount_deducted or 0), remaining)
-        if reversed_amount <= 0:
+        deducted = float(liability.amount_deducted or 0)
+        status = liability.status
+        reversed_amount = min(deducted, remaining)
+        if reversed_amount > 0:
+            deducted = max(deducted - reversed_amount, 0.0)
+            remaining -= reversed_amount
+            balance = max(
+                float(liability.total_amount or 0) - deducted
+                - float(liability.amount_recovered or 0),
+                0.0,
+            )
+            if status == 'Fully Paid' and balance > 0:
+                status = 'Active'
+        yield liability, deducted, status
+
+
+def liability_deduction_after_reversal(employee_id, amount):
+    total = 0.0
+    for liability, deducted, status in liability_reversal_states(employee_id, amount):
+        if (
+            status not in ('Active', 'Partially Recovered')
+            or liability.acknowledgment_status != 'Acknowledged'
+        ):
             continue
-        liability.amount_deducted = max(float(liability.amount_deducted or 0) - reversed_amount, 0.0)
-        remaining -= reversed_amount
-        if liability.status == 'Fully Paid' and liability.remaining_balance > 0:
-            liability.status = 'Active'
+        balance = max(
+            float(liability.total_amount or 0) - deducted
+            - float(liability.amount_recovered or 0),
+            0.0,
+        )
+        scheduled = float(liability.deduction_per_cutoff or 0)
+        if scheduled > 0:
+            total += min(scheduled, balance)
+    return round(total, 2)
+
+
+def reverse_liability_deduction(employee_id, amount):
+    for liability, deducted, status in liability_reversal_states(employee_id, amount):
+        if deducted != float(liability.amount_deducted or 0):
+            liability.amount_deducted = deducted
+            liability.status = status
 
 
 
@@ -6966,6 +6999,7 @@ def build_document_verification(document_type, employee_id, label, reference_id=
     }
     if document_type == 'payslip':
         verification_filters['net_pay'] = float(net_pay or 0)
+        verification_filters['superseded_at'] = None
     existing = PayslipVerification.query.filter_by(**verification_filters).first()
     if existing is not None:
         verification_id = existing.document_id
@@ -7016,6 +7050,12 @@ def build_payslip_verification(employee_id, payroll_id, cutoff_start, cutoff_end
         cutoff_end=cutoff_end,
         net_pay=net_pay,
     )
+
+
+def supersede_payslip_verifications(payroll_id):
+    PayslipVerification.query.filter_by(
+        payroll_id=payroll_id, document_type='payslip', superseded_at=None,
+    ).update({'superseded_at': datetime.utcnow()}, synchronize_session=False)
 
 
 HR_DOCUMENT_TYPES = {
@@ -7775,11 +7815,13 @@ def verify_document(verification_id):
         for key in (app.secret_key, LEGACY_DOCUMENT_HASH_KEY)
     }
     is_valid = employee is not None and record.verification_hash in expected_hashes and (record.document_type != 'payslip' or payroll is not None)
-    # A payslip QR stays valid only while its payroll is finalized with the same net pay;
-    # reopening or recalculating invalidates previously downloaded copies.
     superseded = bool(
         is_valid and record.document_type == 'payslip' and payroll is not None
-        and (not payroll.is_paid or abs(float(payroll.net_pay or 0) - float(record.net_pay or 0)) >= 0.01)
+        and (
+            record.superseded_at is not None
+            or not payroll.is_paid
+            or abs(float(payroll.net_pay or 0) - float(record.net_pay or 0)) >= 0.01
+        )
     )
     if superseded:
         is_valid = False
@@ -8633,11 +8675,19 @@ def review_attendance_correction(correction_id, action):
             employee_id=correction.employee_id, cutoff_start=correction_cutoff,
         ).first()
         if affected_payroll is not None and affected_payroll.is_paid:
-            flash(
-                f'Attendance correction approved. The {correction_cutoff:%b %d} cutoff payroll is already '
-                'finalized: open Payroll Dashboard and click "Update & Finalize" on the staff card.',
-                'warning',
-            )
+            if correction_cutoff == completed_cutoff()[0]:
+                flash(
+                    f'Attendance correction approved. The {correction_cutoff:%b %d} cutoff payroll is '
+                    'finalized: open Payroll Dashboard and click "Recalculate & Finalize" on the staff card.',
+                    'warning',
+                )
+            else:
+                flash(
+                    f'Attendance correction approved, but the finalized {correction_cutoff:%b %d} '
+                    'payroll was not changed. Only the latest completed cutoff can be recalculated '
+                    'from the Payroll Dashboard.',
+                    'warning',
+                )
         else:
             flash(
                 f'Attendance correction approved. Open the {correction_cutoff:%b %d} cutoff payroll and '
@@ -10001,6 +10051,10 @@ def finalized_payroll_update_preview(employee, record, cutoff_start, cutoff_end)
     projected.is_paid = False
     projected.loan_deduction_applied = False
     projected.liability_deduction_applied = False
+    if record.liability_deduction_applied and projected.liability_deduction_override is None:
+        projected.liability_deduction_override = liability_deduction_after_reversal(
+            employee.id, record.liability_deduction,
+        )
     original_balance = employee.loan_balance
     restored = float(record.loan or 0) if record.loan_deduction_applied else 0.0
     with db.session.no_autoflush:
@@ -10018,14 +10072,18 @@ def update_finalized_payroll(employee_id):
     if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
+    selected_cutoff = request.form.get('cutoff_start')
+    if not selected_cutoff:
+        flash('Select a cutoff before recalculating. Nothing was changed.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
     try:
-        start, end = payroll_cutoff_from_request(request.form.get('cutoff_start'))
+        start, end = payroll_cutoff_from_request(selected_cutoff)
     except ValueError:
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('payroll_dashboard'))
     back = redirect(url_for('payroll_dashboard', cutoff_start=start.isoformat()))
     if start != completed_cutoff()[0]:
-        flash('Only the latest completed cutoff can be updated.', 'warning')
+        flash('Only the latest completed cutoff can be updated. Nothing was changed.', 'warning')
         return back
     lock_attendance_employee(employee.id)
     db.session.refresh(employee)
@@ -10050,6 +10108,7 @@ def update_finalized_payroll(employee_id):
             record.liability_deduction_applied = False
         record.is_paid = False
         finalize_payroll_record(employee, record, start, end)
+        supersede_payslip_verifications(record.id)
         db.session.add(AuditLog(
             employee_id=current_user.id, employee_name=current_user.full_name(),
             action=f'Updated finalized payroll employee {employee.id} ({start}): net {old_net:.2f} -> {float(record.net_pay or 0):.2f}',
@@ -10076,9 +10135,19 @@ def reopen_payroll(employee_id):
     if not can_manage_admin_payroll(current_user):
         return 'Access denied', 403
     employee = Employee.query.get_or_404(employee_id)
+    cutoff_start, cutoff_end = completed_cutoff()
+    selected_cutoff = request.form.get('cutoff_start')
+    if selected_cutoff:
+        try:
+            selected_start, _ = payroll_cutoff_from_request(selected_cutoff)
+        except ValueError:
+            flash('Select a Saturday cutoff start date. Nothing was changed.', 'danger')
+            return redirect(url_for('payroll_dashboard'))
+        if selected_start != cutoff_start:
+            flash('Only the latest completed cutoff can be reopened. Nothing was changed.', 'warning')
+            return redirect(url_for('payroll_dashboard', cutoff_start=selected_start.isoformat()))
     lock_attendance_employee(employee.id)
     db.session.refresh(employee)
-    cutoff_start, cutoff_end = completed_cutoff()
     payroll_record = Payroll.query.filter_by(
         employee_id=employee_id,
         cutoff_start=cutoff_start,
@@ -10096,6 +10165,7 @@ def reopen_payroll(employee_id):
         payroll_record.confirmation_status = None
         payroll_record.confirmation_note = None
         payroll_record.confirmed_at = None
+        supersede_payslip_verifications(payroll_record.id)
         db.session.commit()
         flash('Payroll reopened and its loan deduction was reversed. Click "Preview Draft Recalculation" below to apply attendance changes.', 'success')
     else:
@@ -10288,6 +10358,8 @@ def payroll_dashboard():
         return redirect(url_for('payroll_dashboard'))
     start_cutoff = datetime.combine(cutoff_start, time.min)
     end_cutoff = datetime.combine(cutoff_end, time.min)
+    latest_completed_start, latest_completed_end = completed_cutoff()
+    is_latest_completed_cutoff = cutoff_start == latest_completed_start
 
     if request.method == 'POST':
         for emp in Employee.query.order_by(
@@ -10536,23 +10608,35 @@ def payroll_dashboard():
             review_reasons.append('OT needs approval')
         if not (payroll_record and payroll_record.is_paid):
             review_reasons.extend(payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end))
-        pending_update = None
+        finalized_update = None
         if (
             payroll_record and payroll_record.is_paid
             and not emp.payroll_attendance_exempt
-            and cutoff_start == completed_cutoff()[0]
+            and is_latest_completed_cutoff
         ):
+            blockers = payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end)
+            review_reasons.extend(blockers)
             try:
                 fresh = finalized_payroll_update_preview(emp, payroll_record, cutoff_start, cutoff_end)
-            except (ValueError, SQLAlchemyError):
+            except (ValueError, SQLAlchemyError) as exc:
+                logger.exception('Could not preview finalized payroll for employee %s', emp.id)
+                if isinstance(exc, SQLAlchemyError):
+                    db.session.rollback()
                 fresh = None
-            if fresh is not None and abs(float(fresh['net_pay']) - net_pay) >= 0.01:
-                pending_update = {
-                    'old_net': net_pay, 'new_net': float(fresh['net_pay']),
-                    'old_gross': gross_income, 'new_gross': float(fresh['gross_income']),
-                    'blockers': payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end),
-                }
-                review_reasons.append('Attendance changed after finalize — update needed')
+                review_reasons.append('Payroll recalculation preview unavailable')
+            has_changes = fresh is not None and (
+                round(float(fresh['net_pay']), 2) != round(net_pay, 2)
+                or round(float(fresh['gross_income']), 2) != round(gross_income, 2)
+            )
+            finalized_update = {
+                'old_net': net_pay, 'old_gross': gross_income,
+                'new_net': float(fresh['net_pay']) if fresh is not None else None,
+                'new_gross': float(fresh['gross_income']) if fresh is not None else None,
+                'has_changes': has_changes, 'blockers': blockers,
+                'preview_error': fresh is None,
+            }
+            if has_changes:
+                review_reasons.append('Payroll amounts differ from the current calculation')
         review_status = 'Needs Review' if review_reasons else 'Ready'
         if not emp.payroll_attendance_exempt:
             accounting_totals['total_net_pay'] += net_pay
@@ -10589,7 +10673,7 @@ def payroll_dashboard():
             "is_paid": bool(payroll_record and payroll_record.is_paid),
             "review_status": review_status,
             "review_reasons": review_reasons,
-            "pending_update": pending_update,
+            "finalized_update": finalized_update,
         })
 
     return render_template("payroll_dashboard.html",
@@ -10597,7 +10681,10 @@ def payroll_dashboard():
                            accounting_totals=accounting_totals,
                            cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
                            start_cutoff=start_cutoff.date(),
-                           end_cutoff=(end_cutoff - timedelta(days=1)).date())
+                           end_cutoff=(end_cutoff - timedelta(days=1)).date(),
+                           is_latest_completed_cutoff=is_latest_completed_cutoff,
+                           latest_completed_start=latest_completed_start,
+                           latest_completed_end=latest_completed_end - timedelta(days=1))
 
 # ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 6PM) ------------------
 @app.route('/holiday_overtime', methods=['GET'])

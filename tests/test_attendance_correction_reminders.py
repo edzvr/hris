@@ -375,7 +375,9 @@ def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
         admin_client = app.test_client()
         with app.app_context():
             log_in(admin_client, db.session.get(Employee, ids[0]))
-        with patch('hris.send_notification_email'):
+        with patch('hris.send_notification_email'), patch(
+            'hris.completed_cutoff', return_value=(date(2026, 10, 31), date(2026, 11, 7))
+        ):
             response = admin_client.post(f'/admin/attendance-correction/{wrong_id}/approve', follow_redirects=False)
             with admin_client.session_transaction() as session:
                 messages = [message for _, message in session.get('_flashes', [])]
@@ -383,7 +385,7 @@ def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
             admin_client.post(f'/admin/attendance-correction/{right_id}/approve')
             with admin_client.session_transaction() as session:
                 messages = [message for _, message in session.get('_flashes', [])]
-        assert any('Update & Finalize' in message for message in messages)
+        assert any('Recalculate & Finalize' in message for message in messages)
         with app.app_context():
             assert db.session.get(AttendanceCorrection, wrong_id).status == 'Pending'
             assert db.session.get(Attendance, attendance_id).clock_out == datetime(2026, 11, 5, 17)

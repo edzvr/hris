@@ -428,6 +428,7 @@ class PayslipVerification(db.Model):
     cutoff_end = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     verification_hash = db.Column(db.String(128), nullable=False)
+    superseded_at = db.Column(db.DateTime, nullable=True)
 
     employee = db.relationship("Employee", backref="payslip_verifications")
     payroll = db.relationship("Payroll", backref="verification_records")

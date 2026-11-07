@@ -14,6 +14,10 @@
         .page-shell { max-width: 1680px; margin: 0 auto; }
         .page-header, .panel { margin-bottom: 16px; padding: 20px; border: 1px solid #d6e0e7; border-radius: 10px; background: #fff; }
         .page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .payroll-flash { margin-bottom: 12px; padding: 12px 15px; border: 1px solid #b9c8d3; border-radius: 8px; background: #edf4f8; }
+        .payroll-flash-success { border-color: #83bda0; background: #e7f5eb; color: #175b37; }
+        .payroll-flash-warning { border-color: #e5b35b; background: #fff7e6; color: #804b00; }
+        .payroll-flash-danger, .payroll-flash-error { border-color: #e4a29d; background: #fff0ef; color: #a3261e; }
         .page-subtitle, .muted { margin: 6px 0 0; color: #586b7a; }
         .panel-heading { margin-bottom: 14px; }
         .cutoff-form, .filter-grid, .summary-grid, .toolbar-actions, .report-links { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
@@ -65,6 +69,13 @@
         .payroll-amounts span { display:block; font-size:12px; margin-bottom:6px; }
         .payroll-amounts strong { font-size:16px; overflow-wrap:anywhere; }
         .payroll-amounts .payroll-net { background:#e7f2eb; color:#175b37; }
+        .payroll-update-box { margin:10px 0; padding:12px; border:1px solid #a9c7d9; border-radius:8px; background:#f2f8fc; }
+        .payroll-update-box.changed { border-color:#d97706; background:#fff7ed; }
+        .payroll-update-box p { margin:6px 0; font-size:13px; }
+        .payroll-update-error { color:#b42318; font-weight:700; }
+        .payroll-recalculate, .payroll-recalculate.btn { margin-top:6px; min-height:44px; background:#176b9a; color:#fff; }
+        .payroll-recalculate:hover, .payroll-recalculate.btn:hover { background:#11577f; color:#fff; }
+        .payroll-recalculate:disabled { background:#c5d0d7; color:#465763; cursor:not-allowed; }
         .payroll-detail-toggle > summary { cursor:pointer; padding:10px 0; color:#17577e; font-weight:700; }
         .payroll-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:12px 0; border-top:1px solid #e2e8f0; }
         .payroll-field { min-width:0; display:grid; align-content:start; gap:7px; font-size:13px; }
@@ -83,6 +94,7 @@
             .toolbar-actions { align-items: stretch; flex-direction: column; width: 100%; }
             .toolbar-actions button, .toolbar-actions a { width: 100%; text-align: center; }
             .payroll-fields { grid-template-columns:1fr; }
+            .payroll-recalculate { width:100%; }
         }
     </style>
 </head>
@@ -99,6 +111,12 @@
         </div>
         <a class="btn" href="{{ url_for('admin_payroll_history') }}">View Payroll History</a>
     </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="payroll-flash payroll-flash-{{ category }}" role="{{ 'alert' if category in ['danger', 'error', 'warning'] else 'status' }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
 
     <section class="panel">
         <div class="panel-heading">
@@ -230,22 +248,40 @@
                     {% if p.rice_exempt > 0.004 %}
                     <p class="payroll-card-company">Net = Gross + ₱{{ p.rice_exempt|currency }} rice subsidy (non-taxable) − Deductions</p>
                     {% endif %}
-                    {% if p.pending_update %}
-                    {% set u = p.pending_update %}
-                    <div class="payroll-update-alert" role="alert" style="border:2px solid #d97706;background:#fff7ed;border-radius:8px;padding:10px;margin:8px 0;">
-                        <strong>⚠ Nagbago ang attendance pagkatapos i-finalize</strong>
-                        <p style="margin:6px 0;">Net Pay: ₱{{ u.old_net|currency }} → <strong>₱{{ u.new_net|currency }}</strong>
+                    {% if p.is_paid and is_latest_completed_cutoff %}
+                    {% set u = p.finalized_update %}
+                    <div class="payroll-update-box {{ 'changed' if u.has_changes else '' }}">
+                        <strong>Recalculate payroll</strong>
+                        {% if u.preview_error %}
+                        <p class="payroll-update-error" role="alert">Hindi ma-compute ang preview. Walang binago; suriin ang payroll records.</p>
+                        {% elif u.has_changes %}
+                        <p>Bagong kalkulasyon — Net Pay: ₱{{ u.old_net|currency }} → <strong>₱{{ u.new_net|currency }}</strong>
                             (Gross ₱{{ u.old_gross|currency }} → ₱{{ u.new_gross|currency }})</p>
-                        {% if u.blockers %}
-                        <p style="margin:6px 0;color:#b91c1c;">Ayusin muna: {{ u.blockers|join(', ') }}</p>
                         {% else %}
-                        <button type="submit" class="btn"
+                        <p>Finalized na. Maaaring i-recalculate at i-finalize ulit ang payroll na ito.</p>
+                        {% endif %}
+                        {% if u.blockers %}
+                        <p class="payroll-update-error" role="alert">Ayusin muna: {{ u.blockers|join(', ') }}</p>
+                        {% endif %}
+                        <button type="submit" class="payroll-recalculate"
                                 formaction="{{ url_for('update_finalized_payroll', employee_id=p.emp.id) }}"
                                 formmethod="POST" formnovalidate
-                                onclick="return confirm('I-update at i-finalize ulit ang payroll na ito? Net ₱{{ u.old_net|currency }} → ₱{{ u.new_net|currency }}');">
-                            🔄 Update &amp; Finalize (₱{{ u.new_net|currency }})
+                                {% if u.blockers or u.preview_error %}disabled{% endif %}
+                                onclick="return confirm('I-recalculate at i-finalize ulit ang payroll na ito? Hindi na valid ang lumang payslip QR.');">
+                            🔄 Recalculate &amp; Finalize
                         </button>
-                        {% endif %}
+                    </div>
+                    {% elif p.is_paid %}
+                    <div class="payroll-update-box">
+                        <strong>Recalculate payroll</strong>
+                        <p>Para lang sa pinakahuling natapos na cutoff ({{ latest_completed_start.strftime('%b %d') }}–{{ latest_completed_end.strftime('%b %d, %Y') }}). Hindi babaguhin ang napiling cutoff na ito.</p>
+                        <button type="button" class="payroll-recalculate" disabled>🔄 Recalculate &amp; Finalize</button>
+                    </div>
+                    {% else %}
+                    <div class="payroll-update-box">
+                        <strong>Recalculate payroll</strong>
+                        <p>Unpaid draft: review and approve the preview before saving.</p>
+                        <a class="btn payroll-recalculate" href="{{ url_for('recalculate_payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}">🔄 Preview / Recalculate</a>
                     </div>
                     {% endif %}
                     <details class="payroll-detail-toggle">
@@ -325,7 +361,7 @@
                         {% if p.is_paid %}
                         <button type="submit"
                             formaction="{{ url_for('reopen_payroll', employee_id=p.emp.id) }}"
-                            formmethod="POST">Reopen / Recalculate</button>
+                            formmethod="POST" {% if not is_latest_completed_cutoff %}disabled{% endif %}>Reopen / Recalculate</button>
                         {% endif %}
                     </div>
                     </details>
