@@ -12,6 +12,11 @@
 
 <div class="container my-4">
 <article class="employee-record" data-employee="{{ emp.id }}" aria-label="Attendance for {{ emp.first_name }} {{ emp.last_name }}">
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}" role="alert">{{ message }}</div>
+    {% endfor %}
+{% endwith %}
     <!-- Header with Single Logo -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         {% if emp.company == "Auto-Expert" %}
@@ -29,6 +34,55 @@
 
     {% if current_user.role and current_user.role.lower() == 'admin' %}
     <p><a href="{{ url_for('attendance_reconciliation', employee_id=emp.id, attendance_date=selected_attendance_date or '') }}">Review Duplicate Attendance</a> (admin only; backup and preview required)</p>
+    {% endif %}
+
+    {% if can_edit_attendance %}
+    <section class="card border-primary mb-4" aria-labelledby="admin-attendance-edit-title">
+        <div class="card-body">
+            <h2 id="admin-attendance-edit-title" class="h4">Ayusin ang Attendance</h2>
+            <p>Admin: piliin ang petsa at ilagay ang na-verify na actual clock-in at clock-out.</p>
+            <p class="small">Hindi awtomatikong nagbabago ang payroll. Hindi rin binabago ang existing OT at leave approvals; i-review ang mga ito bago mag-recalculate.</p>
+            <form id="admin-attendance-edit" method="post" action="{{ url_for('admin_edit_attendance', employee_id=emp.id) }}" onsubmit="return confirm('I-save ang verified attendance times? Hindi nito awtomatikong babaguhin ang payroll.');">
+                <input type="hidden" name="csrf_token" value="{{ edit_csrf_token }}">
+                <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                <div class="mb-3">
+                    <label for="admin-attendance-date" class="form-label">Petsa sa cutoff</label>
+                    <select id="admin-attendance-date" name="attendance_entry" class="form-select" style="min-height:44px" required>
+                        <option value="">Piliin ang petsa</option>
+                        {% for option in edit_options %}
+                        <option value="{{ option.value }}" data-clock-in="{{ option.clock_in }}" data-clock-out="{{ option.clock_out }}"
+                            {% if option.disabled %}disabled{% elif selected_attendance_date == option.date %}selected{% endif %}>
+                            {{ option.date }} &mdash; {{ option.description }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Kung may pending correction, i-review muna sa admin dashboard. Ang duplicate records ay kailangang i-reconcile muna.</div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6">
+                        <label for="admin-clock-in" class="form-label">Actual clock-in</label>
+                        <input type="time" step="1" id="admin-clock-in" name="clock_in" class="form-control" style="min-height:44px" required>
+                    </div>
+                    <div class="col-sm-6">
+                        <label for="admin-clock-out" class="form-label">Actual clock-out</label>
+                        <input type="time" step="1" id="admin-clock-out" name="clock_out" class="form-control" style="min-height:44px" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="admin-attendance-reason" class="form-label">Source o dahilan ng correction</label>
+                    <textarea id="admin-attendance-reason" name="reason" class="form-control" rows="2" maxlength="500" required></textarea>
+                </div>
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary" style="min-height:44px">Save Attendance</button>
+                    {% if finalized_cutoff %}
+                    <a class="btn btn-outline-primary" style="min-height:44px" href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_start) }}">Bumalik sa Payroll Dashboard</a>
+                    {% else %}
+                    <a class="btn btn-outline-primary" style="min-height:44px" href="{{ url_for('recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Preview / Recalculate Payroll</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </section>
     {% endif %}
 
     <!-- Cutoff Filter -->
@@ -159,6 +213,20 @@
     </details>
 </article>
 </div>
+{% if can_edit_attendance %}
+<script>
+    const attendanceDate = document.getElementById('admin-attendance-date');
+    const attendanceClockIn = document.getElementById('admin-clock-in');
+    const attendanceClockOut = document.getElementById('admin-clock-out');
+    function loadAttendanceTimes() {
+        const selected = attendanceDate.options[attendanceDate.selectedIndex];
+        attendanceClockIn.value = selected.dataset.clockIn || '';
+        attendanceClockOut.value = selected.dataset.clockOut || '';
+    }
+    attendanceDate.addEventListener('change', loadAttendanceTimes);
+    loadAttendanceTimes();
+</script>
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

@@ -205,6 +205,7 @@
     {% endif %}
     {% if can_manage_payroll %}
     <p><a href="{{ url_for('recalculate_payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Preview Draft Recalculation</a> (unpaid payroll only; approval required)</p>
+    <p><a href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Ayusin Attendance</a></p>
     {% endif %}
     {% if payslip.legacy %}
     {% include 'payroll_legacy_summary.html' %}

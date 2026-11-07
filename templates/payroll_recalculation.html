@@ -25,5 +25,6 @@ I approve replacing this unpaid draft's totals with this preview and saving its 
 This does not finalize payroll or deduct loan/liability balances.</label>
 <button type="submit">Approve and Save Draft</button>
 </form>
+<p><a href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Ayusin Attendance</a> bago mag-recalculate, kung may kulang na clock-in o clock-out.</p>
 <a href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Cancel / Back to Payroll</a>
 </main></body></html>

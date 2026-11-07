@@ -240,6 +240,7 @@
                       </div>
                       <span class="payroll-status {{ 'review-needed' if p.review_status == 'Needs Review' else 'review-ready' }}" title="{{ p.review_reasons|join(', ') }}">{{ p.review_status }}</span>
                     </header>
+                    <a class="btn payroll-recalculate" href="{{ url_for('attendance', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}#admin-attendance-edit">Ayusin Attendance</a>
                     <div class="payroll-amounts">
                         <div><span>Gross Pay</span><strong>₱{{ p.gross_income|currency }}</strong></div>
                         <div class="deduction-cell"><span>Deductions</span><strong>₱{{ p.deductions|currency }}</strong></div>

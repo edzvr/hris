@@ -217,6 +217,20 @@ class PasswordResetToken(db.Model):
     employee = db.relationship("Employee", backref="reset_tokens")
 
 
+class AttendanceAdminEdit(db.Model):
+    __tablename__ = "attendance_admin_edits"
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    attendance_date = db.Column(db.Date, nullable=False)
+    performed_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    attendance_id = db.Column(db.Integer, nullable=False)
+    original_row = db.Column(db.Text, nullable=True)
+    corrected_row = db.Column(db.Text, nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class AuditLog(db.Model):
     __tablename__ = "audit_logs"
 

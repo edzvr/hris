@@ -2,6 +2,7 @@
 import os, sys, random, logging, re, hashlib, csv, base64
 import secrets
 import json
+from sqlalchemy.exc import SQLAlchemyError
 import sqlite3
 import tempfile
 from urllib.parse import urlsplit
@@ -260,6 +261,7 @@ def send_resume_work_email(employee):
 
 # ------------------ MODELS ------------------
 from models import (
+    AttendanceAdminEdit,
     db,
     Employee,
     JobDescriptionOption,
@@ -3872,6 +3874,219 @@ def download_employee_profile(employee_id):
     filename = f'employee_information_{employee.id}.pdf'
     return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
+def attendance_edit_fingerprint(employee_id, attendance_date, records):
+    snapshot = {
+        'employee_id': employee_id,
+        'date': attendance_date.isoformat(),
+        'records': reconciliation_snapshot(sorted(records, key=lambda record: record.id)),
+    }
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode('utf-8')).hexdigest()
+
+
+def attendance_edit_options(employee, cutoff_start, cutoff_end, history):
+    records_by_date = {}
+    for record in history:
+        records_by_date.setdefault(record.date, []).append(record)
+    corrections = AttendanceCorrection.query.filter(
+        AttendanceCorrection.employee_id == employee.id,
+        AttendanceCorrection.correction_date >= cutoff_start,
+        AttendanceCorrection.correction_date < cutoff_end,
+    ).all()
+    pending_dates = {
+        correction.correction_date for correction in corrections
+        if correction.status not in ('Approved', 'Rejected')
+    }
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    options = []
+    for offset in range((cutoff_end - cutoff_start).days):
+        day = cutoff_start + timedelta(days=offset)
+        records = records_by_date.get(day, [])
+        record = records[0] if len(records) == 1 else None
+        clock_in = record.clock_in.strftime('%H:%M:%S') if record and record.clock_in else ''
+        clock_out = record.clock_out.strftime('%H:%M:%S') if record and record.clock_out else ''
+        if len(records) > 1:
+            description = 'Duplicate records: review first'
+        elif day in pending_dates:
+            description = 'Pending correction: review first'
+        elif day > today:
+            description = 'Future date'
+        elif record is None:
+            description = 'No attendance record'
+        elif not clock_in and not clock_out:
+            description = 'Missing clock-in and clock-out'
+        elif not clock_in:
+            description = 'Missing clock-in'
+        elif not clock_out:
+            description = 'Missing clock-out'
+        else:
+            description = f'{clock_in} - {clock_out}'
+        options.append({
+            'date': day,
+            'value': f'{day.isoformat()}|{attendance_edit_fingerprint(employee.id, day, records)}',
+            'description': description,
+            'clock_in': clock_in,
+            'clock_out': clock_out,
+            'disabled': len(records) > 1 or day in pending_dates or day > today,
+        })
+    return options
+
+
+def validate_admin_attendance_times(clock_in, clock_out):
+    if clock_out <= clock_in:
+        raise ValueError('Clock-out must be later than clock-in on the same day.')
+    if clock_out > datetime.now(ZoneInfo('Asia/Manila')).replace(tzinfo=None):
+        raise ValueError('Attendance times cannot be in the future.')
+
+
+@app.route('/admin/attendance/<int:employee_id>/edit', methods=['POST'])
+@login_required
+def admin_edit_attendance(employee_id):
+    if not can_manage_admin_payroll(current_user):
+        abort(403)
+    expected_token = session.get('attendance_edit_csrf')
+    submitted_token = request.form.get('csrf_token', '')
+    if not expected_token or not secrets.compare_digest(
+        expected_token.encode('utf-8'), submitted_token.encode('utf-8')
+    ):
+        abort(400, description='Invalid attendance edit security token.')
+
+    employee = Employee.query.get_or_404(employee_id)
+    cutoff_start = None
+    try:
+        cutoff_value = request.form.get('cutoff_start', '')
+        if not cutoff_value:
+            raise ValueError('Select a Saturday cutoff.')
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(cutoff_value)
+        entry_date, separator, fingerprint = request.form.get('attendance_entry', '').partition('|')
+        if not separator or not re.fullmatch(r'[0-9a-f]{64}', fingerprint):
+            raise ValueError('Select an attendance date from the current report.')
+        attendance_date = date.fromisoformat(entry_date)
+        if not cutoff_start <= attendance_date < cutoff_end:
+            raise ValueError('The attendance date must be within the selected cutoff.')
+        try:
+            in_time = time.fromisoformat(request.form.get('clock_in', '').strip())
+            out_time = time.fromisoformat(request.form.get('clock_out', '').strip())
+        except ValueError:
+            raise ValueError('Enter valid clock-in and clock-out times.') from None
+        if in_time.tzinfo or out_time.tzinfo:
+            raise ValueError('Enter local clock-in and clock-out times.')
+        clock_in = datetime.combine(attendance_date, in_time)
+        clock_out = datetime.combine(attendance_date, out_time)
+        validate_admin_attendance_times(clock_in, clock_out)
+        reason = request.form.get('reason', '').strip()
+        if not reason or len(reason) > 500:
+            raise ValueError('Enter the verified source or reason, up to 500 characters.')
+
+        lock_attendance_employee(employee_id)
+        records = Attendance.query.filter_by(
+            employee_id=employee_id, date=attendance_date,
+        ).order_by(Attendance.id).all()
+        if len(records) > 1:
+            raise ValueError('Duplicate attendance records must be reconciled before editing.')
+        record_ids = [record.id for record in records]
+        corrections = AttendanceCorrection.query.filter(
+            (
+                (AttendanceCorrection.employee_id == employee_id)
+                & (AttendanceCorrection.correction_date == attendance_date)
+            ) | AttendanceCorrection.attendance_id.in_(record_ids)
+        ).all()
+        if any(correction.status not in ('Approved', 'Rejected') for correction in corrections):
+            raise ValueError('A pending attendance correction must be reviewed before editing.')
+        if any(
+            correction.employee_id != employee_id
+            or correction.correction_date != attendance_date
+            or (correction.attendance_id and correction.attendance_id not in record_ids)
+            for correction in corrections
+        ):
+            raise ValueError('An inconsistent attendance correction requires separate review.')
+        if not secrets.compare_digest(
+            fingerprint, attendance_edit_fingerprint(employee_id, attendance_date, records)
+        ):
+            raise ValueError('Attendance changed since this form was opened. Reload and review it.')
+
+        original_row = reconciliation_snapshot(records)[0] if records else None
+        if records:
+            attendance_record = records[0]
+            if (
+                attendance_record.clock_in
+                and clock_in.replace(microsecond=0)
+                == attendance_record.clock_in.replace(microsecond=0)
+            ):
+                clock_in = attendance_record.clock_in
+            if (
+                attendance_record.clock_out
+                and clock_out.replace(microsecond=0)
+                == attendance_record.clock_out.replace(microsecond=0)
+            ):
+                clock_out = attendance_record.clock_out
+        else:
+            attendance_record = Attendance(
+                employee_id=employee_id, date=attendance_date, company=employee.company,
+            )
+            db.session.add(attendance_record)
+        validate_admin_attendance_times(clock_in, clock_out)
+        attendance_record.clock_in = clock_in
+        attendance_record.clock_out = clock_out
+        attendance_record.status = attendance_status(clock_in)
+        attendance_record.hours = regular_attendance_hours(attendance_record)
+        db.session.flush()
+        db.session.add(AttendanceAdminEdit(
+            employee_id=employee_id,
+            attendance_date=attendance_date,
+            performed_by=current_user.id,
+            attendance_id=attendance_record.id,
+            original_row=json.dumps(original_row, sort_keys=True) if original_row else None,
+            corrected_row=json.dumps(reconciliation_snapshot([attendance_record])[0], sort_keys=True),
+            reason=reason,
+        ))
+        db.session.add(AuditLog(
+            employee_id=current_user.id,
+            employee_name=current_user.full_name(),
+            company=current_user.company,
+            action=f'Edited attendance employee {employee_id} on {attendance_date}',
+            path=request.path,
+            ip_address=request.remote_addr,
+            status_code=302,
+        ))
+        finalized = Payroll.query.filter_by(
+            employee_id=employee_id, cutoff_start=cutoff_start, is_paid=True,
+        ).first() is not None
+        latest_finalized = finalized and cutoff_start == completed_cutoff()[0]
+        db.session.commit()
+        if finalized and not latest_finalized:
+            flash(
+                'Attendance saved. Finalized payroll was not changed. Automatic recalculation '
+                'is available only for the latest finalized cutoff; this older cutoff requires '
+                'separate payroll review. Review existing overtime and leave approvals separately.',
+                'success',
+            )
+        elif finalized:
+            flash(
+                'Attendance saved. Finalized payroll was not changed; return to the payroll '
+                'dashboard and explicitly recalculate the applicable cutoff. Review existing '
+                'overtime and leave approvals separately.',
+                'success',
+            )
+        else:
+            flash(
+                'Attendance saved. Payroll was not changed; open Preview / Recalculate, '
+                'approve the fresh draft, and finalize only when correct. Review existing '
+                'overtime and leave approvals separately.',
+                'success',
+            )
+    except ValueError as error:
+        db.session.rollback()
+        flash(f'Attendance not saved: {error}', 'danger')
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception('Could not save an administrative attendance edit')
+        flash('Attendance could not be saved. No changes were applied; please try again.', 'danger')
+    return redirect(url_for(
+        'attendance', employee_id=employee_id,
+        cutoff_start=cutoff_start.isoformat() if cutoff_start else None,
+    ))
+
+
 @app.route('/attendance/<int:employee_id>')
 @login_required
 def attendance(employee_id):
@@ -3889,6 +4104,17 @@ def attendance(employee_id):
         Attendance.date >= cutoff_start,
         Attendance.date < cutoff_end,
     ).order_by(Attendance.date.asc()).all()
+
+    can_edit_attendance = can_manage_admin_payroll(current_user)
+    edit_options = []
+    edit_csrf_token = None
+    finalized_cutoff = False
+    if can_edit_attendance:
+        edit_options = attendance_edit_options(emp, cutoff_start, cutoff_end, history)
+        edit_csrf_token = session.setdefault('attendance_edit_csrf', secrets.token_urlsafe(32))
+        finalized_cutoff = Payroll.query.filter_by(
+            employee_id=employee_id, cutoff_start=cutoff_start, is_paid=True,
+        ).first() is not None
 
     month_value = request.args.get("month")
     try:
@@ -4067,6 +4293,10 @@ def attendance(employee_id):
                            monthly_summary=monthly_summary,
                            selected_attendance_date=selected_attendance_date,
                            daily_attendance_record=daily_attendance_record,
+                           can_edit_attendance=can_edit_attendance,
+                           edit_options=edit_options,
+                           edit_csrf_token=edit_csrf_token,
+                           finalized_cutoff=finalized_cutoff,
                            months=list(range(1,13)),
                            years=[datetime.today().year, datetime.today().year-1, datetime.today().year-2])
 
