@@ -383,7 +383,7 @@ def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
             admin_client.post(f'/admin/attendance-correction/{right_id}/approve')
             with admin_client.session_transaction() as session:
                 messages = [message for _, message in session.get('_flashes', [])]
-        assert any('already finalized and was NOT changed' in message for message in messages)
+        assert any('Update & Finalize' in message for message in messages)
         with app.app_context():
             assert db.session.get(AttendanceCorrection, wrong_id).status == 'Pending'
             assert db.session.get(Attendance, attendance_id).clock_out == datetime(2026, 11, 5, 17)

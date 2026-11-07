@@ -230,6 +230,24 @@
                     {% if p.rice_exempt > 0.004 %}
                     <p class="payroll-card-company">Net = Gross + ₱{{ p.rice_exempt|currency }} rice subsidy (non-taxable) − Deductions</p>
                     {% endif %}
+                    {% if p.pending_update %}
+                    {% set u = p.pending_update %}
+                    <div class="payroll-update-alert" role="alert" style="border:2px solid #d97706;background:#fff7ed;border-radius:8px;padding:10px;margin:8px 0;">
+                        <strong>⚠ Nagbago ang attendance pagkatapos i-finalize</strong>
+                        <p style="margin:6px 0;">Net Pay: ₱{{ u.old_net|currency }} → <strong>₱{{ u.new_net|currency }}</strong>
+                            (Gross ₱{{ u.old_gross|currency }} → ₱{{ u.new_gross|currency }})</p>
+                        {% if u.blockers %}
+                        <p style="margin:6px 0;color:#b91c1c;">Ayusin muna: {{ u.blockers|join(', ') }}</p>
+                        {% else %}
+                        <button type="submit" class="btn"
+                                formaction="{{ url_for('update_finalized_payroll', employee_id=p.emp.id) }}"
+                                formmethod="POST" formnovalidate
+                                onclick="return confirm('I-update at i-finalize ulit ang payroll na ito? Net ₱{{ u.old_net|currency }} → ₱{{ u.new_net|currency }}');">
+                            🔄 Update &amp; Finalize (₱{{ u.new_net|currency }})
+                        </button>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <details class="payroll-detail-toggle">
                       <summary>View / Edit Details</summary>
                       {% if p.review_reasons %}<p class="review-needed">{{ p.review_reasons|join(', ') }}</p>{% endif %}

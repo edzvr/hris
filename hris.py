@@ -8634,9 +8634,8 @@ def review_attendance_correction(correction_id, action):
         ).first()
         if affected_payroll is not None and affected_payroll.is_paid:
             flash(
-                f'Attendance correction approved, but the {correction_cutoff:%b %d} cutoff payroll is already '
-                'finalized and was NOT changed. Payroll Dashboard → Reopen / Recalculate, then '
-                '"Preview Draft Recalculation" → Approve → Finalize.',
+                f'Attendance correction approved. The {correction_cutoff:%b %d} cutoff payroll is already '
+                'finalized: open Payroll Dashboard and click "Update & Finalize" on the staff card.',
                 'warning',
             )
         else:
@@ -9990,6 +9989,87 @@ def bulk_finalize_payroll():
     return redirect(url_for('payroll_dashboard'))
 
 
+def finalized_payroll_update_preview(employee, record, cutoff_start, cutoff_end):
+    """Totals a finalized payroll would get if reopened and finalized now. Read-only."""
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    projected = Payroll(**{
+        column.name: getattr(record, column.name)
+        for column in Payroll.__table__.columns
+        if column.name not in ('id', 'payslip_snapshot')
+    })
+    projected.is_paid = False
+    projected.loan_deduction_applied = False
+    projected.liability_deduction_applied = False
+    original_balance = employee.loan_balance
+    restored = float(record.loan or 0) if record.loan_deduction_applied else 0.0
+    with db.session.no_autoflush:
+        set_committed_value(employee, 'loan_balance', float(original_balance or 0) + restored)
+        try:
+            return calculate_payroll_snapshot(employee, projected, cutoff_start, cutoff_end)
+        finally:
+            set_committed_value(employee, 'loan_balance', original_balance)
+
+
+@app.route('/payroll/<int:employee_id>/update-finalized', methods=['POST'])
+@login_required
+def update_finalized_payroll(employee_id):
+    """One click: reopen, recalculate from current attendance, and finalize again."""
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    employee = Employee.query.get_or_404(employee_id)
+    try:
+        start, end = payroll_cutoff_from_request(request.form.get('cutoff_start'))
+    except ValueError:
+        flash('Select a Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_dashboard'))
+    back = redirect(url_for('payroll_dashboard', cutoff_start=start.isoformat()))
+    if start != completed_cutoff()[0]:
+        flash('Only the latest completed cutoff can be updated.', 'warning')
+        return back
+    lock_attendance_employee(employee.id)
+    db.session.refresh(employee)
+    records = Payroll.query.filter_by(
+        employee_id=employee.id, cutoff_start=start, cutoff_end=end - timedelta(days=1),
+    ).all()
+    if len(records) != 1 or not records[0].is_paid:
+        flash('No single finalized payroll found for this cutoff. Nothing was changed.', 'warning')
+        return back
+    issues = payroll_cutoff_pending_issues(employee, start, end)
+    if issues:
+        flash(f'{employee.full_name()}: not updated — {", ".join(issues)}. Fix these first.', 'danger')
+        return back
+    record = records[0]
+    old_net = float(record.net_pay or 0)
+    try:
+        if record.loan_deduction_applied:
+            employee.loan_balance = float(employee.loan_balance or 0) + float(record.loan or 0)
+            record.loan_deduction_applied = False
+        if record.liability_deduction_applied:
+            reverse_liability_deduction(employee.id, record.liability_deduction)
+            record.liability_deduction_applied = False
+        record.is_paid = False
+        finalize_payroll_record(employee, record, start, end)
+        db.session.add(AuditLog(
+            employee_id=current_user.id, employee_name=current_user.full_name(),
+            action=f'Updated finalized payroll employee {employee.id} ({start}): net {old_net:.2f} -> {float(record.net_pay or 0):.2f}',
+            company=current_user.company, path=request.path,
+            ip_address=request.remote_addr, status_code=302,
+        ))
+        db.session.commit()
+    except (ValueError, SQLAlchemyError):
+        db.session.rollback()
+        logger.exception('Could not update finalized payroll employee %s', employee_id)
+        flash('Payroll could not be updated. Nothing was changed.', 'danger')
+        return back
+    flash(
+        f'{employee.full_name()}: payroll updated and finalized. Net ₱{old_net:,.2f} → '
+        f'₱{float(record.net_pay or 0):,.2f}. The old payslip QR is now invalid; staff should download the new payslip.',
+        'success',
+    )
+    return back
+
+
 @app.route('/payroll/<int:employee_id>/reopen', methods=['POST'])
 @login_required
 def reopen_payroll(employee_id):
@@ -10456,6 +10536,23 @@ def payroll_dashboard():
             review_reasons.append('OT needs approval')
         if not (payroll_record and payroll_record.is_paid):
             review_reasons.extend(payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end))
+        pending_update = None
+        if (
+            payroll_record and payroll_record.is_paid
+            and not emp.payroll_attendance_exempt
+            and cutoff_start == completed_cutoff()[0]
+        ):
+            try:
+                fresh = finalized_payroll_update_preview(emp, payroll_record, cutoff_start, cutoff_end)
+            except (ValueError, SQLAlchemyError):
+                fresh = None
+            if fresh is not None and abs(float(fresh['net_pay']) - net_pay) >= 0.01:
+                pending_update = {
+                    'old_net': net_pay, 'new_net': float(fresh['net_pay']),
+                    'old_gross': gross_income, 'new_gross': float(fresh['gross_income']),
+                    'blockers': payroll_cutoff_pending_issues(emp, cutoff_start, cutoff_end),
+                }
+                review_reasons.append('Attendance changed after finalize — update needed')
         review_status = 'Needs Review' if review_reasons else 'Ready'
         if not emp.payroll_attendance_exempt:
             accounting_totals['total_net_pay'] += net_pay
@@ -10492,6 +10589,7 @@ def payroll_dashboard():
             "is_paid": bool(payroll_record and payroll_record.is_paid),
             "review_status": review_status,
             "review_reasons": review_reasons,
+            "pending_update": pending_update,
         })
 
     return render_template("payroll_dashboard.html",
