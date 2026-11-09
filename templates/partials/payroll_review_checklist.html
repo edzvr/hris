@@ -1,0 +1,21 @@
+<section class="payroll-review-checklist" aria-label="Payroll review checklist">
+  <strong>Payroll review checklist</strong>
+  {% for alert in payroll_review.alerts %}
+  <p role="alert">{{ alert }}</p>
+  {% endfor %}
+  <ul>
+    {% for check in payroll_review.checks %}
+    <li><strong>{{ 'Review' if check.issues else 'Verify' if check.unverified else 'Clear' }}:</strong> {{ check.label }}
+      {% if check.issues %}<span> — {{ check.issues|join('; ') }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p>Approved attendance corrections automatically update the current draft or latest completed cutoff when no blockers remain.
+    Older finalized payroll requires separate review. If an automatic update fails, recalculate the exact cutoff and download the new payslip.
+    “Clear” means no detected issue, not automatic approval of salary or attendance.</p>
+  <div class="record-actions">
+    <a href="{{ url_for('attendance', employee_id=review_employee.id, cutoff_start=review_start) }}#admin-attendance-edit">Review attendance</a>
+    <a href="{{ url_for('payroll_loan_review', cutoff_start=review_start) }}">Review loan skips</a>
+    <a href="{{ url_for('dashboard_admin', overview_cutoff=review_start) }}#attendance-corrections">Review correction requests</a>
+  </div>
+</section>

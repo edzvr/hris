@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Payroll - {{ emp.first_name }} {{ emp.last_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard_summary.css') }}">
     <style>
         body { font-family: Arial, sans-serif; background:#f4f7f6; margin:0; padding:20px; }
         h2 { color:#1976d2; }
@@ -199,6 +200,11 @@
         {% if not payroll_record.is_paid %}(projected; balance changes only when finalized){% endif %}</p>
     {% endif %}
     {% if can_manage_payroll %}
+    {% if payroll_review %}
+    {% set review_employee = emp %}
+    {% set review_start = cutoff_start %}
+    {% include 'partials/payroll_review_checklist.html' %}
+    {% endif %}
     <p>Company loan deductions are automatic. Approve a staff skip request in
         <a href="{{ url_for('payroll_loan_review', cutoff_start=cutoff_start) }}">Payroll Loan Review</a>
         to skip this cutoff.</p>

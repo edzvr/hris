@@ -42,6 +42,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <p class="payroll-update-notice" role="status">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
         <p class="notice"><strong>Approval rule:</strong> Trece-Uno Sunday work from 8:00 AM to 12:00 PM is automatically counted as Rest Day OT when clock-in and clock-out are complete. Approve or reject only overtime applications listed below; attendance rows are informational.</p>

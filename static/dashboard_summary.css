@@ -20,6 +20,10 @@
 @media(max-width:600px) { .summary-grid { grid-template-columns: minmax(0,1fr); } .summary-workspace { padding: 12px; } .summary-panel { padding: 14px; } }
 
 .cutoff-overview { --cutoff-muted:#526178; --cutoff-border:#dce4ef; margin:24px 0; color:#243249; }
+.payroll-review-checklist { margin:14px 0; padding:14px; border:1px solid #d5a12a; border-radius:10px; background:#fff8e6; color:#493b1e; overflow-wrap:anywhere; }
+.payroll-review-checklist ul { padding-left:20px; }
+.payroll-review-checklist li, .payroll-review-checklist p { margin:8px 0; font-size:13px; }
+.payroll-review-checklist a { display:inline-block; min-height:44px; padding:10px 6px; color:#174f9b; }
 .cutoff-overview-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:20px; }
 .cutoff-overview .cutoff-eyebrow { margin:0 0 6px; color:var(--cutoff-muted); font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
 .cutoff-overview h2 { margin:0; font-size:28px; letter-spacing:-.03em; }

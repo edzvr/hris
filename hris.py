@@ -4052,8 +4052,11 @@ def admin_edit_attendance(employee_id):
             employee_id=employee_id, cutoff_start=cutoff_start, is_paid=True,
         ).first() is not None
         latest_finalized = finalized and cutoff_start == completed_cutoff()[0]
+        resumed = resume_correction_payroll_updates(employee_id, attendance_date, attendance_date)
         db.session.commit()
-        if finalized and not latest_finalized:
+        if resumed:
+            flash('Attendance saved and the waiting correction payroll update was resumed.', 'success')
+        elif finalized and not latest_finalized:
             flash(
                 'Attendance saved. Finalized payroll was not changed. Automatic recalculation '
                 'is available only for the latest finalized cutoff; this older cutoff requires '
@@ -4421,6 +4424,12 @@ def admin_cutoff_overview(cutoff_start, employee_ids=None, today=None):
             'Duplicate records' if len(current) > 1 else 'Finalized' if current and current[0].is_paid
             else 'Draft' if current else 'Not prepared'
         )
+        review = payroll_review_checklist(
+            employee, current[0] if len(current) == 1 else None,
+            cutoff_start, cutoff_end + timedelta(days=1),
+        )
+        if review['alerts'] or review['blockers']:
+            flags.add('payroll')
         if len(current) > 1 or previous_duplicate:
             flags.add('payroll')
         elif not employee.payroll_attendance_exempt and payroll_state != 'Finalized':
@@ -4441,6 +4450,7 @@ def admin_cutoff_overview(cutoff_start, employee_ids=None, today=None):
             'payroll_state': payroll_state, 'current_payroll': current[0] if len(current) == 1 else None,
             'previous_payroll': None if previous_duplicate else last_payroll,
             'previous_duplicate': previous_duplicate, 'requests': requests,
+            'payroll_review': review,
         })
     return {
         'start': cutoff_start, 'end': cutoff_end, 'today': today, 'rows': rows, 'totals': totals,
@@ -4886,6 +4896,7 @@ def dashboard_admin():
         admin=current_user,
         selected_company=selected_company,
         cutoff_overview=admin_cutoff_overview(overview_start, employee_ids=employee_ids),
+        payroll_attention=payroll_attention_queue(employee_ids=employee_ids),
         summary=dashboard_summary(employee_ids=employee_ids),
         request_calendar=admin_request_calendar(calendar_month, employee_ids=employee_ids, company=selected_company)
     )
@@ -8184,16 +8195,22 @@ def mark_payroll_summary_paid():
     if company not in {'Trece-Uno', 'Auto Expert'}:
         abort(400)
     cutoff_start, cutoff_end = completed_cutoff()
-    for row in build_company_payroll_summary(company, cutoff_start, cutoff_end):
-        record = row['payroll_record'] or Payroll(
-            employee_id=row['employee'].id,
-            cutoff_start=cutoff_start,
-            cutoff_end=cutoff_end - timedelta(days=1)
-        )
-        if record.id is None:
-            db.session.add(record)
-        finalize_payroll_record(row['employee'], record, cutoff_start, cutoff_end)
-    db.session.commit()
+    try:
+        for row in build_company_payroll_summary(company, cutoff_start, cutoff_end):
+            record = row['payroll_record'] or Payroll(
+                employee_id=row['employee'].id,
+                cutoff_start=cutoff_start,
+                cutoff_end=cutoff_end - timedelta(days=1)
+            )
+            if record.id is None:
+                db.session.add(record)
+            finalize_payroll_record(row['employee'], record, cutoff_start, cutoff_end)
+        db.session.commit()
+    except (ValueError, SQLAlchemyError) as exc:
+        db.session.rollback()
+        logger.exception('Could not finalize company payroll %s cutoff %s', company, cutoff_start)
+        flash(f'Company payroll not finalized: {exc}. No changes were saved.', 'danger')
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
     flash(f'{company} payroll marked as paid.', 'success')
     return redirect(url_for('payroll_dashboard'))
 
@@ -8328,6 +8345,7 @@ def decide_ot_application(application_id, action):
         apply_overtime_details(attendance)
         if action == 'reject' and attendance.ot_status is None:
             attendance.ot_status = 'Rejected'
+    resume_correction_payroll_updates(application.employee_id, application.ot_date, application.ot_date)
     db.session.commit()
     employee = db.session.get(Employee, application.employee_id)
     decision = application.status.lower()
@@ -8419,6 +8437,7 @@ def attendance_action(employee_id):
             log.clock_out = event_now
             log.hours = regular_attendance_hours(log)
             apply_overtime_details(log)
+            resume_correction_payroll_updates(employee_id, log.date, log.date)
             db.session.commit()
             notify_attendance_event(emp, "clockout", event_now)
             flash("🔴 Clocked out successfully!", "success")
@@ -8508,6 +8527,7 @@ def attendance_api(employee_id):
                 log.clock_out = event_now
                 log.hours = regular_attendance_hours(log)
                 apply_overtime_details(log)
+                resume_correction_payroll_updates(employee_id, log.date, log.date)
                 db.session.commit()
                 notify_attendance_event(emp, "clockout", event_now)
                 return jsonify(status="success", message="🔴 Clocked out successfully!",
@@ -8703,11 +8723,13 @@ def attendance_reconciliation(employee_id):
                     ip_address=request.remote_addr,
                     status_code=302,
                 ))
+                resumed = resume_correction_payroll_updates(employee.id, attendance_date, attendance_date)
                 db.session.commit()
                 session.pop('attendance_reconciliation_preview', None)
                 flash(
                     'Attendance reconciled; original rows preserved in history. '
-                    'Saved payroll was not changed. Review payroll and payslip separately.',
+                    + ('Waiting correction payroll update resumed.' if resumed else
+                       'Saved payroll was not changed. Review payroll and payslip separately.'),
                     'success',
                 )
                 return redirect(url_for(
@@ -8839,11 +8861,12 @@ def review_attendance_correction(correction_id, action):
     if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
         return 'Access denied', 403
     correction = AttendanceCorrection.query.get_or_404(correction_id)
+    lock_attendance_employee(correction.employee_id)
+    db.session.refresh(correction)
     if correction.status != 'Pending':
         flash('This correction request was already reviewed.', 'warning')
         return redirect(url_for('dashboard_admin'))
     if action == 'approve':
-        lock_attendance_employee(correction.employee_id)
         attendance_records = Attendance.query.filter_by(
             employee_id=correction.employee_id,
             date=correction.correction_date
@@ -8876,6 +8899,15 @@ def review_attendance_correction(correction_id, action):
                 'danger',
             )
             return redirect(url_for('dashboard_admin'))
+        clock_in = correction.requested_clock_in or (attendance_record.clock_in if attendance_record else None)
+        clock_out = correction.requested_clock_out or (attendance_record.clock_out if attendance_record else None)
+        if clock_in is None or (clock_out is not None and clock_out <= clock_in):
+            flash(
+                'Correction not approved: a clock-in is required and clock-out must be later than clock-in. '
+                'Payroll was not changed.',
+                'danger',
+            )
+            return redirect(url_for('dashboard_admin'))
         if attendance_record is None:
             employee = db.session.get(Employee, correction.employee_id)
             attendance_record = Attendance(
@@ -8900,35 +8932,15 @@ def review_attendance_correction(correction_id, action):
             if attendance_record.clock_out else None
         )
         correction.attendance = attendance_record
-        correction_cutoff, _ = current_payroll_cutoff(correction.correction_date)
-        affected_payroll = Payroll.query.filter_by(
-            employee_id=correction.employee_id, cutoff_start=correction_cutoff,
-        ).first()
-        if affected_payroll is not None and affected_payroll.is_paid:
-            if correction_cutoff == completed_cutoff()[0]:
-                flash(
-                    f'Attendance correction approved. The {correction_cutoff:%b %d} cutoff payroll is '
-                    'finalized: open Payroll Dashboard and click "Recalculate & Finalize" on the staff card.',
-                    'warning',
-                )
-            else:
-                flash(
-                    f'Attendance correction approved, but the finalized {correction_cutoff:%b %d} '
-                    'payroll was not changed. Only the latest completed cutoff can be recalculated '
-                    'from the Payroll Dashboard.',
-                    'warning',
-                )
-        else:
-            flash(
-                f'Attendance correction approved. Open the {correction_cutoff:%b %d} cutoff payroll and '
-                'click "Preview Draft Recalculation" to apply it.',
-                'success',
-            )
+        flash('Attendance correction approved.', 'success')
     else:
         correction.status = 'Rejected'
         correction.reviewed_by = current_user.id
         correction.reviewed_at = datetime.utcnow()
         flash('Attendance correction rejected.', 'info')
+    resume_correction_payroll_updates(
+        correction.employee_id, correction.correction_date, correction.correction_date,
+    )
     db.session.commit()
     employee = db.session.get(Employee, correction.employee_id)
     decision = correction.status.lower()
@@ -9741,6 +9753,7 @@ def payroll(employee_id):
             loan_deduction=loan,
          cutoff_start=cutoff_start,
          can_manage_payroll=has_payroll_access,
+         payroll_review=payroll_review_checklist(emp, payroll_record, cutoff_start, cutoff_end) if has_payroll_access else None,
          loan_editable=not (
              payroll_record.is_paid or payroll_record.loan_deduction_applied
          ),
@@ -9892,6 +9905,12 @@ def save_payroll_snapshot(record, snapshot):
             setattr(proposed, field, value)
         employee = db.session.get(Employee, record.employee_id)
         breakdown = calculate_payslip_breakdown(employee, proposed)
+        breakdown['payroll_attendance_fingerprint'] = payroll_attendance_fingerprint(
+            employee.id, record.cutoff_start, record.cutoff_end + timedelta(days=1),
+        )
+        breakdown['payroll_approved_correction_ids'] = approved_payroll_correction_ids(
+            employee.id, record.cutoff_start, record.cutoff_end + timedelta(days=1),
+        )
         serializable = {key: value for key, value in breakdown.items() if key != 'employee'}
         serialized = json.dumps(
             serializable, default=lambda value: value.isoformat(), allow_nan=False
@@ -10003,6 +10022,9 @@ def finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
     lock_attendance_employee(employee.id)
     if record.is_paid:
         return False
+    issues = payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end)
+    if issues:
+        raise ValueError(f'{employee.full_name()}: {", ".join(issues)}')
     save_payroll_snapshot(
         record, calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end)
     )
@@ -10022,15 +10044,25 @@ def finalize_payroll_record(employee, record, cutoff_start, cutoff_end):
 
 
 def payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end):
-    """Open punches, pending corrections, or pending leave that must be settled before finalizing."""
+    """Unresolved attendance and cutoff requests that must be settled before finalizing."""
     issues = []
     incomplete = Attendance.query.filter(
         Attendance.employee_id == employee.id,
         Attendance.date >= cutoff_start, Attendance.date < cutoff_end,
         db.or_(Attendance.clock_in.is_(None), Attendance.clock_out.is_(None)),
+        db.or_(
+            Attendance.status.is_(None), Attendance.status != 'Absent',
+            Attendance.clock_in.is_not(None), Attendance.clock_out.is_not(None),
+        ),
     ).count()
     if incomplete:
         issues.append('Incomplete clock in/out')
+    duplicate = db.session.query(Attendance.date).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date >= cutoff_start, Attendance.date < cutoff_end,
+    ).group_by(Attendance.date).having(db.func.count(Attendance.id) > 1).first()
+    if duplicate:
+        issues.append('Duplicate attendance records')
     if AttendanceCorrection.query.filter(
         AttendanceCorrection.employee_id == employee.id,
         AttendanceCorrection.correction_date >= cutoff_start,
@@ -10044,7 +10076,123 @@ def payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end):
         LeaveRequest.start_date < cutoff_end, LeaveRequest.end_date >= cutoff_start,
     ).count():
         issues.append('Leave request pending')
+    if LoanDeductionSkipRequest.query.filter_by(
+        employee_id=employee.id, cutoff_start=cutoff_start, status='Pending',
+    ).count():
+        issues.append('Loan deduction skip request pending')
+    if OTApplication.query.filter(
+        OTApplication.employee_id == employee.id,
+        OTApplication.ot_date >= cutoff_start, OTApplication.ot_date < cutoff_end,
+        OTApplication.status == 'Pending',
+    ).count():
+        issues.append('OT request pending')
     return issues
+
+
+def payroll_attendance_fingerprint(employee_id, cutoff_start, cutoff_end):
+    records = Attendance.query.filter(
+        Attendance.employee_id == employee_id,
+        Attendance.date >= cutoff_start, Attendance.date < cutoff_end,
+    ).order_by(Attendance.date, Attendance.id).all()
+    corrections = AttendanceCorrection.query.filter(
+        AttendanceCorrection.employee_id == employee_id,
+        AttendanceCorrection.correction_date >= cutoff_start,
+        AttendanceCorrection.correction_date < cutoff_end,
+        AttendanceCorrection.status == 'Approved',
+    ).order_by(AttendanceCorrection.id).all()
+    serialized = reconciliation_snapshot(records)
+    for row in serialized:
+        for field in ('hours', 'overtime_hours'):
+            if row[field] is not None:
+                row[field] = float(row[field])
+    source = {
+        'records': serialized,
+        'approved_corrections': [
+            [row.id, row.correction_date.isoformat(),
+             row.reviewed_at.isoformat() if row.reviewed_at else None]
+            for row in corrections
+        ],
+    }
+    return hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()
+
+
+def approved_payroll_correction_ids(employee_id, cutoff_start, cutoff_end):
+    return [row.id for row in AttendanceCorrection.query.filter(
+        AttendanceCorrection.employee_id == employee_id,
+        AttendanceCorrection.correction_date >= cutoff_start,
+        AttendanceCorrection.correction_date < cutoff_end,
+        AttendanceCorrection.status == 'Approved',
+    ).order_by(AttendanceCorrection.id).all()]
+
+
+def payroll_review_checklist(employee, record, cutoff_start, cutoff_end):
+    blockers = payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end)
+    alerts = []
+    saved = json.loads(record.payslip_snapshot) if record and record.payslip_snapshot else {}
+    source_changed = bool(
+        saved.get('payroll_attendance_fingerprint')
+        and saved['payroll_attendance_fingerprint'] != payroll_attendance_fingerprint(
+            employee.id, cutoff_start, cutoff_end,
+        )
+    )
+    legacy_correction = False
+    if record and not saved.get('payroll_attendance_fingerprint'):
+        for model, day_field in (
+            (AttendanceCorrection, AttendanceCorrection.correction_date),
+            (AttendanceAdminEdit, AttendanceAdminEdit.attendance_date),
+            (AttendanceReconciliation, AttendanceReconciliation.attendance_date),
+        ):
+            query = model.query.filter(
+                model.employee_id == employee.id, day_field >= cutoff_start, day_field < cutoff_end,
+            )
+            if model is AttendanceCorrection:
+                query = query.filter(AttendanceCorrection.status == 'Approved')
+            if query.first():
+                legacy_correction = True
+                break
+    if source_changed:
+        alerts.append('Attendance changed since saved payroll — recalculate and review before release.')
+    elif legacy_correction:
+        alerts.append('Attendance was corrected; this older payroll has no source checkpoint. Recalculate to verify it.')
+    if record and float(record.net_pay or 0) < 0:
+        alerts.append('Saved net pay is negative — review deductions before release.')
+    checks = [
+        {'label': 'Attendance punches and duplicate records',
+         'issues': [item for item in blockers if item in ('Incomplete clock in/out', 'Duplicate attendance records')]},
+        {'label': 'Attendance corrections, leave and OT approvals',
+         'issues': [item for item in blockers if item not in (
+             'Incomplete clock in/out', 'Duplicate attendance records', 'Loan deduction skip request pending',
+         )]},
+        {'label': 'Loan skip decision for this cutoff',
+         'issues': [item for item in blockers if item == 'Loan deduction skip request pending']},
+        {'label': 'Saved payroll matches attendance checkpoint',
+         'issues': alerts[:1] if source_changed or legacy_correction else [],
+         'unverified': not record or not saved.get('payroll_attendance_fingerprint')},
+    ]
+    return {
+        'checks': checks, 'blockers': blockers, 'alerts': alerts,
+        'attendance_changed': source_changed,
+        'has_checkpoint': bool(saved.get('payroll_attendance_fingerprint')),
+    }
+
+
+def payroll_attention_queue(employee_ids=None):
+    start, end = completed_cutoff()
+    query = Payroll.query.filter(db.or_(
+        Payroll.is_paid.is_(True),
+        db.and_(Payroll.cutoff_start == start, Payroll.cutoff_end == end - timedelta(days=1)),
+    ))
+    if employee_ids is not None:
+        query = query.filter(Payroll.employee_id.in_(employee_ids))
+    rows = []
+    for record in query.order_by(Payroll.cutoff_start.desc(), Payroll.employee_id, Payroll.id).all():
+        employee = db.session.get(Employee, record.employee_id)
+        review = payroll_review_checklist(
+            employee, record, record.cutoff_start, record.cutoff_end + timedelta(days=1),
+        )
+        if review['alerts']:
+            rows.append({'employee': employee, 'record': record, 'review': review})
+    return {'start': start, 'end': end - timedelta(days=1), 'rows': rows}
 
 
 def payroll_auto_finalize_blockers(employee, cutoff_start, cutoff_end):
@@ -10211,11 +10359,16 @@ def finalize_payroll(employee_id):
             db.session.add(record)
         finalize_payroll_record(employee, record, cutoff_start, cutoff_end)
         db.session.commit()
-    except (TypeError, ValueError, SQLAlchemyError):
+    except ValueError as exc:
+        db.session.rollback()
+        logger.warning('Payroll finalization blocked for employee %s: %s', employee_id, exc)
+        flash(f'Payroll not finalized: {exc}. No changes were saved.', 'danger')
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
+    except (TypeError, SQLAlchemyError):
         db.session.rollback()
         logger.exception('Could not finalize payroll employee %s', employee_id)
         flash('Payroll could not be finalized. Check the inputs and source records; no changes were saved.', 'danger')
-        return redirect(url_for('payroll_dashboard'))
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
     return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=cutoff_start))
 
 
@@ -10260,7 +10413,12 @@ def bulk_finalize_payroll():
             if finalize_payroll_record(employee, payroll_record, cutoff_start, cutoff_end):
                 finalized += 1
         db.session.commit()
-    except (TypeError, ValueError, SQLAlchemyError):
+    except ValueError as exc:
+        db.session.rollback()
+        logger.warning('Bulk finalization blocked for cutoff %s: %s', cutoff_start, exc)
+        flash(f'Bulk finalization blocked: {exc}. No changes were saved.', 'danger')
+        return redirect(url_for('payroll_dashboard', cutoff_start=cutoff_start))
+    except (TypeError, SQLAlchemyError):
         db.session.rollback()
         logger.exception('Could not bulk finalize payroll cutoff %s', cutoff_start)
         flash('Bulk finalization failed. Review the inputs and source records; no changes were saved.', 'danger')
@@ -10293,6 +10451,114 @@ def finalized_payroll_update_preview(employee, record, cutoff_start, cutoff_end)
             return calculate_payroll_snapshot(employee, projected, cutoff_start, cutoff_end)
         finally:
             set_committed_value(employee, 'loan_balance', original_balance)
+
+
+def refresh_finalized_payroll(employee, record, start, end, reason):
+    old_net = float(record.net_pay or 0)
+    if record.loan_deduction_applied:
+        employee.loan_balance = float(employee.loan_balance or 0) + float(record.loan or 0)
+        record.loan_deduction_applied = False
+    if record.liability_deduction_applied:
+        reverse_liability_deduction(employee.id, record.liability_deduction)
+        record.liability_deduction_applied = False
+    record.is_paid = False
+    finalize_payroll_record(employee, record, start, end)
+    supersede_payslip_verifications(record.id)
+    db.session.add(AuditLog(
+        employee_id=current_user.id, employee_name=current_user.full_name(),
+        action=f'{reason} employee {employee.id} ({start}): net {old_net:.2f} -> {float(record.net_pay or 0):.2f}',
+        company=current_user.company, path=request.path,
+        ip_address=request.remote_addr, status_code=302,
+    ))
+    return old_net
+
+
+def resume_correction_payroll_updates(employee_id, first_day, last_day):
+    """Apply approved corrections once, after all blockers in their cutoff are resolved."""
+    lock_attendance_employee(employee_id)
+    db.session.flush()
+    employee = db.session.get(Employee, employee_id)
+    db.session.refresh(employee)
+    first_day = current_payroll_cutoff(first_day)[0]
+    last_day = current_payroll_cutoff(last_day)[0] + timedelta(days=6)
+    updated = False
+    corrections = AttendanceCorrection.query.filter(
+        AttendanceCorrection.employee_id == employee_id,
+        AttendanceCorrection.status == 'Approved',
+        AttendanceCorrection.correction_date >= first_day,
+        AttendanceCorrection.correction_date <= last_day,
+    ).all()
+    cutoffs = sorted({current_payroll_cutoff(row.correction_date)[0] for row in corrections})
+    for start in cutoffs:
+        end = start + timedelta(days=7)
+        records = Payroll.query.filter_by(
+            employee_id=employee_id, cutoff_start=start, cutoff_end=end - timedelta(days=1),
+        ).all()
+        if len(records) > 1:
+            flash(f'Payroll {start}: automatic update blocked by duplicate payroll records. Review separately.', 'danger')
+            logger.warning('Duplicate payroll blocks correction update employee %s cutoff %s', employee_id, start)
+            continue
+        record = records[0] if records else None
+        saved = json.loads(record.payslip_snapshot) if record and record.payslip_snapshot else {}
+        approved_ids = set(approved_payroll_correction_ids(employee_id, start, end))
+        if approved_ids.issubset(saved.get('payroll_approved_correction_ids', [])):
+            continue
+        if (
+            start not in {current_payroll_cutoff()[0], completed_cutoff()[0]}
+            or (record and record.is_paid and start != completed_cutoff()[0])
+        ):
+            flash(
+                f'Attendance correction saved, but payroll {start} was not changed. '
+                'Only the current draft and latest completed cutoff update automatically; review older payroll separately.',
+                'warning',
+            )
+            continue
+        if employee.payroll_attendance_exempt:
+            flash(f'Payroll {start}: attendance-exempt employee requires separate payroll review.', 'warning')
+            continue
+        if record is None:
+            record = Payroll(
+                employee_id=employee_id, cutoff_start=start, cutoff_end=end - timedelta(days=1),
+            )
+            db.session.add(record)
+            db.session.flush()
+        issues = payroll_auto_finalize_blockers(employee, start, end)
+        if issues:
+            flash(
+                f'Payroll {start} update waiting: {", ".join(issues)}. '
+                'Attendance approval was saved. Payroll updates automatically when the remaining issues are resolved.',
+                'warning',
+            )
+            continue
+        try:
+            with db.session.begin_nested():
+                if record.is_paid:
+                    old_net = refresh_finalized_payroll(
+                        employee, record, start, end, 'Automatically updated payroll after attendance correction',
+                    )
+                    message = (
+                        f'Payroll {start} automatically updated and finalized: net {old_net:,.2f} -> '
+                        f'{float(record.net_pay or 0):,.2f}. Download the new payslip; the old QR is invalid.'
+                    )
+                else:
+                    save_payroll_snapshot(record, calculate_payroll_snapshot(employee, record, start, end))
+                    db.session.add(AuditLog(
+                        employee_id=current_user.id, employee_name=current_user.full_name(),
+                        action=f'Automatically updated draft payroll employee {employee_id} ({start}) after attendance correction',
+                        company=current_user.company, path=request.path,
+                        ip_address=request.remote_addr, status_code=302,
+                    ))
+                    message = f'Payroll {start} draft automatically updated. Not finalized; no balances were deducted.'
+            flash(message, 'success')
+            updated = True
+        except (ValueError, SQLAlchemyError):
+            logger.exception('Automatic correction payroll update failed employee %s cutoff %s', employee_id, start)
+            flash(
+                f'Attendance decision saved, but automatic payroll update failed for {start}. '
+                'Saved salary and balances were preserved. Review the payroll checklist and recalculate.',
+                'danger',
+            )
+    return updated
 
 
 @app.route('/payroll/<int:employee_id>/update-finalized', methods=['POST'])
@@ -10330,21 +10596,7 @@ def update_finalized_payroll(employee_id):
     record = records[0]
     old_net = float(record.net_pay or 0)
     try:
-        if record.loan_deduction_applied:
-            employee.loan_balance = float(employee.loan_balance or 0) + float(record.loan or 0)
-            record.loan_deduction_applied = False
-        if record.liability_deduction_applied:
-            reverse_liability_deduction(employee.id, record.liability_deduction)
-            record.liability_deduction_applied = False
-        record.is_paid = False
-        finalize_payroll_record(employee, record, start, end)
-        supersede_payslip_verifications(record.id)
-        db.session.add(AuditLog(
-            employee_id=current_user.id, employee_name=current_user.full_name(),
-            action=f'Updated finalized payroll employee {employee.id} ({start}): net {old_net:.2f} -> {float(record.net_pay or 0):.2f}',
-            company=current_user.company, path=request.path,
-            ip_address=request.remote_addr, status_code=302,
-        ))
+        refresh_finalized_payroll(employee, record, start, end, 'Updated finalized payroll')
         db.session.commit()
     except (ValueError, SQLAlchemyError):
         db.session.rollback()
@@ -10825,6 +11077,8 @@ def payroll_dashboard():
             liability_deduction = float(payroll_record.liability_deduction or 0)
         is_admin = 'admin' in str(emp.role or '').lower()
         review_reasons = []
+        payroll_review = payroll_review_checklist(emp, payroll_record, cutoff_start, cutoff_end)
+        review_reasons.extend(payroll_review['alerts'])
         if payroll_record and payroll_record.is_paid and gross_income == 0 and deductions == 0 and net_pay == 0:
             review_reasons.append('Finalized zero totals - review / repair required')
         if daily_rate <= 0:
@@ -10903,6 +11157,7 @@ def payroll_dashboard():
             "is_paid": bool(payroll_record and payroll_record.is_paid),
             "review_status": review_status,
             "review_reasons": review_reasons,
+            "payroll_review": payroll_review,
             "finalized_update": finalized_update,
         })
 
@@ -11203,6 +11458,7 @@ def leave():
                 leave.status = "Approved"
                 leave.is_paid = (leave.leave_type == "SIL")
             leave.decision_date = datetime.utcnow()
+            resume_correction_payroll_updates(leave.employee_id, leave.start_date, leave.end_date)
             db.session.commit()
             send_leave_email(emp, leave, "approved")
             flash("✅ Leave approved.", "success")
@@ -11210,6 +11466,7 @@ def leave():
         elif action == "reject":
             leave.status = "Rejected"
             leave.decision_date = datetime.utcnow()
+            resume_correction_payroll_updates(leave.employee_id, leave.start_date, leave.end_date)
             db.session.commit()
             send_leave_email(emp, leave, "rejected")
             flash("❌ Leave request rejected.", "danger")
@@ -11329,6 +11586,7 @@ def approve_leave(id):
     leave.status = "Approved"
     leave.is_paid = (leave.leave_type == "SIL")
     leave.decision_date = datetime.utcnow()
+    resume_correction_payroll_updates(leave.employee_id, leave.start_date, leave.end_date)
     db.session.commit()
     try:
         send_leave_email(emp, leave, "approved")
@@ -11350,6 +11608,7 @@ def reject_leave(id):
     leave.status = "Rejected"
     leave.remarks = reason
     leave.decision_date = datetime.utcnow()
+    resume_correction_payroll_updates(leave.employee_id, leave.start_date, leave.end_date)
     db.session.commit()
     try:
         send_leave_email(emp, leave, "rejected")
@@ -11589,7 +11848,13 @@ def review_loan_deduction_skip_request(request_id, action):
         cutoff_start=skip_request.cutoff_start,
         cutoff_end=skip_request.cutoff_end,
     ).first()
-    if payroll_record and (payroll_record.is_paid or payroll_record.loan_deduction_applied):
+    saved = json.loads(payroll_record.payslip_snapshot) if payroll_record and payroll_record.payslip_snapshot else {}
+    correction_waiting = bool(set(approved_payroll_correction_ids(
+        skip_request.employee_id, skip_request.cutoff_start, skip_request.cutoff_end + timedelta(days=1),
+    )) - set(saved.get('payroll_approved_correction_ids', [])))
+    if payroll_record and (payroll_record.is_paid or payroll_record.loan_deduction_applied) and not (
+        correction_waiting and skip_request.cutoff_start == completed_cutoff()[0]
+    ):
         flash('This payroll cutoff is finalized; its loan deduction cannot be changed.', 'warning')
         return redirect(url_for(
             'payroll_loan_review', cutoff_start=skip_request.cutoff_start.isoformat(),
@@ -11599,8 +11864,11 @@ def review_loan_deduction_skip_request(request_id, action):
     skip_request.decision_note = decision_note or None
     skip_request.reviewed_by = current_user.id
     skip_request.reviewed_at = datetime.utcnow()
-    if action == 'approve' and payroll_record:
+    if action == 'approve' and payroll_record and not payroll_record.is_paid:
         payroll_record.loan = 0
+    resume_correction_payroll_updates(
+        skip_request.employee_id, skip_request.cutoff_start, skip_request.cutoff_end,
+    )
     db.session.commit()
     employee = db.session.get(Employee, skip_request.employee_id)
     decision = skip_request.status.lower()

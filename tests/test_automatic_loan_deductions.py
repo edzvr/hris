@@ -32,7 +32,7 @@ def people(monkeypatch):
     monkeypatch.setattr(hris, 'notify_admins', lambda *args, **kwargs: None)
     monkeypatch.setattr(hris, 'send_loan_email', lambda *args, **kwargs: None)
     monkeypatch.setattr(hris, 'send_notification_email', lambda *args, **kwargs: None)
-    monkeypatch.setattr(hris, 'current_payroll_cutoff', lambda: (START, START + timedelta(days=6)))
+    monkeypatch.setattr(hris, 'current_payroll_cutoff', lambda today=None: (START, START + timedelta(days=6)))
     with app.app_context():
         admin = Employee(first_name='Auto Loan', last_name='Admin', role='admin')
         staff = Employee(

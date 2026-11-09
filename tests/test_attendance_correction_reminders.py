@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
 from hris import app
-from models import Attendance, AttendanceCorrection, Employee, db
+from models import Attendance, AttendanceCorrection, AuditLog, Employee, Payroll, db
 
 
 def log_in(client, employee):
@@ -139,6 +139,8 @@ def test_staff_can_correct_only_missing_clock_out_and_admin_approval_preserves_c
                 employee_id=staff_id,
                 correction_date=correction_date,
             ).delete()
+            Payroll.query.filter_by(employee_id=staff_id).delete()
+            AuditLog.query.filter_by(employee_id=admin_id).delete()
             db.session.delete(db.session.get(Attendance, attendance_id))
             db.session.delete(db.session.get(Employee, staff_id))
             db.session.delete(db.session.get(Employee, admin_id))
@@ -336,14 +338,14 @@ def test_biometric_preview_marks_duplicate_rows_from_same_upload():
             db.session.commit()
 
 
-def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
+def test_wrong_date_blocks_automatic_payroll_until_pending_correction_is_rejected():
     from datetime import date
     from models import Payroll
 
     correction_date = date(2026, 11, 5)
     with app.app_context():
         admin = Employee(first_name='Fix', last_name='Admin', role='admin')
-        staff = Employee(first_name='Fix', last_name='Staff', role='staff', company='Trece-Uno')
+        staff = Employee(first_name='Fix', last_name='Staff', role='staff', company='Trece-Uno', daily_rate=645)
         db.session.add_all([admin, staff])
         db.session.flush()
         attendance = Attendance(employee_id=staff.id, date=correction_date, status='Present',
@@ -385,9 +387,13 @@ def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
             admin_client.post(f'/admin/attendance-correction/{right_id}/approve')
             with admin_client.session_transaction() as session:
                 messages = [message for _, message in session.get('_flashes', [])]
-        assert any('Recalculate & Finalize' in message for message in messages)
+            assert any('Attendance correction pending' in message for message in messages)
+            admin_client.post(f'/admin/attendance-correction/{wrong_id}/reject')
+            with admin_client.session_transaction() as session:
+                messages = [message for _, message in session.get('_flashes', [])]
+        assert any('automatically updated and finalized' in message for message in messages)
         with app.app_context():
-            assert db.session.get(AttendanceCorrection, wrong_id).status == 'Pending'
+            assert db.session.get(AttendanceCorrection, wrong_id).status == 'Rejected'
             assert db.session.get(Attendance, attendance_id).clock_out == datetime(2026, 11, 5, 17)
     finally:
         with app.app_context():
@@ -395,5 +401,6 @@ def test_correction_with_wrong_date_is_rejected_and_finalized_payroll_warns():
             AttendanceCorrection.query.filter(AttendanceCorrection.employee_id == ids[1]).delete()
             Attendance.query.filter(Attendance.employee_id == ids[1]).delete()
             Payroll.query.filter(Payroll.employee_id == ids[1]).delete()
+            AuditLog.query.filter(AuditLog.employee_id.in_(ids)).delete(synchronize_session=False)
             Employee.query.filter(Employee.id.in_(ids)).delete(synchronize_session=False)
             db.session.commit()

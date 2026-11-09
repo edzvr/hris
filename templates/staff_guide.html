@@ -33,6 +33,7 @@
                 <li>8:00 AM to 8:10 AM is Present. 8:11 AM onwards is Late.</li>
                 <li>Check My Attendance to review your recorded time and hours.</li>
                 <li>If there is a missed or wrong time, submit an Attendance Correction request with the correct time and reason.</li>
+                <li>Admin approval automatically updates the current payroll draft or latest completed cutoff once other attendance and requests are resolved. Drafts remain unfinalized. Older finalized payroll requires separate review; download a new payslip after an update.</li>
             </ul>
             <a class="btn" href="{{ url_for('attendance', employee_id=current_user.id) }}">Open My Attendance</a>
             <a class="btn" href="{{ url_for('attendance_correction') }}">Request Correction</a>

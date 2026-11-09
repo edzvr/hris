@@ -60,6 +60,12 @@
         <div><h3>{{ row.employee.full_name() }}</h3><p>{{ row.employee.company or 'Company not assigned' }} · ID {{ row.employee.id }}</p></div>
         <span class="cutoff-badge {{ 'warning' if row.flags else 'success' }}">{{ 'Needs attention' if row.flags else 'No flagged items' }}</span>
       </header>
+      {% if row.payroll_review.alerts %}
+      <div class="payroll-review-checklist" role="status">
+        {% for alert in row.payroll_review.alerts %}<p>{{ alert }}</p>{% endfor %}
+        <a href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_overview.start, company=selected_company or '') }}">Open payroll review checklist</a>
+      </div>
+      {% endif %}
       <div class="cutoff-employee-pay">
         <div><span>Last finalized take-home pay</span>
           {% if row.previous_payroll %}

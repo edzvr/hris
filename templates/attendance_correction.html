@@ -23,6 +23,9 @@
     <main class="card">
         <h1>Request Attendance Correction</h1>
         <p>Submit a correction only for a missed clock-in/out or a verified system issue.</p>
+        <p>After Admin approval, salary updates automatically for the current draft or latest completed cutoff.
+            Other unresolved attendance or requests must be settled first. Older finalized payroll needs separate Admin review.
+            Download a new payslip after a finalized salary is updated.</p>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}<p>{{ message }}</p>{% endfor %}
         {% endwith %}
