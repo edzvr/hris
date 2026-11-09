@@ -207,11 +207,6 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             assert 'Advanced Adjustments' in text
             assert 'Payroll Actions' in text
             assert 'Payslip & History' in text
-            detail_classes = {
-                detail.get('class', '') for detail in card['details']
-            }
-            assert 'advanced-edit' in detail_classes
-            assert 'payroll-more-actions' in detail_classes
             assert 'Company loan' in text
             assert card['attrs']['data-company'] == 'trece'
             assert all('open' not in details for details in card['details'])
@@ -234,6 +229,10 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert f'name="loan_deduction_{karl_id}"'.encode() not in response.data
         assert f'name="loan_deduction_{keira_id}"'.encode() not in response.data
         assert response.data.count(b'Company loan') >= 2
+        assert response.data.count(b'<section class="advanced-edit"') >= 2
+        assert b'.payroll-cards { display:grid; grid-template-columns:minmax(0,1fr);' in response.data
+        assert b'min-height:184px' in response.data
+        assert b'grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px;' in response.data
         assert b'<h3>Earnings</h3>' in response.data
         assert b'<h3>Deductions</h3>' in response.data
         assert b'.payroll-amounts .deduction-cell { color: #b42318; }' in response.data
