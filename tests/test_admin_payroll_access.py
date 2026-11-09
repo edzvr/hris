@@ -203,7 +203,8 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             assert other_name not in text
             assert 'Unpaid preview' in text
             assert all(label in text for label in ('Gross Income', 'Deductions', 'Net Pay'))
-            assert 'Mabilisang edit' in text
+            assert 'Quick Edit' in text
+            assert 'Advanced Adjustments' in text
             assert 'Company loan' in text
             assert card['attrs']['data-company'] == 'trece'
             assert all('open' not in details for details in card['details'])
@@ -226,6 +227,10 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert f'name="loan_deduction_{karl_id}"'.encode() not in response.data
         assert f'name="loan_deduction_{keira_id}"'.encode() not in response.data
         assert response.data.count(b'Company loan') >= 2
+        assert b'<h3>Earnings</h3>' in response.data
+        assert b'<h3>Deductions</h3>' in response.data
+        assert b'.payroll-amounts .deduction-cell { color: #b42318; }' in response.data
+        assert b'.payroll-breakdown section:nth-child(2) dd { color: #b42318; }' in response.data
     finally:
         with app.app_context():
             db.session.rollback()
@@ -263,8 +268,6 @@ def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
         assert 'Finalized' in text
         for amount in ('4,200.00', '500.00', '3,700.00'):
             assert amount in text
-        assert 'Walang naka-save na itemized historical breakdown' in text
-        assert 'Kita' not in text and 'Mga bawas' not in text
         assert card['attrs']['data-company'] == 'auto'
         for field in (
             'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
@@ -757,7 +760,7 @@ def test_payroll_cutoff_picker_shows_date_ranges_and_save_preserves_selection():
             log_in(client, db.session.get(Employee, admin_id))
         response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
         assert response.status_code == 200
-        assert b'Pumili ng payroll cutoff' in response.data
+        assert b'Select a payroll cutoff' in response.data
         assert b'Oct 03' in response.data
         assert b'Oct 09, 2026' in response.data
         assert b'Payroll allowance note' in response.data

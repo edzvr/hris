@@ -158,9 +158,9 @@ def test_staff_card_shows_pay_breakdown_and_direct_edit_action(finalized_case):
     client, _, employee_id, _ = finalized_case
     card, _ = dashboard_card(client, employee_id)
     text = ' '.join(card['text'])
-    assert 'Kita' in text and 'Mga bawas' in text
+    assert 'Earnings' in text and 'Deductions' in text
     assert 'Basic pay' in text and 'Company loan' in text
-    assert 'Mabilisang edit' not in text
+    assert 'Quick Edit' not in text
     assert 'View / Edit Details' not in text
     assert card_action(card, 'name', 'save_employee_id') is None
 
@@ -185,7 +185,7 @@ def test_draft_staff_card_saves_only_selected_employee_then_opens_preview(finali
     action = card_action(card, 'name', 'save_employee_id')
     assert action is not None and action['attrs']['value'] == str(employee_id)
     text = ' '.join(card['text'])
-    assert 'Mabilisang edit' in text and 'Save & Review Preview' in text
+    assert 'Quick Edit' in text and 'Save & Review Preview' in text
     response = client.post('/payroll_dashboard', data={
         'cutoff_start': START.isoformat(),
         'save_employee_id': str(employee_id),
@@ -734,7 +734,7 @@ def test_historical_reopen_does_not_change_latest_cutoff(finalized_case):
     card, cutoff_value = dashboard_card(client, employee_id, older)
     action = card_action(card, 'formaction', f'/payroll/{employee_id}/reopen')
     assert action is not None and 'disabled' in action['attrs']
-    assert 'pinakahuling natapos na cutoff' in ' '.join(card['text']).lower()
+    assert 'latest completed cutoff' in ' '.join(card['text']).lower()
     response = client.post(
         f'/payroll/{employee_id}/reopen', data={'cutoff_start': cutoff_value},
         follow_redirects=True,
@@ -804,7 +804,7 @@ def test_preview_failure_is_visible_and_logged(finalized_case, monkeypatch, capl
     card, _ = dashboard_card(client, employee_id)
     action = card_action(card, 'formaction', f'/payroll/{employee_id}/update-finalized')
     assert action is not None and 'disabled' in action['attrs']
-    assert 'Hindi ma-compute ang preview' in ' '.join(card['text'])
+    assert 'The preview could not be calculated' in ' '.join(card['text'])
     assert 'Could not preview finalized payroll' in caplog.text
 
 
@@ -882,7 +882,7 @@ def test_preview_matches_refinalization_with_multiple_liabilities(finalized_case
         assert preview['liability_deduction'] == pytest.approx(175)
         assert not db.session.is_modified(employee)
     card, cutoff_value = dashboard_card(client, employee_id)
-    assert 'Bagong kalkulasyon' in ' '.join(card['text'])
+    assert 'Updated calculation' in ' '.join(card['text'])
     response = client.post(
         f'/payroll/{employee_id}/update-finalized',
         data={'cutoff_start': cutoff_value}, follow_redirects=True,
@@ -958,7 +958,7 @@ def test_card_shows_change_and_one_click_update_refinalizes_without_double_loan(
         update_globals = unwrap(app.view_functions['update_finalized_payroll']).__globals__
         with patch.dict(dashboard_globals, patched), patch.dict(update_globals, patched):
             html = client.get(f'/payroll_dashboard?cutoff_start={START}').get_data(as_text=True)
-            assert 'Bagong kalkulasyon' in html
+            assert 'Updated calculation' in html
             assert f'/payroll/{ids[1]}/update-finalized' in html
             response = client.post(f'/payroll/{ids[1]}/update-finalized', data={'cutoff_start': START.isoformat()})
             assert response.status_code == 302

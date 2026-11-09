@@ -8,24 +8,24 @@
     <style>
         :root { color-scheme: light; }
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 28px; background: #f3f6f8; color: #1d2b36; font: 15px "Segoe UI", Arial, sans-serif; }
+        body { margin: 0; padding: 16px; background: #f3f6f8; color: #1d2b36; font: 14px "Segoe UI", Arial, sans-serif; }
         h1 { margin: 0; color: #20364a; font-size: 28px; }
         h2 { margin: 0 0 8px; color: #20364a; font-size: 19px; }
         p { line-height: 1.5; }
-        .page-shell { max-width: 1680px; margin: 0 auto; }
-        .page-header, .panel { margin-bottom: 16px; padding: 20px; border: 1px solid #d6e0e7; border-radius: 10px; background: #fff; }
-        .page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-        .payroll-flash { margin-bottom: 12px; padding: 12px 15px; border: 1px solid #b9c8d3; border-radius: 8px; background: #edf4f8; }
+        .page-shell { max-width: 1920px; margin: 0 auto; }
+        .page-header, .panel { margin-bottom: 10px; padding: 14px; border: 1px solid #d6e0e7; border-radius: 9px; background: #fff; }
+        .page-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .payroll-flash { margin-bottom: 8px; padding: 9px 11px; border: 1px solid #b9c8d3; border-radius: 7px; background: #edf4f8; }
         .payroll-flash-success { border-color: #83bda0; background: #e7f5eb; color: #175b37; }
         .payroll-flash-warning { border-color: #e5b35b; background: #fff7e6; color: #804b00; }
         .payroll-flash-danger, .payroll-flash-error { border-color: #e4a29d; background: #fff0ef; color: #a3261e; }
         .page-subtitle, .muted { margin: 6px 0 0; color: #586b7a; }
-        .panel-heading { margin-bottom: 14px; }
-        .cutoff-form, .filter-grid, .summary-grid, .toolbar-actions, .report-links { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
-        .cutoff-form label, .filter-grid label { display: grid; gap: 6px; color: #405466; font-size: 13px; font-weight: 600; }
-        select, input[type="number"] { min-height: 38px; padding: 7px 9px; border: 1px solid #b9c8d3; border-radius: 6px; background: #fff; color: #1d2b36; font: inherit; }
+        .panel-heading { margin-bottom: 9px; }
+        .cutoff-form, .filter-grid, .summary-grid, .toolbar-actions, .report-links { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+        .cutoff-form label, .filter-grid label { display: grid; gap: 4px; color: #405466; font-size: 12px; font-weight: 600; }
+        select, input[type="number"] { min-height: 34px; padding: 5px 8px; border: 1px solid #b9c8d3; border-radius: 5px; background: #fff; color: #1d2b36; font: inherit; }
         .cutoff-form select { min-width: 240px; }
-        .btn, button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 8px 13px; border: 1px solid transparent; border-radius: 6px; font: 600 14px "Segoe UI", Arial, sans-serif; text-decoration: none; cursor: pointer; }
+        .btn, button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; font: 600 13px "Segoe UI", Arial, sans-serif; text-decoration: none; cursor: pointer; }
         .btn { background: #edf4f8; color: #17577e; }
         .btn:hover { background: #deebf2; }
         button { background: #176b9a; color: #fff; }
@@ -33,74 +33,79 @@
         button[type="submit"][formaction*="bulk_finalize"] { background: #187447; }
         button[type="submit"][formaction*="bulk_finalize"]:hover { background: #125d38; }
         .summary-grid { align-items: stretch; }
-        .summary-card { flex: 1 1 210px; padding: 16px; border: 1px solid #d6e0e7; border-radius: 8px; background: #fff; }
-        .summary-card span { display: block; margin-bottom: 7px; color: #586b7a; font-size: 13px; }
-        .summary-card strong { color: #20364a; font-size: 21px; }
+        .summary-card { flex: 1 1 210px; padding: 11px; border: 1px solid #d6e0e7; border-radius: 7px; background: #fff; }
+        .summary-card span { display: block; margin-bottom: 4px; color: #586b7a; font-size: 12px; }
+        .summary-card strong { color: #20364a; font-size: 18px; }
         .summary-card.total { border-color: #d8c38d; background: #fff9e9; }
-        .review-counts { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+        .review-counts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; }
         .review-ready { color: #1d7a46; font-weight: 700; }
         .review-needed { color: #b45309; font-weight: 700; }
         .deduction-cell, .deduction-details summary, .deduction-details input[type="number"] { color: #b42318; font-weight: 700; }
+        .payroll-amounts .deduction-cell { color: #b42318; }
+        .payroll-amounts .deduction-cell span, .payroll-amounts .deduction-cell strong { color: inherit; }
+        .payroll-breakdown section:nth-child(2) dd { color: #b42318; }
+        .advanced-edit-fields input[name*="loan_"], .advanced-edit-fields input[name*="withholding_tax_"], .advanced-edit-fields input[name*="liability_deduction_"], .advanced-edit-fields input[name*="cash_advance_"], .advanced-edit-fields input[name*="other_deductions_"] { color: #b42318; font-weight: 700; }
         .filter-grid { align-items: end; }
         .filter-grid label { flex: 1 1 180px; }
         .filter-grid select { width: 100%; }
         .filter-help { align-self: center; margin: 0; color: #586b7a; font-size: 13px; }
         .report-tools { padding: 0; overflow: hidden; }
-        .report-tools summary { padding: 16px 20px; color: #17577e; font-weight: 700; cursor: pointer; }
-        .report-links { padding: 0 20px 18px; align-items: center; }
+        .report-tools summary { padding: 11px 14px; color: #17577e; font-weight: 700; cursor: pointer; }
+        .report-links { padding: 0 14px 12px; align-items: center; }
         .payroll-notes { margin-top: 12px; color: #586b7a; }
         .payroll-notes summary { cursor: pointer; font-weight: 600; }
         .payroll-notes p { margin-bottom: 0; }
-        .bulk-toolbar { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0 10px; padding: 12px 16px; border: 1px solid #cbd7e0; border-radius: 8px; background: rgba(255, 255, 255, .97); box-shadow: 0 3px 12px rgba(29, 43, 54, .08); }
+        .bulk-toolbar { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin: 10px 0 7px; padding: 8px 11px; border: 1px solid #cbd7e0; border-radius: 7px; background: rgba(255, 255, 255, .97); box-shadow: 0 2px 8px rgba(29, 43, 54, .08); }
         .toolbar-actions { align-items: center; }
         .toolbar-actions a { color: #17577e; font-weight: 600; }
-        .selection-count { color: #586b7a; font-size: 13px; }
-        .table-caption { margin: 0 0 8px; color: #586b7a; font-size: 13px; }
+        .selection-count { color: #586b7a; font-size: 12px; }
+        .table-caption { margin: 0 0 6px; color: #586b7a; font-size: 12px; }
         input[type="number"] { width: 88px; }
-        .payroll-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
-        .payroll-section { grid-column:1 / -1; margin:8px 0 0; font-size:16px; }
-        .payroll-row { min-width:0; padding:18px; border:1px solid #d6e0e7; border-radius:14px; background:#fff; }
+        .payroll-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; align-items:start; }
+        .payroll-section { grid-column:1 / -1; margin:5px 0 0; font-size:15px; }
+        .payroll-row { min-width:0; padding:12px; border:1px solid #d6e0e7; border-radius:10px; background:#fff; }
         .payroll-row.admin-row { border-color:#d8c6e4; background:#fcf9fe; }
-        .payroll-card-header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:12px; margin-bottom:16px; }
-        .payroll-card-header label { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; }
-        .payroll-card-company { margin:5px 0 0 25px; color:#586b7a; font-size:13px; }
-        .payroll-status { font-size:12px; padding:5px 8px; border-radius:6px; background:#eef3f8; }
-        .payroll-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:14px; }
-        .payroll-amounts div { min-width:0; padding:10px; border-radius:8px; background:#f1f5f9; }
-        .payroll-amounts span { display:block; font-size:12px; margin-bottom:6px; }
-        .payroll-amounts strong { font-size:16px; overflow-wrap:anywhere; }
+        .payroll-card-header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:8px; margin-bottom:10px; }
+        .payroll-card-header label { display:flex; align-items:center; gap:6px; font-size:15px; font-weight:700; }
+        .payroll-card-company { margin:3px 0 0 22px; color:#586b7a; font-size:12px; }
+        .payroll-status { font-size:11px; padding:4px 6px; border-radius:5px; background:#eef3f8; }
+        .payroll-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-bottom:9px; }
+        .payroll-amounts div { min-width:0; padding:7px; border-radius:6px; background:#f1f5f9; }
+        .payroll-amounts span { display:block; font-size:11px; margin-bottom:3px; }
+        .payroll-amounts strong { font-size:14px; overflow-wrap:anywhere; }
         .payroll-amounts .payroll-net { background:#e7f2eb; color:#175b37; }
-        .payroll-update-box { margin:10px 0; padding:12px; border:1px solid #a9c7d9; border-radius:8px; background:#f2f8fc; }
+        .payroll-update-box { margin:8px 0; padding:9px; border:1px solid #a9c7d9; border-radius:7px; background:#f2f8fc; }
         .payroll-update-box.changed { border-color:#d97706; background:#fff7ed; }
         .payroll-update-box p { margin:6px 0; font-size:13px; }
         .payroll-update-error { color:#b42318; font-weight:700; }
-        .payroll-recalculate, .payroll-recalculate.btn { margin-top:6px; min-height:44px; background:#176b9a; color:#fff; }
+        .payroll-recalculate, .payroll-recalculate.btn { margin-top:4px; min-height:32px; background:#176b9a; color:#fff; }
         .payroll-recalculate:hover, .payroll-recalculate.btn:hover { background:#11577f; color:#fff; }
         .payroll-recalculate:disabled { background:#c5d0d7; color:#465763; cursor:not-allowed; }
         .payroll-detail-toggle > summary { cursor:pointer; padding:10px 0; color:#17577e; font-weight:700; }
-        .payroll-breakdown { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }
-        .payroll-breakdown section { min-width:0; padding:12px; border:1px solid #e3eaf0; border-radius:9px; background:#f8fafc; }
-        .payroll-breakdown h3 { margin:0 0 8px; color:#40566a; font-size:13px; }
-        .payroll-breakdown dl { display:grid; gap:5px; margin:0; }
-        .payroll-breakdown dl div { display:flex; justify-content:space-between; gap:8px; font-size:12px; }
+        .payroll-breakdown { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin:8px 0; }
+        .payroll-breakdown section { min-width:0; padding:9px; border:1px solid #e3eaf0; border-radius:7px; background:#f8fafc; }
+        .payroll-breakdown h3 { margin:0 0 5px; color:#40566a; font-size:12px; }
+        .payroll-breakdown dl { display:grid; gap:3px; margin:0; }
+        .payroll-breakdown dl div { display:flex; justify-content:space-between; gap:6px; font-size:11px; }
         .payroll-breakdown dt { color:#52677b; }
         .payroll-breakdown dd { margin:0; color:#26384a; font-weight:650; text-align:right; }
-        .payroll-quick-edit { margin-top:12px; padding:13px; border:1px solid #d6e0e9; border-radius:9px; background:#fbfcfe; }
-        .payroll-quick-edit h3 { margin:0 0 10px; font-size:14px; color:#263f57; }
-        .quick-edit-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
-        .quick-edit-fields label, .advanced-edit-fields label { display:grid; min-width:0; gap:5px; color:#405466; font-size:12px; font-weight:650; }
+        .payroll-quick-edit { margin-top:8px; padding:9px; border:1px solid #d6e0e9; border-radius:7px; background:#fbfcfe; }
+        .payroll-quick-edit h3 { margin:0 0 6px; font-size:13px; color:#263f57; }
+        .quick-edit-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+        .quick-edit-fields label, .advanced-edit-fields label { display:grid; min-width:0; gap:3px; color:#405466; font-size:11px; font-weight:650; }
         .quick-edit-fields input, .advanced-edit-fields input { width:100%; min-width:0; }
-        .advanced-edit { margin-top:10px; }
-        .advanced-edit summary, .payroll-checklist summary, .payroll-more-actions summary { min-height:40px; display:flex; align-items:center; color:#17577e; font-size:13px; font-weight:700; cursor:pointer; }
-        .advanced-edit-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; padding:8px 0; }
-        .quick-edit-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-        .quick-edit-actions .btn { min-height:44px; }
+        .advanced-edit { margin-top:6px; }
+        .advanced-edit summary, .payroll-checklist summary, .payroll-more-actions summary { min-height:32px; display:flex; align-items:center; color:#17577e; font-size:12px; font-weight:700; cursor:pointer; }
+        .advanced-edit-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; padding:6px 0; }
+        .quick-edit-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .quick-edit-actions .btn { min-height:32px; }
         .payroll-checklist { margin-top:6px; }
         .payroll-checklist .payroll-review-checklist { margin:4px 0; }
         .payroll-more-actions { margin-top:8px; border-top:1px solid #e2e8f0; }
         .zero-payroll-tool { display:block; margin-top:12px; color:#52677b; font-size:13px; }
-        .payroll-card-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-        @media(max-width:1100px) { .payroll-cards { grid-template-columns:1fr; } }
+        .payroll-card-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        @media(min-width:1600px) { .payroll-cards { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+        @media(max-width:760px) { .payroll-cards { grid-template-columns:1fr; } }
         .dashboard-back-link { color: #17577e; font-weight: 600; }
         @media (max-width: 700px) {
             body { padding: 12px; }
@@ -123,7 +128,7 @@
     <header class="page-header">
         <div>
             <h1>Payroll Dashboard</h1>
-            <p class="muted">Bawat staff card ay may kita, bawas, at mabilisang edit para sa napiling cutoff. I-review ang preview bago i-save o i-finalize.</p>
+            <p class="muted">Each staff card shows earnings, deductions, and quick-edit options for the selected cutoff. Review the preview before saving or finalizing.</p>
             <p class="muted"><strong>Auto-finalize:</strong> every Friday 10:00 PM, only employees marked <em>Ready</em> are finalized automatically. <em>Needs Review</em> stays for Admin. Reopening a payslip makes its old QR show "DO NOT RELEASE".</p>
             <p class="page-subtitle">Cutoff: {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }} (Saturday–Friday)</p>
         </div>
@@ -139,7 +144,7 @@
     <section class="panel">
         <div class="panel-heading">
             <h2>1. Choose payroll cutoff</h2>
-            <p class="muted">Pumili ng payroll cutoff (Sabado–Biyernes).</p>
+            <p class="muted">Select a payroll cutoff (Saturday–Friday).</p>
         </div>
         <form method="GET" class="cutoff-form">
             <input id="cutoff-company" type="hidden" name="company" value="">
@@ -191,7 +196,7 @@
     <section class="panel" aria-labelledby="review-heading">
         <div class="panel-heading">
             <h2 id="review-heading">2. Review and filter employees</h2>
-            <p class="muted">I-filter ang listahan bago mag-edit o mag-finalize ng payroll.</p>
+            <p class="muted">Filter employees before editing or finalizing payroll.</p>
         </div>
         <div class="review-counts">
         <span class="review-ready">Ready: {{ payroll_data|rejectattr('is_payroll_attendance_exempt')|selectattr('review_status', 'equalto', 'Ready')|list|length }}</span>
@@ -241,7 +246,7 @@
                 <button type="submit">Save All Updates</button>
             </div>
         </div>
-        <p class="table-caption">3. Buksan ang bawat card para makita ang itemized pay. I-edit sa card at pindutin ang “Save &amp; Review Preview”.</p>
+        <p class="table-caption">3. Open a card to view itemized pay. Edit amounts on the card, then select “Save &amp; Review Preview”.</p>
         <div class="payroll-cards">
                 {% for p in payroll_data %}
                 {% if loop.first or p.is_admin != payroll_data[loop.index0 - 1].is_admin %}
@@ -278,41 +283,41 @@
                     <div class="payroll-update-box {{ 'changed' if u.has_changes else '' }}">
                         <strong>Recalculate payroll</strong>
                         {% if u.preview_error %}
-                        <p class="payroll-update-error" role="alert">Hindi ma-compute ang preview. Walang binago; suriin ang payroll records.</p>
+                        <p class="payroll-update-error" role="alert">The preview could not be calculated. No changes were made; check the payroll records.</p>
                         {% elif u.has_changes %}
-                        <p>Bagong kalkulasyon — Net Pay: ₱{{ u.old_net|currency }} → <strong>₱{{ u.new_net|currency }}</strong>
-                            (Gross ₱{{ u.old_gross|currency }} → ₱{{ u.new_gross|currency }})</p>
+                        <p>Updated calculation — Net Pay: ₱{{ u.old_net|currency }} → <strong>₱{{ u.new_net|currency }}</strong>
+                            (Gross Income ₱{{ u.old_gross|currency }} → ₱{{ u.new_gross|currency }})</p>
                         {% else %}
-                        <p>Finalized na. Maaaring i-recalculate at i-finalize ulit ang payroll na ito.</p>
+                        <p>This payroll is finalized. You can recalculate and finalize it again.</p>
                         {% endif %}
                         {% if u.blockers %}
-                        <p class="payroll-update-error" role="alert">Ayusin muna: {{ u.blockers|join(', ') }}</p>
+                        <p class="payroll-update-error" role="alert">Resolve these issues first: {{ u.blockers|join(', ') }}</p>
                         {% endif %}
                         <button type="submit" class="payroll-recalculate"
                                 formaction="{{ url_for('update_finalized_payroll', employee_id=p.emp.id) }}"
                                 formmethod="POST" formnovalidate
                                 {% if u.blockers or u.preview_error %}disabled{% endif %}
-                                onclick="return confirm('I-recalculate at i-finalize ulit ang payroll na ito? Hindi na valid ang lumang payslip QR.');">
+                                onclick="return confirm('Recalculate and finalize this payroll again? The old payslip QR will no longer be valid.');">
                             🔄 Recalculate &amp; Finalize
                         </button>
                     </div>
                     {% elif p.is_paid %}
                     <div class="payroll-update-box">
                         <strong>Recalculate payroll</strong>
-                        <p>Para lang sa pinakahuling natapos na cutoff ({{ latest_completed_start.strftime('%b %d') }}–{{ latest_completed_end.strftime('%b %d, %Y') }}). Hindi babaguhin ang napiling cutoff na ito.</p>
+                        <p>Available only for the latest completed cutoff ({{ latest_completed_start.strftime('%b %d') }}–{{ latest_completed_end.strftime('%b %d, %Y') }}). This selected cutoff will not be changed.</p>
                         <button type="button" class="payroll-recalculate" disabled>🔄 Recalculate &amp; Finalize</button>
                     </div>
                     {% endif %}
                     {% if p.card_breakdown_available %}
                     <div class="payroll-breakdown">
-                        <section><h3>Kita</h3><dl>
+                        <section><h3>Earnings</h3><dl>
                             <div><dt>Basic pay · {{ p.worked_days }} days</dt><dd>₱{{ p.card_breakdown.basic_pay|currency }}</dd></div>
                             <div><dt>Allowance</dt><dd>₱{{ p.card_breakdown.allowance|currency }}</dd></div>
                             <div><dt>Incentives</dt><dd>₱{{ p.card_breakdown.incentives|currency }}</dd></div>
                             <div><dt>De Minimis</dt><dd>₱{{ p.card_breakdown.rice_allowance|currency }}</dd></div>
                             <div><dt>Approved OT</dt><dd>₱{{ p.card_breakdown.approved_ot_pay|currency }}</dd></div>
                         </dl></section>
-                        <section><h3>Mga bawas</h3><dl>
+                        <section><h3>Deductions</h3><dl>
                             <div><dt>SSS · PhilHealth · Pag-IBIG</dt><dd>₱{{ (p.card_breakdown.sss + p.card_breakdown.philhealth + p.card_breakdown.pagibig)|currency }}</dd></div>
                             <div><dt>SSS / Pag-IBIG loan</dt><dd>₱{{ (p.card_breakdown.sss_loan + p.card_breakdown.pagibig_loan)|currency }}</dd></div>
                             <div><dt>Company loan</dt><dd>₱{{ p.card_breakdown.company_loan|currency }}</dd></div>
@@ -321,11 +326,11 @@
                         </dl></section>
                     </div>
                     {% elif p.is_paid %}
-                    <p class="payroll-card-company">Walang naka-save na itemized historical breakdown. Napananatili ang saved gross, deductions, at net pay sa itaas.</p>
+                    <p class="payroll-card-company">No itemized historical breakdown is available. The saved gross income, deductions, and net pay above are unchanged.</p>
                     {% endif %}
                     {% if not p.is_paid %}
                     <section class="payroll-quick-edit" aria-label="Quick payroll edit for {{ p.emp.full_name() }}">
-                        <h3>Mabilisang edit</h3>
+                        <h3>Quick Edit</h3>
                         <div class="quick-edit-fields">
                             <label>Daily rate
                                 <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
@@ -338,7 +343,7 @@
                             </label>
                         </div>
                         <details class="advanced-edit">
-                            <summary>Ibang adjustment</summary>
+                            <summary>Advanced Adjustments</summary>
                             <div class="advanced-edit-fields">
                                 <label>SSS loan<input type="number" min="0" step="0.01" name="sss_loan_{{ p.emp.id }}" value="{{ p.sss_loan or 0 }}"></label>
                                 <label>Pag-IBIG loan<input type="number" min="0" step="0.01" name="pagibig_loan_{{ p.emp.id }}" value="{{ p.pagibig_loan or 0 }}"></label>
@@ -351,7 +356,7 @@
                         </details>
                         <div class="quick-edit-actions">
                             <button type="submit" name="save_employee_id" value="{{ p.emp.id }}" formnovalidate>Save &amp; Review Preview</button>
-                            <a class="btn" href="{{ url_for('attendance', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}#admin-attendance-edit">Ayusin attendance</a>
+                            <a class="btn" href="{{ url_for('attendance', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}#admin-attendance-edit">Edit Attendance</a>
                         </div>
                     </section>
                     {% endif %}
@@ -369,7 +374,7 @@
                     </div>
                     </details>
                     <div class="payroll-card-actions">
-                        <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">Payslip &amp; history</a>
+                        <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">Payslip &amp; History</a>
                     </div>
                 </article>
                 {% else %}
