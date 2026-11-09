@@ -183,10 +183,10 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert response.status_code == 200
         assert b'2. Review and filter employees' in response.data
         assert b'Select all shown' in response.data
-        assert b'class="payroll-field deduction-cell">SSS<strong>' in response.data
+        assert b'class="deduction-cell"><span>Deductions</span>' in response.data
         assert b'class="deduction-cell">' in response.data
-        assert b'SSS Loan' in response.data
-        assert b'Pag-IBIG Loan' in response.data
+        assert b'SSS / Pag-IBIG loan' in response.data
+        assert 'SSS · PhilHealth · Pag-IBIG'.encode() in response.data
         assert b'Karl Ronquillo' in response.data
         assert b'Keira Ronquillo' in response.data
         assert b'Finalize Payroll' in response.data
@@ -202,17 +202,19 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             assert name in text
             assert other_name not in text
             assert 'Unpaid preview' in text
-            assert all(label in text for label in ('Gross Pay', 'Deductions', 'Net Pay'))
+            assert all(label in text for label in ('Gross Income', 'Deductions', 'Net Pay'))
+            assert 'Mabilisang edit' in text
+            assert 'Company loan' in text
             assert card['attrs']['data-company'] == 'trece'
             assert all('open' not in details for details in card['details'])
             for field in (
-                'daily_rate', 'rice_allowance', 'laundry_allowance',
-                'medical_allowance', 'uniform_allowance', 'christmas_gift_allowance',
-                'meal_allowance', 'sss_loan', 'pagibig_loan', 'withholding_tax',
-                'liability_deduction', 'cash_advance', 'other_deductions',
-                'loan', 'loan_deduction',
+                'daily_rate', 'allowance', 'incentives', 'rice_allowance',
+                'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
+                'cash_advance', 'other_deductions',
             ):
                 assert f'{field}_{employee_id}' in card['inputs']
+            assert f'loan_{employee_id}' not in card['inputs']
+            assert f'loan_deduction_{employee_id}' not in card['inputs']
             assert card['inputs']['selected_employee_ids']['value'] == str(employee_id)
             with app.test_request_context():
                 assert any(
@@ -221,12 +223,9 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
                     )
                     for action in card['actions']
                 )
-        assert f'name="loan_deduction_{karl_id}"'.encode() in response.data
-        assert f'name="loan_deduction_{keira_id}"'.encode() in response.data
-        assert b'Company Loan Deduction This Cutoff' in response.data
-        assert f'name="loan_deduction_{karl_id}"'.encode() in response.data
-        assert f'name="loan_deduction_{keira_id}"'.encode() in response.data
-        assert b'Company Loan Deduction This Cutoff' in response.data
+        assert f'name="loan_deduction_{karl_id}"'.encode() not in response.data
+        assert f'name="loan_deduction_{keira_id}"'.encode() not in response.data
+        assert response.data.count(b'Company loan') >= 2
     finally:
         with app.app_context():
             db.session.rollback()
@@ -264,26 +263,27 @@ def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
         assert 'Finalized' in text
         for amount in ('4,200.00', '500.00', '3,700.00'):
             assert amount in text
+        assert 'Walang naka-save na itemized historical breakdown' in text
+        assert 'Kita' not in text and 'Mga bawas' not in text
         assert card['attrs']['data-company'] == 'auto'
         for field in (
             'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
             'cash_advance', 'other_deductions', 'loan', 'loan_deduction',
         ):
-            assert 'disabled' in card['inputs'][f'{field}_{staff_id}']
+            assert f'{field}_{staff_id}' not in card['inputs']
         with app.test_request_context():
             assert any(
                 action.get('formaction') == url_for('reopen_payroll', employee_id=staff_id)
                 for action in card['actions']
             )
             assert any(
-                action.get('href') == url_for(
-                    'payroll', employee_id=staff_id, cutoff_start='2026-10-03', download='true')
-                for action in card['actions']
-            )
-            assert any(
                 action.get('href') == url_for('payroll', employee_id=staff_id, cutoff_start='2026-10-03')
                 for action in card['actions']
             )
+        payslip_page = client.get(
+            f'/payroll/{staff_id}?cutoff_start=2026-10-03'
+        )
+        assert b'Download PDF' in payslip_page.data
         with app.app_context():
             saved = db.session.get(Payroll, record_id)
             assert (saved.gross_income, saved.total_deductions, saved.net_pay) == (4200, 500, 3700)
@@ -346,6 +346,10 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         )
         assert response.status_code == 200
         assert b'Draft Payroll Recalculation Preview' in response.data
+        assert b'class="summary"' in response.data
+        assert b'aria-labelledby="earnings-title"' in response.data
+        assert b'aria-labelledby="deductions-title"' in response.data
+        assert b'I-save ang draft' in response.data
         with client.session_transaction() as session:
             token = session['payroll_recalculation_csrf']
         response = client.post(
@@ -756,7 +760,8 @@ def test_payroll_cutoff_picker_shows_date_ranges_and_save_preserves_selection():
         assert b'Pumili ng payroll cutoff' in response.data
         assert b'Oct 03' in response.data
         assert b'Oct 09, 2026' in response.data
-        assert b'De Minimis Ceiling (not extra pay)' in response.data
+        assert b'Payroll allowance note' in response.data
+        assert b'not extra salary or an automatic allowance' in response.data
         assert b'value="95"' in response.data
         assert b'Rice Ceiling / Month' not in response.data
         assert b'Rice De Minimis' not in response.data

@@ -154,6 +154,78 @@ def test_finalized_card_shows_recalculate_outside_details_when_net_is_unchanged(
     assert cutoff_value == START.isoformat()
 
 
+def test_staff_card_shows_pay_breakdown_and_direct_edit_action(finalized_case):
+    client, _, employee_id, _ = finalized_case
+    card, _ = dashboard_card(client, employee_id)
+    text = ' '.join(card['text'])
+    assert 'Kita' in text and 'Mga bawas' in text
+    assert 'Basic pay' in text and 'Company loan' in text
+    assert 'Mabilisang edit' not in text
+    assert 'View / Edit Details' not in text
+    assert card_action(card, 'name', 'save_employee_id') is None
+
+
+def test_draft_staff_card_saves_only_selected_employee_then_opens_preview(finalized_case):
+    client, _, employee_id, _ = finalized_case
+    with app.app_context():
+        record = db.session.get(Payroll, Payroll.query.filter_by(employee_id=employee_id).one().id)
+        record.is_paid = False
+        record.loan_deduction_applied = False
+        record.liability_deduction_applied = False
+        employee = db.session.get(Employee, employee_id)
+        employee.loan_balance = 1000
+        other = Employee(
+            first_name='Unselected', last_name='Card', role='staff',
+            company='Trece-Uno', daily_rate=600, allowance=15,
+        )
+        db.session.add(other)
+        db.session.commit()
+        other_id = other.id
+    card, _ = dashboard_card(client, employee_id)
+    action = card_action(card, 'name', 'save_employee_id')
+    assert action is not None and action['attrs']['value'] == str(employee_id)
+    text = ' '.join(card['text'])
+    assert 'Mabilisang edit' in text and 'Save & Review Preview' in text
+    response = client.post('/payroll_dashboard', data={
+        'cutoff_start': START.isoformat(),
+        'save_employee_id': str(employee_id),
+        f'daily_rate_{employee_id}': '700',
+        f'allowance_{employee_id}': '120',
+        f'incentives_{employee_id}': '50',
+        f'sss_loan_{employee_id}': '75',
+        f'pagibig_loan_{employee_id}': '0',
+        f'cash_advance_{employee_id}': '20',
+        f'other_deductions_{employee_id}': '10',
+    })
+    assert response.status_code == 302
+    assert response.location.endswith(
+        f'/payroll/{employee_id}/recalculate?cutoff_start={START.isoformat()}'
+    )
+    with app.app_context():
+        employee = db.session.get(Employee, employee_id)
+        record = db.session.get(Payroll, Payroll.query.filter_by(employee_id=employee_id).one().id)
+        other = db.session.get(Employee, other_id)
+        assert employee.daily_rate == 700 and employee.allowance == 120
+        assert employee.incentives == 50 and employee.loan_balance == 1000
+        assert record.sss_loan == 75
+        assert record.cash_advance == 20 and record.other_deductions == 10
+        assert other.daily_rate == 600 and other.allowance == 15
+    assert client.get(response.location).status_code == 200
+
+
+def test_invalid_quick_edit_employee_id_does_not_run_bulk_save(finalized_case):
+    client, _, employee_id, _ = finalized_case
+    response = client.post('/payroll_dashboard', data={
+        'cutoff_start': START.isoformat(),
+        'save_employee_id': 'not-an-employee-id',
+        f'daily_rate_{employee_id}': '999',
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b'Select a valid employee to save.' in response.data
+    with app.app_context():
+        assert db.session.get(Employee, employee_id).daily_rate == 645
+
+
 def test_missing_clock_out_is_visible_and_blocks_recalculation_even_if_net_is_unchanged(finalized_case):
     client, _, employee_id, payroll_id = finalized_case
     with app.app_context():
@@ -631,12 +703,22 @@ def test_historical_correction_does_not_direct_admin_to_latest_cutoff_action(fin
 def test_unpaid_card_links_directly_to_recalculation_preview(finalized_case):
     client, _, employee_id, _ = finalized_case
     card, _ = dashboard_card(client, employee_id, END)
-    action = card_action(
-        card, 'href', f'/payroll/{employee_id}/recalculate?cutoff_start={END.isoformat()}',
-    )
+    action = card_action(card, 'name', 'save_employee_id')
     assert action is not None and action['depth'] == 0
-    assert 'Recalculate' in ''.join(action['text'])
-    assert client.get(action['attrs']['href']).status_code == 200
+    assert action['attrs']['value'] == str(employee_id)
+    assert 'Save & Review Preview' in ''.join(action['text'])
+    response = client.post('/payroll_dashboard', data={
+        'cutoff_start': END.isoformat(),
+        'save_employee_id': str(employee_id),
+        f'daily_rate_{employee_id}': '645',
+        f'allowance_{employee_id}': '0',
+        f'incentives_{employee_id}': '0',
+    })
+    assert response.status_code == 302
+    assert response.location.endswith(
+        f'/payroll/{employee_id}/recalculate?cutoff_start={END.isoformat()}'
+    )
+    assert client.get(response.location).status_code == 200
 
 
 def test_historical_reopen_does_not_change_latest_cutoff(finalized_case):

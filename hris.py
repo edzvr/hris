@@ -10013,7 +10013,7 @@ def recalculate_payroll(employee_id):
         return redirect(url_for('payroll_dashboard', cutoff_start=start))
     return render_template(
         'payroll_recalculation.html', emp=employee, original=record, projected=projected,
-        cutoff_start=start, csrf_token=csrf_token,
+        cutoff_start=start, cutoff_end=end - timedelta(days=1), csrf_token=csrf_token,
         rows=weekly_payslip_table_data(build_payslip_breakdown(employee, projected)),
     )
 
@@ -10844,9 +10844,26 @@ def payroll_dashboard():
     is_latest_completed_cutoff = cutoff_start == latest_completed_start
 
     if request.method == 'POST':
-        for emp in Employee.query.order_by(
+        save_employee_value = request.form.get('save_employee_id')
+        try:
+            save_employee_id = (
+                int(save_employee_value) if save_employee_value is not None else None
+            )
+        except ValueError:
+            flash('Select a valid employee to save.', 'danger')
+            return redirect(url_for(
+                'payroll_dashboard',
+                cutoff_start=cutoff_start.isoformat(),
+            ))
+        employees_query = Employee.query.order_by(
             Employee.role.ilike('%admin%'), Employee.last_name, Employee.first_name
-        ).all():
+        )
+        if save_employee_id is not None:
+            employees_query = employees_query.filter(Employee.id == save_employee_id)
+            if not employees_query.first():
+                abort(404)
+            employees_query = Employee.query.filter_by(id=save_employee_id)
+        for emp in employees_query.all():
             payroll_record = None
             daily_rate = request.form.get(f'daily_rate_{emp.id}')
             allowance = request.form.get(f'allowance_{emp.id}')
@@ -10951,6 +10968,12 @@ def payroll_dashboard():
                     cutoff_start=cutoff_start.isoformat(),
                 ))
         db.session.commit()
+        if save_employee_id is not None:
+            return redirect(url_for(
+                'recalculate_payroll',
+                employee_id=save_employee_id,
+                cutoff_start=cutoff_start.isoformat(),
+            ))
         flash('Payroll rates and allowances updated successfully.', 'success')
         return redirect(url_for(
             'payroll_dashboard',
@@ -11121,6 +11144,59 @@ def payroll_dashboard():
             }
             if has_changes:
                 review_reasons.append('Payroll amounts differ from the current calculation')
+        card_breakdown = {
+            'basic_pay': basic_pay,
+            'allowance': float(emp.allowance or 0),
+            'incentives': float(emp.incentives or 0),
+            'rice_allowance': float(rice_taxable + rice_exempt),
+            'approved_ot_pay': approved_ot_pay,
+            'sss': sss, 'philhealth': philhealth, 'pagibig': pagibig,
+            'sss_loan': sss_loan, 'pagibig_loan': pagibig_loan,
+            'company_loan': loan, 'liability_deduction': liability_deduction,
+            'cash_advance': cash_advance, 'withholding_tax': withholding_tax,
+            'other_deductions': other_deductions,
+        }
+        card_breakdown_available = True
+        if payroll_record and payroll_record.is_paid:
+            try:
+                saved_breakdown = build_payslip_breakdown(
+                    emp, payroll_record, worked_days_count, approved_ot_pay,
+                )
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                logger.exception(
+                    'Could not load finalized payslip breakdown for employee %s',
+                    emp.id,
+                )
+                card_breakdown_available = False
+            else:
+                if saved_breakdown.get('legacy'):
+                    card_breakdown_available = False
+                else:
+                    card_breakdown.update({
+                        'basic_pay': float(saved_breakdown['basic_pay'] or 0),
+                        'allowance': float(saved_breakdown['allowance'] or 0),
+                        'incentives': float(saved_breakdown['incentives'] or 0),
+                        'rice_allowance': float(saved_breakdown['rice_allowance'] or 0),
+                        'approved_ot_pay': float(
+                            saved_breakdown['gross_income']
+                            - saved_breakdown['basic_pay']
+                            - saved_breakdown['allowance']
+                            - saved_breakdown['incentives']
+                            - saved_breakdown['rice_allowance_taxable']
+                        ),
+                        'sss': float(saved_breakdown['sss'] or 0),
+                        'philhealth': float(saved_breakdown['philhealth'] or 0),
+                        'pagibig': float(saved_breakdown['pagibig'] or 0),
+                        'sss_loan': float(saved_breakdown['sss_loan'] or 0),
+                        'pagibig_loan': float(saved_breakdown['pagibig_loan'] or 0),
+                        'company_loan': float(saved_breakdown['company_loan'] or 0),
+                        'liability_deduction': float(
+                            saved_breakdown['liability_deduction'] or 0
+                        ),
+                        'cash_advance': float(saved_breakdown['cash_advance'] or 0),
+                        'withholding_tax': float(saved_breakdown['withholding_tax'] or 0),
+                        'other_deductions': float(saved_breakdown['other_deductions'] or 0),
+                    })
         review_status = 'Needs Review' if review_reasons else 'Ready'
         if not emp.payroll_attendance_exempt:
             accounting_totals['total_net_pay'] += net_pay
@@ -11158,6 +11234,14 @@ def payroll_dashboard():
             "review_status": review_status,
             "review_reasons": review_reasons,
             "payroll_review": payroll_review,
+            "card_breakdown": card_breakdown,
+            "card_breakdown_available": card_breakdown_available,
+            "withholding_tax_override": (
+                payroll_record.withholding_tax_override if payroll_record else None
+            ),
+            "liability_deduction_override": (
+                payroll_record.liability_deduction_override if payroll_record else None
+            ),
             "finalized_update": finalized_update,
         })
 

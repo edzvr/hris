@@ -1,30 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Draft Payroll Recalculation</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}"></head>
-<body><main>
-<h1>Draft Payroll Recalculation Preview</h1>
-<h2>{{ emp.full_name() }} - {{ cutoff_start }}</h2>
-{% for category, message in get_flashed_messages(with_categories=true) %}
-<p role="alert">{{ message }}</p>
-{% endfor %}
-<p>No recalculated totals have been saved. Preview expires in 10 minutes.
-Changes to payroll, attendance or calculation inputs require a new preview.</p>
-{% if original %}
-<p>Saved totals: Gross Income {{ original.gross_income|currency }},
-    Deductions {{ original.total_deductions|currency }}, Net {{ original.net_pay|currency }}.</p>
-{% else %}<p>No saved payroll exists for this cutoff.</p>{% endif %}
-<p>Proposed: Gross Income {{ projected.gross_income|currency }},
-    Deductions {{ projected.total_deductions|currency }}, Net {{ projected.net_pay|currency }}.</p>
-<table>{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</table>
-<form method="post">
-<input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
-<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<label><input type="checkbox" name="approved" value="yes" required>
-I approve replacing this unpaid draft's totals with this preview and saving its itemized snapshot.
-This does not finalize payroll or deduct loan/liability balances.</label>
-<button type="submit">Approve and Save Draft</button>
-</form>
-<p><a href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Ayusin Attendance</a> bago mag-recalculate, kung may kulang na clock-in o clock-out.</p>
-<a href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Cancel / Back to Payroll</a>
-</main></body></html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Payroll Preview - {{ emp.full_name() }}</title>
+    <style>
+        :root { color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; color: #233247; background: #f3f6fa; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 28px 18px 48px; }
+        main { width: min(100%, 1120px); margin: 0 auto; }
+        a { color: #145da0; }
+        .top-link { display: inline-flex; min-height: 44px; align-items: center; margin-bottom: 12px; font-weight: 650; text-decoration: none; }
+        .top-link:hover { text-decoration: underline; }
+        .page-heading, .panel, .metric, .approval-panel { border: 1px solid #dce4ee; border-radius: 14px; background: #fff; box-shadow: 0 4px 16px rgba(34, 55, 80, .045); }
+        .page-heading { padding: clamp(20px, 4vw, 32px); }
+        .eyebrow { margin: 0 0 8px; color: #597087; font-size: 12px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+        h1 { margin: 0; color: #1c344f; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; }
+        .employee-line { margin: 10px 0 0; color: #41576d; font-size: 16px; }
+        .badge { display: inline-flex; margin-top: 16px; padding: 6px 10px; border-radius: 999px; background: #eaf3fb; color: #185784; font-size: 12px; font-weight: 750; }
+        .flash { margin: 14px 0 0; padding: 12px 14px; border: 1px solid #e8b6b1; border-radius: 9px; background: #fff3f1; color: #8d2922; overflow-wrap: anywhere; }
+        .intro { margin: 16px 0; padding: 14px 16px; border-left: 4px solid #4285b4; border-radius: 8px; background: #eaf4fb; color: #304b63; line-height: 1.55; }
+        .section-heading { margin: 0 0 12px; color: #203b57; font-size: 18px; }
+        .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+        .metric { min-width: 0; padding: 16px; }
+        .metric span { display: block; margin-bottom: 8px; color: #5a6e81; font-size: 13px; }
+        .metric strong { display: block; color: #203b57; font-size: clamp(19px, 3vw, 25px); overflow-wrap: anywhere; }
+        .metric.net { border-color: #b7d7c2; background: #f1faf3; }
+        .metric.net strong { color: #17613a; }
+        .saved { margin: 12px 0 0; color: #52677b; font-size: 13px; line-height: 1.5; }
+        .table-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+        .panel { min-width: 0; padding: 18px; }
+        .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px 8px; border-bottom: 1px solid #e7edf3; text-align: left; vertical-align: top; }
+        th { background: #f3f7fb; color: #425b72; font-size: 12px; font-weight: 750; }
+        th:last-child, td:last-child { text-align: right; white-space: nowrap; }
+        tbody tr:last-child td { border-bottom: 0; }
+        .table-total { background: #f3f7fb; font-weight: 750; }
+        .table-total td { border-top: 1px solid #d5e0eb; }
+        .net-total { background: #f1faf3; color: #17613a; }
+        .approval-panel { margin-top: 16px; padding: 18px; border-color: #cbd9e8; }
+        .approval-title { margin: 0; color: #203b57; font-size: 17px; }
+        .approval-copy { margin: 7px 0 14px; color: #566a7e; font-size: 13px; line-height: 1.55; }
+        .approval-check { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border-radius: 9px; background: #f4f7fa; line-height: 1.5; }
+        .approval-check input { flex: 0 0 auto; width: 20px; height: 20px; margin: 2px 0 0; accent-color: #176b9a; }
+        .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+        .button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b9c9d8; border-radius: 8px; background: #fff; color: #194f78; font: inherit; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
+        .button:hover { background: #f0f6fb; }
+        .button.primary { border-color: #176b9a; background: #176b9a; color: #fff; }
+        .button.primary:hover { background: #11577f; }
+        .footnote { margin: 13px 0 0; color: #64778a; font-size: 12px; line-height: 1.5; }
+        @media (max-width: 720px) {
+            body { padding: 12px 10px 28px; }
+            .summary { grid-template-columns: 1fr; gap: 8px; }
+            .metric { padding: 13px 15px; }
+            .metric span { margin-bottom: 4px; }
+            .table-grid { grid-template-columns: 1fr; }
+            .panel, .approval-panel { padding: 14px; }
+            .actions, .button { width: 100%; }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .button { transition: background-color .15s ease, transform .15s ease; }
+            .button:active { transform: translateY(1px); }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <a class="top-link" href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">← Bumalik sa payroll</a>
+    <header class="page-heading">
+        <p class="eyebrow">Payroll review · {{ cutoff_start }} hanggang {{ cutoff_end }}</p>
+        <h1>Draft Payroll Recalculation Preview</h1>
+        <p class="employee-line"><strong>{{ emp.full_name() }}</strong> · Employee ID {{ emp.id }}</p>
+        <span class="badge">DRAFT PREVIEW · hindi pa final</span>
+    </header>
+
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p class="flash" role="alert">{{ message }}</p>
+    {% endfor %}
+
+    <p class="intro"><strong>Review muna bago i-save.</strong> Hindi mababago ang payroll habang preview lang ito.
+        Kung may kailangang baguhin, bumalik sa payroll o attendance at gumawa ng bagong preview.
+        Nag-e-expire ang preview pagkalipas ng 10 minuto.</p>
+
+    <section aria-labelledby="proposed-title">
+        <h2 class="section-heading" id="proposed-title">Iminungkahing payroll</h2>
+        <div class="summary">
+            <div class="metric"><span>Gross income</span><strong>₱{{ projected.gross_income|currency }}</strong></div>
+            <div class="metric"><span>Total deductions</span><strong>₱{{ projected.total_deductions|currency }}</strong></div>
+            <div class="metric net"><span>Net pay · take-home</span><strong>₱{{ projected.net_pay|currency }}</strong></div>
+        </div>
+        {% if original %}
+        <p class="saved"><strong>Kasalukuyang naka-save:</strong>
+            Gross ₱{{ original.gross_income|currency }} ·
+            Deductions ₱{{ original.total_deductions|currency }} ·
+            Net ₱{{ original.net_pay|currency }}</p>
+        {% else %}
+        <p class="saved">Wala pang payroll record para sa cutoff na ito.</p>
+        {% endif %}
+    </section>
+
+    <div class="table-grid">
+        <section class="panel" aria-labelledby="earnings-title">
+            <h2 class="section-heading" id="earnings-title">Kita</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr>{% for cell in rows[0][:3] %}<th scope="col">{{ cell or 'Details' }}</th>{% endfor %}</tr></thead>
+                    <tbody>{% for row in rows[1:] %}
+                    <tr class="{{ 'table-total' if row[0] in ['GROSS PAY', 'Remaining Loan'] else '' }}">
+                        {% for cell in row[:3] %}<td>{{ cell }}</td>{% endfor %}
+                    </tr>
+                    {% endfor %}</tbody>
+                </table>
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="deductions-title">
+            <h2 class="section-heading" id="deductions-title">Mga bawas at take-home</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr>{% for cell in rows[0][3:] %}<th scope="col">{{ cell or 'Details' }}</th>{% endfor %}</tr></thead>
+                    <tbody>{% for row in rows[1:] %}
+                    <tr class="{{ 'table-total' if row[3] in ['TOTAL DEDUCTIONS', 'NET PAY'] else '' }} {{ 'net-total' if row[3] == 'NET PAY' else '' }}">
+                        {% for cell in row[3:] %}<td>{{ cell }}</td>{% endfor %}
+                    </tr>
+                    {% endfor %}</tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <p class="footnote">Maaaring kasama ang tax-exempt na De Minimis sa payslip gross pay pero hiwalay ito sa gross income sa itaas.
+        Ang loan at liability ay ibabawas lang kapag fina-finalize ang payroll.</p>
+
+    <form class="approval-panel" method="post">
+        <h2 class="approval-title">I-save ang draft</h2>
+        <p class="approval-copy">Hindi pa ito ang final payslip at walang loan o liability na ibabawas sa pag-save ng draft.</p>
+        <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="approval-check">
+            <input type="checkbox" name="approved" value="yes" required>
+            <span>Sinuri ko ang attendance, kita at mga bawas. Sumasang-ayon akong palitan ang draft gamit ang preview na ito.</span>
+        </label>
+        <div class="actions">
+            <button class="button primary" type="submit">I-save ang draft</button>
+            <a class="button" href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Ayusin ang attendance</a>
+            <a class="button" href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Bumalik nang hindi nagse-save</a>
+        </div>
+    </form>
+</main>
+</body>
+</html>
