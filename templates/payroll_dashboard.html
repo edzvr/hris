@@ -94,16 +94,19 @@
         .quick-edit-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
         .quick-edit-fields label, .advanced-edit-fields label { display:grid; min-width:0; gap:3px; color:#405466; font-size:11px; font-weight:650; }
         .quick-edit-fields input, .advanced-edit-fields input { width:100%; min-width:0; }
-        .advanced-edit { margin-top:6px; }
+        .advanced-edit { margin-top:0; }
         .advanced-edit summary, .payroll-checklist summary, .payroll-more-actions summary { min-height:32px; display:flex; align-items:center; color:#17577e; font-size:12px; font-weight:700; cursor:pointer; }
         .advanced-edit-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; padding:6px 0; }
         .quick-edit-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
         .quick-edit-actions .btn { min-height:32px; }
+        .quick-edit-secondary { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; gap:7px; margin-top:7px; }
         .payroll-checklist { margin-top:6px; }
         .payroll-checklist .payroll-review-checklist { margin:4px 0; }
-        .payroll-more-actions { margin-top:8px; border-top:1px solid #e2e8f0; }
+        .payroll-more-actions { min-width:0; margin:0; padding:0 8px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; }
+        .payroll-more-actions summary { min-height:30px; }
         .zero-payroll-tool { display:block; margin-top:12px; color:#52677b; font-size:13px; }
-        .payroll-card-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .payroll-card-actions { display:flex; flex-wrap:wrap; gap:5px; margin:2px 0 7px; }
+        .payroll-card-actions .btn, .payroll-card-actions button { min-height:29px; padding:5px 8px; font-size:12px; }
         @media(min-width:1600px) { .payroll-cards { grid-template-columns:repeat(3,minmax(0,1fr)); } }
         @media(max-width:760px) { .payroll-cards { grid-template-columns:1fr; } }
         .dashboard-back-link { color: #17577e; font-weight: 600; }
@@ -116,7 +119,7 @@
             .bulk-toolbar { align-items: flex-start; flex-direction: column; }
             .toolbar-actions { align-items: stretch; flex-direction: column; width: 100%; }
             .toolbar-actions button, .toolbar-actions a { width: 100%; text-align: center; }
-            .payroll-breakdown, .quick-edit-fields, .advanced-edit-fields { grid-template-columns:1fr; }
+            .payroll-breakdown, .quick-edit-fields, .advanced-edit-fields, .quick-edit-secondary { grid-template-columns:1fr; }
             .payroll-recalculate { width:100%; }
             .quick-edit-actions { flex-direction:column; }
             .quick-edit-actions .btn, .quick-edit-actions button { width:100%; }
@@ -342,40 +345,48 @@
                                 <input type="number" min="0" step="0.01" name="incentives_{{ p.emp.id }}" value="{{ p.emp.incentives or 0 }}">
                             </label>
                         </div>
-                        <details class="advanced-edit">
-                            <summary>Advanced Adjustments</summary>
-                            <div class="advanced-edit-fields">
-                                <label>SSS loan<input type="number" min="0" step="0.01" name="sss_loan_{{ p.emp.id }}" value="{{ p.sss_loan or 0 }}"></label>
-                                <label>Pag-IBIG loan<input type="number" min="0" step="0.01" name="pagibig_loan_{{ p.emp.id }}" value="{{ p.pagibig_loan or 0 }}"></label>
-                                <label>Withholding tax override<input type="number" min="0" step="0.01" name="withholding_tax_{{ p.emp.id }}" value="{{ p.withholding_tax_override if p.withholding_tax_override is not none else '' }}" placeholder="Automatic"></label>
-                                <label>Liability override<input type="number" min="0" step="0.01" name="liability_deduction_{{ p.emp.id }}" value="{{ p.liability_deduction_override if p.liability_deduction_override is not none else '' }}" placeholder="Automatic"></label>
-                                <label>Cash advance<input type="number" min="0" step="0.01" name="cash_advance_{{ p.emp.id }}" value="{{ p.card_breakdown.cash_advance }}"></label>
-                                <label>Other deductions<input type="number" min="0" step="0.01" name="other_deductions_{{ p.emp.id }}" value="{{ p.card_breakdown.other_deductions }}"></label>
-                                <label>Rice subsidy / worked day<input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 95 }}"></label>
-                            </div>
-                        </details>
                         <div class="quick-edit-actions">
                             <button type="submit" name="save_employee_id" value="{{ p.emp.id }}" formnovalidate>Save &amp; Review Preview</button>
                             <a class="btn" href="{{ url_for('attendance', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}#admin-attendance-edit">Edit Attendance</a>
                         </div>
+                        <div class="quick-edit-secondary">
+                            <details class="advanced-edit">
+                                <summary>Advanced Adjustments</summary>
+                                <div class="advanced-edit-fields">
+                                    <label>SSS loan<input type="number" min="0" step="0.01" name="sss_loan_{{ p.emp.id }}" value="{{ p.sss_loan or 0 }}"></label>
+                                    <label>Pag-IBIG loan<input type="number" min="0" step="0.01" name="pagibig_loan_{{ p.emp.id }}" value="{{ p.pagibig_loan or 0 }}"></label>
+                                    <label>Withholding tax override<input type="number" min="0" step="0.01" name="withholding_tax_{{ p.emp.id }}" value="{{ p.withholding_tax_override if p.withholding_tax_override is not none else '' }}" placeholder="Automatic"></label>
+                                    <label>Liability override<input type="number" min="0" step="0.01" name="liability_deduction_{{ p.emp.id }}" value="{{ p.liability_deduction_override if p.liability_deduction_override is not none else '' }}" placeholder="Automatic"></label>
+                                    <label>Cash advance<input type="number" min="0" step="0.01" name="cash_advance_{{ p.emp.id }}" value="{{ p.card_breakdown.cash_advance }}"></label>
+                                    <label>Other deductions<input type="number" min="0" step="0.01" name="other_deductions_{{ p.emp.id }}" value="{{ p.card_breakdown.other_deductions }}"></label>
+                                    <label>Rice subsidy / worked day<input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 95 }}"></label>
+                                </div>
+                            </details>
+                            <details class="payroll-more-actions">
+                                <summary>Payroll Actions</summary>
+                                <div class="payroll-card-actions">
+                                    <button type="submit"
+                                            formaction="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}"
+                                            formmethod="POST">Finalize Payroll</button>
+                                    <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">Payslip &amp; History</a>
+                                </div>
+                            </details>
+                        </div>
                     </section>
-                    {% endif %}
+                    {% else %}
                     <details class="payroll-more-actions">
-                        <summary>Finalize / reopen / payroll history</summary>
-                    <div class="payroll-card-actions">
-                        <button type="submit"
-                                formaction="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}"
-                                formmethod="POST">Finalize Payroll</button>
-                        {% if p.is_paid %}
-                        <button type="submit"
-                            formaction="{{ url_for('reopen_payroll', employee_id=p.emp.id) }}"
-                            formmethod="POST" {% if not is_latest_completed_cutoff %}disabled{% endif %}>Reopen / Recalculate</button>
-                        {% endif %}
-                    </div>
+                        <summary>Payroll Actions</summary>
+                        <div class="payroll-card-actions">
+                            <button type="submit"
+                                    formaction="{{ url_for('finalize_payroll', employee_id=p.emp.id) }}"
+                                    formmethod="POST">Finalize Payroll</button>
+                            <button type="submit"
+                                    formaction="{{ url_for('reopen_payroll', employee_id=p.emp.id) }}"
+                                    formmethod="POST" {% if not is_latest_completed_cutoff %}disabled{% endif %}>Reopen / Recalculate</button>
+                            <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">Payslip &amp; History</a>
+                        </div>
                     </details>
-                    <div class="payroll-card-actions">
-                        <a href="{{ url_for('payroll', employee_id=p.emp.id, cutoff_start=start_cutoff.strftime('%Y-%m-%d')) }}" class="btn">Payslip &amp; History</a>
-                    </div>
+                    {% endif %}
                 </article>
                 {% else %}
                 <p>No employees available for this cutoff.</p>

@@ -205,6 +205,13 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             assert all(label in text for label in ('Gross Income', 'Deductions', 'Net Pay'))
             assert 'Quick Edit' in text
             assert 'Advanced Adjustments' in text
+            assert 'Payroll Actions' in text
+            assert 'Payslip & History' in text
+            detail_classes = {
+                detail.get('class', '') for detail in card['details']
+            }
+            assert 'advanced-edit' in detail_classes
+            assert 'payroll-more-actions' in detail_classes
             assert 'Company loan' in text
             assert card['attrs']['data-company'] == 'trece'
             assert all('open' not in details for details in card['details'])
