@@ -27,7 +27,13 @@
         .metric strong { display: block; color: #203b57; font-size: clamp(19px, 3vw, 25px); overflow-wrap: anywhere; }
         .metric.net { border-color: #b7d7c2; background: #f1faf3; }
         .metric.net strong { color: #17613a; }
-        .saved { margin: 12px 0 0; color: #52677b; font-size: 13px; line-height: 1.5; }
+        .comparison-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+        .comparison-card { min-width: 0; padding: 12px; border: 1px solid #dce4ee; border-radius: 10px; background: #f8fafc; }
+        .comparison-card h3 { margin: 0 0 4px; color: #203b57; font-size: 14px; }
+        .comparison-period { margin: 0 0 8px; color: #64778a; font-size: 12px; }
+        .comparison-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; font-size: 12px; }
+        .comparison-values span { display: block; color: #5a6e81; }
+        .comparison-values strong { display: block; margin-top: 2px; color: #203b57; }
         .table-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
         .panel { min-width: 0; padding: 18px; }
         .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
@@ -56,6 +62,7 @@
             .metric { padding: 13px 15px; }
             .metric span { margin-bottom: 4px; }
             .table-grid { grid-template-columns: 1fr; }
+            .comparison-grid { grid-template-columns: 1fr; }
             .panel, .approval-panel { padding: 14px; }
             .actions, .button { width: 100%; }
         }
@@ -67,42 +74,69 @@
 </head>
 <body>
 <main>
-    <a class="top-link" href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">← Bumalik sa payroll</a>
+    <a class="top-link" href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_start) }}">← Back to Payroll Dashboard</a>
     <header class="page-heading">
-        <p class="eyebrow">Payroll review · {{ cutoff_start }} hanggang {{ cutoff_end }}</p>
+        <p class="eyebrow">Payroll review · {{ cutoff_start }} to {{ cutoff_end }}</p>
         <h1>Draft Payroll Recalculation Preview</h1>
         <p class="employee-line"><strong>{{ emp.full_name() }}</strong> · Employee ID {{ emp.id }}</p>
-        <span class="badge">DRAFT PREVIEW · hindi pa final</span>
+        <span class="badge">DRAFT PREVIEW · NOT FINALIZED</span>
     </header>
 
     {% for category, message in get_flashed_messages(with_categories=true) %}
     <p class="flash" role="alert">{{ message }}</p>
     {% endfor %}
 
-    <p class="intro"><strong>Review muna bago i-save.</strong> Hindi mababago ang payroll habang preview lang ito.
-        Kung may kailangang baguhin, bumalik sa payroll o attendance at gumawa ng bagong preview.
-        Nag-e-expire ang preview pagkalipas ng 10 minuto.</p>
+    <p class="intro"><strong>Review before saving.</strong> Payroll is not changed while this page is a preview.
+        If you need to make changes, return to payroll or attendance and create a new preview.
+        This preview expires after 10 minutes.</p>
 
     <section aria-labelledby="proposed-title">
-        <h2 class="section-heading" id="proposed-title">Iminungkahing payroll</h2>
+        <h2 class="section-heading" id="proposed-title">Proposed Payroll</h2>
         <div class="summary">
-            <div class="metric"><span>Gross income</span><strong>₱{{ projected.gross_income|currency }}</strong></div>
-            <div class="metric"><span>Total deductions</span><strong>₱{{ projected.total_deductions|currency }}</strong></div>
-            <div class="metric net"><span>Net pay · take-home</span><strong>₱{{ projected.net_pay|currency }}</strong></div>
+            <div class="metric"><span>Gross Income</span><strong>₱{{ projected.gross_income|currency }}</strong></div>
+            <div class="metric"><span>Total Deductions</span><strong>₱{{ projected.total_deductions|currency }}</strong></div>
+            <div class="metric net"><span>Net Pay · Take Home</span><strong>₱{{ projected.net_pay|currency }}</strong></div>
         </div>
-        {% if original %}
-        <p class="saved"><strong>Kasalukuyang naka-save:</strong>
-            Gross ₱{{ original.gross_income|currency }} ·
-            Deductions ₱{{ original.total_deductions|currency }} ·
-            Net ₱{{ original.net_pay|currency }}</p>
-        {% else %}
-        <p class="saved">Wala pang payroll record para sa cutoff na ito.</p>
-        {% endif %}
+        <div class="comparison-grid" aria-label="Payroll comparison">
+            {% if original %}
+            <section class="comparison-card">
+                <h3>Current Cutoff · Saved Draft</h3>
+                <p class="comparison-period">{{ original.cutoff_start }} to {{ original.cutoff_end }}</p>
+                <div class="comparison-values">
+                    <div><span>Gross Income</span><strong>₱{{ original.gross_income|currency }}</strong></div>
+                    <div><span>Total Deductions</span><strong>₱{{ original.total_deductions|currency }}</strong></div>
+                    <div><span>Net Pay</span><strong>₱{{ original.net_pay|currency }}</strong></div>
+                </div>
+            </section>
+            {% else %}
+            <section class="comparison-card">
+                <h3>Current Cutoff · Saved Draft</h3>
+                <p class="comparison-period">No saved payroll for this cutoff yet.</p>
+            </section>
+            {% endif %}
+            {% if previous_payroll %}
+            <section class="comparison-card">
+                <h3>Previous Finalized Payroll</h3>
+                <p class="comparison-period">{{ previous_payroll.cutoff_start }} to {{ previous_payroll.cutoff_end }}</p>
+                <div class="comparison-values">
+                    <div><span>Days Worked</span><strong>{{ previous_payroll.worked_days }}</strong></div>
+                    <div><span>Gross Income</span><strong>₱{{ previous_payroll.gross_income|currency }}</strong></div>
+                    <div><span>Total Deductions</span><strong>₱{{ previous_payroll.total_deductions|currency }}</strong></div>
+                    <div><span>Net Pay</span><strong>₱{{ previous_payroll.net_pay|currency }}</strong></div>
+                </div>
+            </section>
+            {% else %}
+            <section class="comparison-card">
+                <h3>Previous Finalized Payroll</h3>
+                <p class="comparison-period">No earlier finalized payroll is available for comparison.</p>
+            </section>
+            {% endif %}
+        </div>
     </section>
 
     <div class="table-grid">
         <section class="panel" aria-labelledby="earnings-title">
-            <h2 class="section-heading" id="earnings-title">Kita</h2>
+            <h2 class="section-heading" id="earnings-title">Earnings</h2>
             <div class="table-wrap">
                 <table>
                     <thead><tr>{% for cell in rows[0][:3] %}<th scope="col">{{ cell or 'Details' }}</th>{% endfor %}</tr></thead>
@@ -115,7 +149,7 @@
             </div>
         </section>
         <section class="panel" aria-labelledby="deductions-title">
-            <h2 class="section-heading" id="deductions-title">Mga bawas at take-home</h2>
+            <h2 class="section-heading" id="deductions-title">Deductions and Take Home</h2>
             <div class="table-wrap">
                 <table>
                     <thead><tr>{% for cell in rows[0][3:] %}<th scope="col">{{ cell or 'Details' }}</th>{% endfor %}</tr></thead>
@@ -128,22 +162,22 @@
             </div>
         </section>
     </div>
-    <p class="footnote">Maaaring kasama ang tax-exempt na De Minimis sa payslip gross pay pero hiwalay ito sa gross income sa itaas.
-        Ang loan at liability ay ibabawas lang kapag fina-finalize ang payroll.</p>
+    <p class="footnote">Tax-exempt De Minimis may be included in payslip gross pay but is separate from gross income above.
+        Loan and liability balances are deducted only when payroll is finalized.</p>
 
     <form class="approval-panel" method="post">
-        <h2 class="approval-title">I-save ang draft</h2>
-        <p class="approval-copy">Hindi pa ito ang final payslip at walang loan o liability na ibabawas sa pag-save ng draft.</p>
+        <h2 class="approval-title">Save Draft</h2>
+        <p class="approval-copy">This is not the final payslip. Saving this draft will not deduct any loan or liability balances.</p>
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label class="approval-check">
             <input type="checkbox" name="approved" value="yes" required>
-            <span>Sinuri ko ang attendance, kita at mga bawas. Sumasang-ayon akong palitan ang draft gamit ang preview na ito.</span>
+            <span>I reviewed attendance, earnings, and deductions. I agree to replace the draft with this preview.</span>
         </label>
         <div class="actions">
-            <button class="button primary" type="submit">I-save ang draft</button>
-            <a class="button" href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Ayusin ang attendance</a>
-            <a class="button" href="{{ url_for('payroll', employee_id=emp.id, cutoff_start=cutoff_start) }}">Bumalik nang hindi nagse-save</a>
+            <button class="button primary" type="submit">Approve and Save Draft</button>
+            <a class="button" href="{{ url_for('attendance', employee_id=emp.id, cutoff_start=cutoff_start) }}#admin-attendance-edit">Edit Attendance</a>
+            <a class="button" href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_start) }}">Return Without Saving</a>
         </div>
     </form>
 </main>

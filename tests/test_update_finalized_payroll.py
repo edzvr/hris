@@ -168,12 +168,25 @@ def test_staff_card_shows_pay_breakdown_and_direct_edit_action(finalized_case):
 def test_draft_staff_card_saves_only_selected_employee_then_opens_preview(finalized_case):
     client, _, employee_id, _ = finalized_case
     with app.app_context():
-        record = db.session.get(Payroll, Payroll.query.filter_by(employee_id=employee_id).one().id)
+        record = Payroll.query.filter_by(
+            employee_id=employee_id, cutoff_start=START,
+        ).one()
         record.is_paid = False
         record.loan_deduction_applied = False
         record.liability_deduction_applied = False
         employee = db.session.get(Employee, employee_id)
         employee.loan_balance = 1000
+        employee.allowance = 40
+        previous_start = START - timedelta(days=7)
+        previous_end = START - timedelta(days=1)
+        db.session.add_all([
+            worked(employee_id, previous_start + timedelta(days=2)),
+            Payroll(
+                employee_id=employee_id, cutoff_start=previous_start,
+                cutoff_end=previous_end, gross_income=3210,
+                total_deductions=410, net_pay=2800, is_paid=True,
+            ),
+        ])
         other = Employee(
             first_name='Unselected', last_name='Card', role='staff',
             company='Trece-Uno', daily_rate=600, allowance=15,
@@ -186,11 +199,13 @@ def test_draft_staff_card_saves_only_selected_employee_then_opens_preview(finali
     assert action is not None and action['attrs']['value'] == str(employee_id)
     text = ' '.join(card['text'])
     assert 'Quick Edit' in text and 'Save & Review Preview' in text
+    assert 'De Minimis / worked day' in text
+    assert 'Allowance / cutoff' not in text
     response = client.post('/payroll_dashboard', data={
         'cutoff_start': START.isoformat(),
         'save_employee_id': str(employee_id),
         f'daily_rate_{employee_id}': '700',
-        f'allowance_{employee_id}': '120',
+        f'rice_allowance_{employee_id}': '120',
         f'incentives_{employee_id}': '50',
         f'sss_loan_{employee_id}': '75',
         f'pagibig_loan_{employee_id}': '0',
@@ -203,14 +218,26 @@ def test_draft_staff_card_saves_only_selected_employee_then_opens_preview(finali
     )
     with app.app_context():
         employee = db.session.get(Employee, employee_id)
-        record = db.session.get(Payroll, Payroll.query.filter_by(employee_id=employee_id).one().id)
+        record = Payroll.query.filter_by(
+            employee_id=employee_id, cutoff_start=START,
+        ).one()
         other = db.session.get(Employee, other_id)
-        assert employee.daily_rate == 700 and employee.allowance == 120
+        assert employee.daily_rate == 700 and employee.allowance == 40
+        assert employee.rice_allowance_per_day == 120
         assert employee.incentives == 50 and employee.loan_balance == 1000
         assert record.sss_loan == 75
         assert record.cash_advance == 20 and record.other_deductions == 10
         assert other.daily_rate == 600 and other.allowance == 15
-    assert client.get(response.location).status_code == 200
+    preview = client.get(response.location)
+    assert preview.status_code == 200
+    assert b'Current Cutoff \xc2\xb7 Saved Draft' in preview.data
+    assert b'Previous Finalized Payroll' in preview.data
+    assert b'Days Worked' in preview.data
+    assert b'<span>Days Worked</span><strong>1</strong>' in preview.data
+    assert b'2026-10-24 to 2026-10-30' in preview.data
+    assert b'3,210.00' in preview.data
+    assert b'410.00' in preview.data
+    assert b'2,800.00' in preview.data
 
 
 def test_invalid_quick_edit_employee_id_does_not_run_bulk_save(finalized_case):

@@ -9973,6 +9973,25 @@ def recalculate_payroll(employee_id):
         flash('Only unpaid, unapplied drafts may be recalculated. Historical totals were not changed.', 'warning')
         return redirect(url_for('payroll', employee_id=employee.id, cutoff_start=start))
     try:
+        previous_record = Payroll.query.filter(
+            Payroll.employee_id == employee.id,
+            Payroll.is_paid.is_(True),
+            Payroll.cutoff_start < start,
+        ).order_by(Payroll.cutoff_start.desc()).first()
+        previous_payroll = None
+        if previous_record:
+            previous_attendance = payroll_attendance_records(
+                employee, previous_record.cutoff_start,
+                previous_record.cutoff_end + timedelta(days=1),
+            )
+            previous_payroll = {
+                'cutoff_start': previous_record.cutoff_start,
+                'cutoff_end': previous_record.cutoff_end,
+                'worked_days': payroll_worked_days_count(employee, previous_attendance),
+                'gross_income': float(previous_record.gross_income or 0),
+                'total_deductions': float(previous_record.total_deductions or 0),
+                'net_pay': float(previous_record.net_pay or 0),
+            }
         projected, snapshot, fingerprint = draft_payroll_preview(employee, record, start, end)
         if request.method == 'POST':
             preview = session.pop('payroll_recalculation_preview', None)
@@ -10013,6 +10032,7 @@ def recalculate_payroll(employee_id):
         return redirect(url_for('payroll_dashboard', cutoff_start=start))
     return render_template(
         'payroll_recalculation.html', emp=employee, original=record, projected=projected,
+        previous_payroll=previous_payroll,
         cutoff_start=start, cutoff_end=end - timedelta(days=1), csrf_token=csrf_token,
         rows=weekly_payslip_table_data(build_payslip_breakdown(employee, projected)),
     )

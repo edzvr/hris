@@ -41,8 +41,6 @@
         .review-ready { color: #1d7a46; font-weight: 700; }
         .review-needed { color: #b45309; font-weight: 700; }
         .deduction-cell, .deduction-details summary, .deduction-details input[type="number"] { color: #b42318; font-weight: 700; }
-        .payroll-amounts .deduction-cell { color: #b42318; }
-        .payroll-amounts .deduction-cell span, .payroll-amounts .deduction-cell strong { color: inherit; }
         .payroll-breakdown section:nth-child(2) dd { color: #b42318; }
         .advanced-edit-fields input[name*="loan_"], .advanced-edit-fields input[name*="withholding_tax_"], .advanced-edit-fields input[name*="liability_deduction_"], .advanced-edit-fields input[name*="cash_advance_"], .advanced-edit-fields input[name*="other_deductions_"] { color: #b42318; font-weight: 700; }
         .filter-grid { align-items: end; }
@@ -70,7 +68,7 @@
         .payroll-card-header label { display:flex; align-items:center; gap:6px; font-size:15px; font-weight:700; }
         .payroll-card-company { margin:3px 0 0 22px; color:#586b7a; font-size:12px; }
         .payroll-status { font-size:11px; padding:4px 6px; border-radius:5px; background:#eef3f8; }
-        .payroll-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:0; }
+        .payroll-amounts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin:0; }
         .payroll-amounts div { min-width:0; padding:5px; border-radius:5px; background:#f1f5f9; }
         .payroll-amounts span { display:block; font-size:10px; margin-bottom:2px; }
         .payroll-amounts strong { font-size:12px; overflow-wrap:anywhere; }
@@ -288,8 +286,7 @@
                     </div>
                     <div class="payroll-card-summary">
                         <div class="payroll-amounts">
-                            <div><span>Gross Income</span><strong>₱{{ p.gross_income|currency }}</strong></div>
-                            <div class="deduction-cell"><span>Deductions</span><strong>₱{{ p.deductions|currency }}</strong></div>
+                            <div><span>Gross Income · {{ p.worked_days }} days worked</span><strong>₱{{ p.gross_income|currency }}</strong></div>
                             <div class="payroll-net"><span>Net Pay</span><strong>₱{{ p.net_pay|currency }}</strong></div>
                         </div>
                         {% if p.rice_exempt > 0.004 %}
@@ -336,7 +333,9 @@
                             <div><dt>Approved OT</dt><dd>₱{{ p.card_breakdown.approved_ot_pay|currency }}</dd></div>
                         </dl></section>
                         <section><h3>Deductions</h3><dl>
-                            <div><dt>SSS · PhilHealth · Pag-IBIG</dt><dd>₱{{ (p.card_breakdown.sss + p.card_breakdown.philhealth + p.card_breakdown.pagibig)|currency }}</dd></div>
+                            <div><dt>SSS</dt><dd>₱{{ p.card_breakdown.sss|currency }}</dd></div>
+                            <div><dt>PhilHealth</dt><dd>₱{{ p.card_breakdown.philhealth|currency }}</dd></div>
+                            <div><dt>Pag-IBIG</dt><dd>₱{{ p.card_breakdown.pagibig|currency }}</dd></div>
                             <div><dt>SSS / Pag-IBIG loan</dt><dd>₱{{ (p.card_breakdown.sss_loan + p.card_breakdown.pagibig_loan)|currency }}</dd></div>
                             <div><dt>Company loan</dt><dd>₱{{ p.card_breakdown.company_loan|currency }}</dd></div>
                             <div><dt>Liability</dt><dd>₱{{ p.card_breakdown.liability_deduction|currency }}</dd></div>
@@ -353,8 +352,8 @@
                             <label>Daily rate
                                 <input type="number" min="0" step="0.01" name="daily_rate_{{ p.emp.id }}" value="{{ p.emp.daily_rate or 0 }}">
                             </label>
-                            <label>Allowance / cutoff
-                                <input type="number" min="0" step="0.01" name="allowance_{{ p.emp.id }}" value="{{ p.emp.allowance or 0 }}">
+                            <label>De Minimis / worked day
+                                <input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 95 }}">
                             </label>
                             <label>Incentives / cutoff
                                 <input type="number" min="0" step="0.01" name="incentives_{{ p.emp.id }}" value="{{ p.emp.incentives or 0 }}">
@@ -376,7 +375,6 @@
                             <label>Liability<input type="number" min="0" step="0.01" name="liability_deduction_{{ p.emp.id }}" value="{{ p.liability_deduction_override if p.liability_deduction_override is not none else '' }}" placeholder="Automatic"></label>
                             <label>Cash Advance<input type="number" min="0" step="0.01" name="cash_advance_{{ p.emp.id }}" value="{{ p.card_breakdown.cash_advance }}"></label>
                             <label>Other Deduction<input type="number" min="0" step="0.01" name="other_deductions_{{ p.emp.id }}" value="{{ p.card_breakdown.other_deductions }}"></label>
-                            <label>Rice Subsidy / Day<input type="number" min="0" step="0.01" name="rice_allowance_{{ p.emp.id }}" value="{{ p.emp.rice_allowance_per_day or 95 }}"></label>
                         </div>
                     </section>
                     {% endif %}

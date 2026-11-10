@@ -183,10 +183,12 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert response.status_code == 200
         assert b'2. Review and filter employees' in response.data
         assert b'Select all shown' in response.data
-        assert b'class="deduction-cell"><span>Deductions</span>' in response.data
-        assert b'class="deduction-cell">' in response.data
+        assert b'days worked' in response.data
+        assert b'<div class="payroll-amounts">' in response.data
+        assert b'class="deduction-cell"' not in response.data
         assert b'SSS / Pag-IBIG loan' in response.data
-        assert 'SSS · PhilHealth · Pag-IBIG'.encode() in response.data
+        for contribution in ('SSS', 'PhilHealth', 'Pag-IBIG'):
+            assert f'<dt>{contribution}</dt>'.encode() in response.data
         assert b'Karl Ronquillo' in response.data
         assert b'Keira Ronquillo' in response.data
         assert b'Finalize Payroll' in response.data
@@ -211,7 +213,7 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
             assert card['attrs']['data-company'] == 'trece'
             assert all('open' not in details for details in card['details'])
             for field in (
-                'daily_rate', 'allowance', 'incentives', 'rice_allowance',
+                'daily_rate', 'rice_allowance', 'incentives',
                 'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
                 'cash_advance', 'other_deductions',
             ):
@@ -235,7 +237,6 @@ def test_staff_with_shared_payroll_access_are_not_owner_exempt_in_admin_payroll(
         assert b'grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px;' in response.data
         assert b'<h3>Earnings</h3>' in response.data
         assert b'<h3>Deductions</h3>' in response.data
-        assert b'.payroll-amounts .deduction-cell { color: #b42318; }' in response.data
         assert b'.payroll-breakdown section:nth-child(2) dd { color: #b42318; }' in response.data
     finally:
         with app.app_context():
@@ -272,8 +273,9 @@ def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
         card = parser.cards[str(staff_id)]
         text = ' '.join(card['text'])
         assert 'Finalized' in text
-        for amount in ('4,200.00', '500.00', '3,700.00'):
+        for amount in ('4,200.00', '3,700.00'):
             assert amount in text
+        assert '500.00' not in text
         assert card['attrs']['data-company'] == 'auto'
         for field in (
             'sss_loan', 'pagibig_loan', 'withholding_tax', 'liability_deduction',
@@ -358,7 +360,7 @@ def test_company_loan_can_be_saved_from_reopened_detailed_payslip(monkeypatch):
         assert b'class="summary"' in response.data
         assert b'aria-labelledby="earnings-title"' in response.data
         assert b'aria-labelledby="deductions-title"' in response.data
-        assert b'I-save ang draft' in response.data
+        assert b'Save Draft' in response.data
         with client.session_transaction() as session:
             token = session['payroll_recalculation_csrf']
         response = client.post(
