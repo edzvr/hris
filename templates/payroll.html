@@ -228,7 +228,11 @@
     <p>Reopen this finalized payroll to edit and save deductions.</p>
     {% endif %}
     {% else %}
-    <p>Attendance reductions are already reflected in hours-adjusted earnings, not deducted again.</p>
+    {% if payslip.attendance_deduction is defined %}
+    <p>Attendance reductions are shown separately in deductions.</p>
+    {% else %}
+    <p>Attendance reduction was not itemized in this historical payroll; saved totals are unchanged.</p>
+    {% endif %}
     {% if can_manage_payroll %}
     <form method="POST" action="{{ url_for('payroll', employee_id=emp.id) }}">
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
@@ -251,9 +255,9 @@
             <td>Basic Pay</td>
             <td>{{ payslip.actual_worked_days }} days / {{ "%.2f"|format(payslip.basic_hours) }} hrs</td>
             <td>₱{{ "%.2f"|format(payslip.basic_pay) }}</td>
-            <td>Attendance reduction (already in earnings; informational)</td>
+            <td style="color:#b42318;font-weight:700;">Attendance Reduction (Late / Undertime)</td>
             <td>{{ "%.2f"|format(payslip.late_ut_hours) }} hrs</td>
-            <td>Included in earnings ({{ "%.2f"|format(payslip.late_ut) }} informational)</td>
+            <td>{% if payslip.attendance_deduction is defined %}₱{{ "%.2f"|format(payslip.attendance_deduction) }}{% elif payslip.late_ut_hours == 0 %}₱0.00{% else %}Not itemized (historical){% endif %}</td>
         </tr>
         <tr>
             <td>

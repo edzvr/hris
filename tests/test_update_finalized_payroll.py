@@ -361,10 +361,12 @@ def test_same_pay_correction_still_alerts_after_reload_and_cutoff_rollover(final
     monkeypatch.setattr(hris, 'completed_cutoff', lambda today=None: (END, END + timedelta(days=7)))
     response = new_client.get('/dashboard_admin?company=Trece-Uno')
     assert response.status_code == 200
-    assert b'Saved payroll alerts' in response.data
-    assert b'cutoff_start=2026-10-31' in response.data
+    assert b'Saved payroll alerts' not in response.data
     isolated = new_client.get('/dashboard_admin?company=Auto+Expert')
     assert isolated.status_code == 200 and b'Saved payroll alerts' not in isolated.data
+    payroll_response = new_client.get(f'/payroll_dashboard?cutoff_start={START}')
+    assert payroll_response.status_code == 200
+    assert b'Attendance changed since saved payroll' in payroll_response.data
     assert new_client.get(f'/payroll/{employee_id}?cutoff_start={START}').status_code == 200
 
 

@@ -1,10 +1,14 @@
+import json
 from datetime import date, datetime
 from io import BytesIO
 
 import pytest
 from pypdf import PdfReader
 
-from hris import app, build_payslip_verification, calculate_payroll_snapshot
+from hris import (
+    app, build_payslip_breakdown, build_payslip_verification,
+    calculate_payroll_snapshot, save_payroll_snapshot, weekly_payslip_table_data,
+)
 from models import Attendance, AuditLog, Employee, Payroll, PayslipVerification, db
 
 
@@ -105,6 +109,80 @@ def test_bulk_finalization_saves_totals_for_existing_and_new_staff(payroll_peopl
     with app.app_context():
         assert db.session.get(Employee, staff_ids[0]).loan_balance == 900
         assert Payroll.query.filter_by(employee_id=staff_ids[0]).one().net_pay == expected_net
+
+
+def test_late_hours_are_itemized_as_deduction_not_removed_from_gross(payroll_people):
+    admin_id, staff_ids = payroll_people
+    with app.app_context():
+        employee = db.session.get(Employee, staff_ids[1])
+        employee.loan_balance = 0
+        db.session.add(Attendance(
+            employee_id=employee.id, date=date(2026, 10, 6),
+            clock_in=datetime(2026, 10, 6, 8),
+            clock_out=datetime(2026, 10, 6, 16),
+            hours=7, status='Present', company=employee.company,
+        ))
+        record = Payroll(
+            employee_id=employee.id, cutoff_start=date(2026, 10, 3),
+            cutoff_end=date(2026, 10, 9),
+        )
+        db.session.add(record)
+        db.session.flush()
+
+        totals = calculate_payroll_snapshot(
+            employee, record, date(2026, 10, 3), date(2026, 10, 10),
+        )
+        save_payroll_snapshot(record, totals)
+        detail = build_payslip_breakdown(employee, record)
+        rows = weekly_payslip_table_data(detail)
+        db.session.commit()
+
+        assert detail['basic_pay'] == 1200
+        assert detail['late_ut_hours'] == 1
+        assert detail['attendance_deduction'] == 75
+        assert record.gross_income == 1200
+        assert record.total_deductions == pytest.approx(
+            record.sss + record.philhealth + record.pagibig
+            + record.withholding_tax + record.loan + detail['attendance_deduction']
+        )
+        assert record.net_pay == pytest.approx(
+            detail['gross_pay'] - record.total_deductions
+        )
+        assert [
+            'Basic Pay', '2 / 15.00', '1,200.00',
+            'Attendance Reduction (Late / Undertime)', '1.00 hrs', '75.00',
+        ] in rows
+        db.session.add(Payroll(
+            employee_id=employee.id,
+            cutoff_start=date(2026, 9, 26),
+            cutoff_end=date(2026, 10, 2),
+            gross_income=1200,
+            total_deductions=300,
+            net_pay=900,
+            is_paid=True,
+            payslip_snapshot=json.dumps({
+                'snapshot_version': 1,
+                'actual_worked_days': 5,
+                'attendance_issues': [],
+            }),
+        ))
+        db.session.commit()
+    dashboard = client_for(admin_id).get(
+        '/payroll_dashboard?cutoff_start=2026-10-03'
+    )
+    assert dashboard.status_code == 200
+    html = dashboard.get_data(as_text=True)
+    employee_index = html.index(f'data-employee="{staff_ids[1]}"')
+    employee_card = html[employee_index:employee_index + 12000]
+    assert 'Attendance Reduction' in employee_card
+    assert '75.00' in employee_card
+    assert 'Previous Finalized Payroll · Comparison' in html
+    assert 'Sep 26, 2026' in html
+    assert 'Oct 02, 2026' in html
+    assert 'Employee-days Worked' in html
+    assert '1,200.00' in html
+    assert '300.00' in html
+    assert '900.00' in html
 
 
 def test_repair_preview_and_save_leave_balances_and_nonzero_payroll_unchanged(payroll_people):

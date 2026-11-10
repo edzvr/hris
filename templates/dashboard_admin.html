@@ -194,19 +194,6 @@
     </div>
   </div>
 
-  {% if payroll_attention and payroll_attention.rows %}
-  <section class="card payroll-review-checklist" aria-label="Saved payroll alerts">
-    <h2>Action needed: saved payroll</h2>
-    <p>Attendance changes may not be reflected in saved salaries. Review each exact cutoff before release.</p>
-    {% for item in payroll_attention.rows %}
-    <p><strong>{{ item.employee.full_name() }}</strong>:
-      {{ item.record.cutoff_start }} to {{ item.record.cutoff_end }}:
-      {{ item.review.alerts|join(' ') }}
-      <a class="btn" href="{{ url_for('payroll_dashboard', cutoff_start=item.record.cutoff_start, company=selected_company or '') }}">Review this cutoff payroll</a>
-    </p>
-    {% endfor %}
-  </section>
-  {% endif %}
   {% include 'partials/admin_cutoff_overview.html' %}
 
   <details class="card">

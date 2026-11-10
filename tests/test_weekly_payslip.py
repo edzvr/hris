@@ -196,7 +196,7 @@ def test_weekly_payslip_table_is_itemized():
         "Basic Pay", "Other Earnings / Adjustment", "Rest Day Pay",
         "Special Holiday Pay", "Regular Holiday Pay", "Regular OT",
         "De Minimis", "Rest Day OT",
-        "Attendance reduction*", "SSS", "PhilHealth", "Pag-IBIG",
+        "Attendance Reduction (Late / Undertime)", "SSS", "PhilHealth", "Pag-IBIG",
         "SSS Loan", "Pag-IBIG Loan",
         "Withholding Tax", "Company Loan", "GROSS PAY", "NET PAY",
     } <= labels
@@ -212,6 +212,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
             "sunday_overtime", "rest_day", "special_holiday_ot",
             "regular_holiday_ot", "night_differential", "adjustment",
             "gross_income", "gross_pay", "late_ut", "late_ut_hours", "sss", "philhealth",
+            "attendance_deduction",
             "pagibig", "withholding_tax", "company_loan", "sss_loan", "pagibig_loan",
             "liability_deduction",
             "cash_advance", "rice_allowance", "rice_allowance_per_day",
@@ -235,6 +236,7 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
         "rice_allowance_per_day": 95,
         "late_ut": 0,
         "late_ut_hours": 0,
+        "attendance_deduction": 0,
         "gross_income": 4323.81,
         "gross_pay": 4823.81,
         "adjustment": 0,
@@ -250,7 +252,57 @@ def test_weekly_payslip_explains_attendance_hours_overtime_and_rice_split():
     assert ["GROSS PAY", "", "4,823.81", "TOTAL DEDUCTIONS", "", "0.00"] in rows
 
 
-def test_weekly_payslip_marks_half_day_reduction_as_already_in_basic_pay():
+def test_weekly_payslip_shows_half_day_reduction_as_a_deduction():
+    payslip = {
+        key: 0.0 for key in (
+            "basic_pay", "allowance", "incentives", "rest_day_pay",
+            "special_holiday", "regular_holiday", "regular_overtime",
+            "sunday_overtime", "rest_day", "special_holiday_ot",
+            "regular_holiday_ot", "night_differential", "adjustment",
+            "gross_income", "gross_pay", "late_ut", "late_ut_hours",
+            "attendance_deduction",
+            "sss", "philhealth", "pagibig", "withholding_tax",
+            "company_loan", "sss_loan", "pagibig_loan",
+            "liability_deduction", "cash_advance",
+            "rice_allowance", "rice_allowance_per_day",
+            "rice_allowance_exempt", "rice_allowance_taxable",
+            "other_deductions", "total_deductions", "net_pay", "payslip_adjustment",
+            "basic_hours", "regular_overtime_hours", "sunday_overtime_hours",
+            "rest_day_overtime_hours", "special_holiday_overtime_hours",
+            "regular_holiday_overtime_hours",
+        )
+    }
+    payslip.update({
+        "actual_worked_days": 2,
+        "basic_hours": 12,
+        "basic_pay": 1200,
+        "late_ut_hours": 4,
+        "late_ut": 300,
+        "attendance_deduction": 300,
+        "payslip_adjustment": 0,
+        "rice_allowance": 190,
+        "rice_allowance_per_day": 95,
+        "rice_allowance_exempt": 190,
+        "gross_pay": 1390,
+        "total_deductions": 300,
+        "net_pay": 1090,
+    })
+
+    rows = weekly_payslip_table_data(payslip)
+
+    assert [
+        "Basic Pay", "2 / 12.00", "1,200.00",
+        "Attendance Reduction (Late / Undertime)", "4.00 hrs", "300.00",
+    ] in rows
+    assert [
+        "Other Earnings / Adjustment", "", "0.00",
+        "Other Deductions", "", "0.00",
+    ] in rows
+    assert ["De Minimis", "", "190.00", "SSS", "", "0.00"] in rows
+    assert ["GROSS PAY", "", "1,390.00", "TOTAL DEDUCTIONS", "", "300.00"] in rows
+
+
+def test_weekly_payslip_does_not_claim_unitemized_historical_reduction_was_in_earnings():
     payslip = {
         key: 0.0 for key in (
             "basic_pay", "allowance", "incentives", "rest_day_pay",
@@ -269,29 +321,17 @@ def test_weekly_payslip_marks_half_day_reduction_as_already_in_basic_pay():
             "regular_holiday_overtime_hours",
         )
     }
-    payslip.update({
-        "actual_worked_days": 2,
-        "basic_hours": 12,
-        "basic_pay": 900,
-        "late_ut_hours": 4,
-        "late_ut": 300,
-        "payslip_adjustment": 0,
-        "rice_allowance": 190,
-        "rice_allowance_per_day": 95,
-        "rice_allowance_exempt": 190,
-        "gross_pay": 1090,
-        "total_deductions": 0,
-        "net_pay": 1090,
-    })
+    payslip["actual_worked_days"] = 0
 
     rows = weekly_payslip_table_data(payslip)
 
     assert [
-        "Basic Pay", "2 / 12.00", "900.00",
-        "Attendance reduction*", "4.00 hrs", "Included in earnings",
+        "Basic Pay", "0 / 0.00", "0.00",
+        "Attendance Reduction (Late / Undertime)", "0.00 hrs", "0.00",
     ] in rows
-    assert [
-        "Other Earnings / Adjustment", "", "0.00",
-        "Other Deductions", "", "0.00",
-    ] in rows
-    assert ["De Minimis", "", "190.00", "SSS", "", "0.00"] in rows
+    assert ["Basic pay before attendance reduction", "", "", "Not itemized in saved payroll", "", ""] in rows
+
+    payslip["late_ut_hours"] = 2
+    rows = weekly_payslip_table_data(payslip)
+    assert any(row[3] == "Attendance Reduction (Late / Undertime)"
+               and row[5] == "Not itemized (historical)" for row in rows)

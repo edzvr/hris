@@ -56,12 +56,12 @@
     <article class="cutoff-employee" data-cutoff-employee="{{ row.employee.id }}"
              data-search="{{ (row.employee.full_name() ~ ' ' ~ (row.employee.company or '') ~ ' ' ~ row.employee.id)|lower }}"
              data-flags="{{ row.flags|join(' ') }}">
-      <header>
+      <header class="cutoff-employee-header">
         <div><h3>{{ row.employee.full_name() }}</h3><p>{{ row.employee.company or 'Company not assigned' }} · ID {{ row.employee.id }}</p></div>
         <span class="cutoff-badge {{ 'warning' if row.flags else 'success' }}">{{ 'Needs attention' if row.flags else 'No flagged items' }}</span>
       </header>
       {% if row.payroll_review.alerts %}
-      <div class="payroll-review-checklist" role="status">
+      <div class="payroll-review-checklist cutoff-review-alert" role="status">
         {% for alert in row.payroll_review.alerts %}<p>{{ alert }}</p>{% endfor %}
         <a href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_overview.start, company=selected_company or '') }}">Open payroll review checklist</a>
       </div>
@@ -75,9 +75,16 @@
           {% elif row.previous_duplicate %}<strong>Review duplicate payroll</strong>
           {% else %}<strong>No finalized payroll yet.</strong>{% endif %}
         </div>
-        <div><span>This cutoff payroll</span><strong>{{ row.payroll_state }}</strong>
+        <div class="cutoff-current-payroll">
+          <span>This cutoff payroll · {{ row.payroll_state }}</span>
           {% if row.current_payroll %}
-          <small>{{ 'Saved net' if row.current_payroll.is_paid else 'Saved draft net (not final)' }}: PHP {{ row.current_payroll.net_pay|currency }}</small>
+          <dl class="cutoff-payroll-totals" aria-label="Current cutoff saved payroll totals">
+            <div><dt>Gross</dt><dd>PHP {{ row.current_payroll.gross_income|currency }}</dd></div>
+            <div><dt>Deductions</dt><dd>PHP {{ row.current_payroll.total_deductions|currency }}</dd></div>
+            <div><dt>{{ 'Final net' if row.current_payroll.is_paid else 'Draft net' }}</dt><dd>PHP {{ row.current_payroll.net_pay|currency }}</dd></div>
+          </dl>
+          {% else %}
+          <strong>Not prepared</strong>
           {% endif %}
           {% if row.employee.payroll_attendance_exempt %}<small>Attendance-exempt / separate payroll handling</small>{% endif %}
           <a href="{{ url_for('payroll', employee_id=row.employee.id, cutoff_start=cutoff_overview.start) }}">Review payroll</a>
@@ -93,7 +100,7 @@
         <span class="cutoff-day {{ day.tone }}" title="{{ day.date }}: {{ day.status }}"><strong>{{ day.date.strftime('%a %d') }}</strong><span>{{ day.status }}</span></span>
         {% endfor %}
       </div>
-      <details>
+      <details class="cutoff-employee-details">
         <summary>Daily details, requests &amp; actions</summary>
         <ul class="cutoff-day-details">
           {% for day in row.days %}
