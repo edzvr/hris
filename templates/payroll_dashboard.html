@@ -205,6 +205,40 @@
         </div>
     </section>
 
+    <section class="panel" aria-labelledby="previous-payroll-heading">
+        <div class="panel-heading">
+            <h2 id="previous-payroll-heading">Previous Finalized Payroll · Comparison</h2>
+            {% if previous_payroll_comparison %}
+            <p class="muted">
+                {{ previous_payroll_comparison.start.strftime('%b %d, %Y') }} to
+                {{ previous_payroll_comparison.end.strftime('%b %d, %Y') }}
+            </p>
+            {% endif %}
+        </div>
+        {% if previous_payroll_comparison %}
+        <div class="summary-grid" aria-label="Previous finalized payroll totals">
+            <div class="summary-card">
+                <span>Employee-days Worked</span>
+                <strong>{{ previous_payroll_comparison.employee_days if previous_payroll_comparison.employee_days is not none else 'Not recorded for all staff' }}</strong>
+            </div>
+            <div class="summary-card">
+                <span>Gross Income</span>
+                <strong>₱{{ previous_payroll_comparison.gross_income|currency }}</strong>
+            </div>
+            <div class="summary-card">
+                <span>Total Deductions</span>
+                <strong>₱{{ previous_payroll_comparison.total_deductions|currency }}</strong>
+            </div>
+            <div class="summary-card total">
+                <span>Net Pay</span>
+                <strong>₱{{ previous_payroll_comparison.net_pay|currency }}</strong>
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">No finalized payroll found for the previous cutoff.</p>
+        {% endif %}
+    </section>
+
     <section class="panel" aria-labelledby="review-heading">
         <div class="panel-heading">
             <h2 id="review-heading">2. Review and filter employees</h2>
@@ -333,6 +367,9 @@
                             <div><dt>Approved OT</dt><dd>₱{{ p.card_breakdown.approved_ot_pay|currency }}</dd></div>
                         </dl></section>
                         <section><h3>Deductions</h3><dl>
+                            {% if p.card_breakdown.attendance_deduction is not none %}
+                            <div><dt>Attendance Reduction · Late / Undertime</dt><dd>₱{{ p.card_breakdown.attendance_deduction|currency }}</dd></div>
+                            {% endif %}
                             <div><dt>SSS</dt><dd>₱{{ p.card_breakdown.sss|currency }}</dd></div>
                             <div><dt>PhilHealth</dt><dd>₱{{ p.card_breakdown.philhealth|currency }}</dd></div>
                             <div><dt>Pag-IBIG</dt><dd>₱{{ p.card_breakdown.pagibig|currency }}</dd></div>

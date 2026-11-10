@@ -44,9 +44,9 @@ def cutoff_people():
             Payroll(employee_id=second.id, cutoff_start=date(2026, 9, 26), cutoff_end=date(2026, 10, 2),
                     is_paid=False, net_pay=999999),
             Payroll(employee_id=first.id, cutoff_start=START, cutoff_end=date(2026, 10, 9),
-                    is_paid=False, net_pay=987),
+                    is_paid=False, gross_income=1500, total_deductions=513, net_pay=987),
             Payroll(employee_id=second.id, cutoff_start=START, cutoff_end=date(2026, 10, 9),
-                    is_paid=True, net_pay=3456),
+                    is_paid=True, gross_income=4000, total_deductions=544, net_pay=3456),
             Loan(employee_id=first.id, amount=1000, reason='Current cutoff', date_needed=TODAY, status='Pending'),
             Loan(employee_id=first.id, amount=1000, reason='Outside cutoff', date_needed=date(2026, 11, 1), status='Pending'),
             OTApplication(employee_id=first.id, ot_date=TODAY, start_time=time(17), end_time=time(18), reason='Work', status='Pending'),
@@ -151,6 +151,14 @@ def test_company_dashboard_overview_links_filters_empty_state_and_access(cutoff_
         assert 'overview_cutoff=2026-09-26' in html
         assert 'name="company"' in html
         assert 'Last finalized take-home pay' in html
+        assert 'Current cutoff saved payroll totals' in html
+        assert 'Gross' in html and 'Deductions' in html
+        if company == 'Auto Expert':
+            assert 'Draft net' in html
+            assert '1,500.00' in html and '513.00' in html and '987.00' in html
+        else:
+            assert 'Final net' in html
+            assert '4,000.00' in html and '544.00' in html and '3,456.00' in html
     assert client.get('/dashboard_admin?overview_cutoff=2026-10-04').status_code == 302
     with app.app_context():
         empty = admin_cutoff_overview(START, employee_ids=[], today=TODAY)

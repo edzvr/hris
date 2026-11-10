@@ -4896,7 +4896,6 @@ def dashboard_admin():
         admin=current_user,
         selected_company=selected_company,
         cutoff_overview=admin_cutoff_overview(overview_start, employee_ids=employee_ids),
-        payroll_attention=payroll_attention_queue(employee_ids=employee_ids),
         summary=dashboard_summary(employee_ids=employee_ids),
         request_calendar=admin_request_calendar(calendar_month, employee_ids=employee_ids, company=selected_company)
     )
@@ -5835,6 +5834,18 @@ def regular_day_pay(attendance, daily_rate, hours_override=None):
     if attendance.date.weekday() == 6:
         return 0.0
     return prorated_daily_rate
+
+
+def payroll_attendance_reduction(attendance_records, daily_rate_for):
+    amount = 0.0
+    for attendance in attendance_records:
+        daily_rate = daily_rate_for(attendance.date)
+        amount += round(max(
+            regular_day_pay(attendance, daily_rate, hours_override=8)
+            - regular_day_pay(attendance, daily_rate),
+            0.0,
+        ), 2)
+    return round(amount, 2)
 
 
 def payroll_worked_days_count(employee, attendance_records):
@@ -9148,23 +9159,23 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
         day_pay = regular_day_pay(attendance, day_rate)
         attendance_hours = regular_attendance_hours(attendance)
         full_day_pay = regular_day_pay(attendance, day_rate, hours_override=8)
-        daily_shortfall = max(full_day_pay - day_pay, 0.0)
+        daily_shortfall = round(max(full_day_pay - day_pay, 0.0), 2)
         shortfall_hours = max(8.0 - attendance_hours, 0.0)
         trece_sunday = is_trece_sunday(emp, attendance.date)
         if holiday and holiday.holiday_type == "Regular Holiday":
-            regular_holiday += day_pay
+            regular_holiday += day_pay + daily_shortfall
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         elif holiday:
-            special_holiday += day_pay
+            special_holiday += day_pay + daily_shortfall
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         elif attendance.date.weekday() == 6 and not trece_sunday:
-            rest_day_pay += day_pay
+            rest_day_pay += day_pay + daily_shortfall
             late_ut += daily_shortfall
             late_ut_hours += shortfall_hours
         else:
-            basic_pay += day_pay
+            basic_pay += day_pay + daily_shortfall
             if not trece_sunday:
                 basic_hours += attendance_hours
                 late_ut += daily_shortfall
@@ -9244,6 +9255,7 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
     known_deductions = (
         sss + philhealth + pagibig + company_loan + sss_loan
         + pagibig_loan + liability_deduction + cash_advance + withholding_tax
+        + late_ut
     )
     total_deductions = float(
         payroll_record.total_deductions
@@ -9274,6 +9286,7 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
         "basic_hours": basic_hours,
         "basic_pay": basic_pay,
         "late_ut_hours": late_ut_hours,
+        "attendance_deduction": late_ut,
         "allowance": allowance,
         "rice_allowance": rice_taxable + rice_exempt,
         "rice_allowance_per_day": rice_allowance_per_day,
@@ -9334,9 +9347,24 @@ def weekly_payslip_table_data(payslip):
             ['Exempt benefits detail', '', 'Not recorded', 'Saved Net Pay', '', f'{payslip["net_pay"]:,.2f}'],
         ]
     amount = lambda key: f"{payslip[key]:,.2f}"
+    attendance_deduction = payslip.get("attendance_deduction")
+    attendance_amount = (
+        f'{attendance_deduction:,.2f}'
+        if attendance_deduction is not None
+        else (
+            "0.00"
+            if payslip["late_ut_hours"] == 0
+            else "Not itemized (historical)"
+        )
+    )
+    attendance_note = (
+        "Deducted from gross pay"
+        if attendance_deduction is not None
+        else "Not itemized in saved payroll"
+    )
     return [
         ["Earnings", "Days/Hrs", "Amount", "Deductions", "", "Amount"],
-        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Attendance reduction*", f'{payslip["late_ut_hours"]:.2f} hrs', "Included in earnings"],
+        ["Basic Pay", f'{payslip["actual_worked_days"]} / {payslip["basic_hours"]:.2f}', amount("basic_pay"), "Attendance Reduction (Late / Undertime)", f'{payslip["late_ut_hours"]:.2f} hrs', attendance_amount],
         ["De Minimis", "", amount("rice_allowance"), "SSS", "", amount("sss")],
         ["Rest Day Pay", "", amount("rest_day_pay"), "PhilHealth", "", amount("philhealth")],
         ["Special Holiday Pay", "", amount("special_holiday"), "Pag-IBIG", "", amount("pagibig")],
@@ -9349,7 +9377,7 @@ def weekly_payslip_table_data(payslip):
         ["Other Earnings / Adjustment", "", amount("payslip_adjustment"), "Other Deductions", "", amount("other_deductions")],
         ["GROSS PAY", "", amount("gross_pay"), "TOTAL DEDUCTIONS", "", amount("total_deductions")],
         ["Remaining Loan", "", f'{payslip["loan_remaining_balance"]:,.2f}' if "loan_remaining_balance" in payslip else "Not recorded", "NET PAY", "", amount("net_pay")],
-        ["*Already in basic pay", "", "", "Not deducted again", "", ""],
+        ["Basic pay before attendance reduction", "", "", attendance_note, "", ""],
     ]
 
 
@@ -9838,6 +9866,9 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
     daily_rate = float(employee.daily_rate or 0)
     basic_pay = sum(regular_day_pay(item, daily_rate) for item in attendance)
     basic_pay += unworked_regular_holiday_pay(employee, cutoff_start, cutoff_end, attendance, daily_rate)
+    attendance_reduction = payroll_attendance_reduction(
+        attendance, lambda _day: daily_rate,
+    )
     overtime_pay = sum(
         payroll_extra_pay(item, daily_rate)
         for item in attendance if attendance_overtime_is_payable(item)
@@ -9855,16 +9886,19 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
     employer = contributions['employer']
     if not employee.payroll_attendance_exempt:
         statutory = payroll_statutory_deductions(record, statutory)
-    gross = (
+    taxable_gross = (
         basic_pay + float(employee.allowance or 0)
         + float(employee.incentives or 0) + rice_taxable + overtime_pay
     )
+    gross = taxable_gross + attendance_reduction
     statutory_total = sum(
         float(statutory.get(field, 0) or 0)
         for field in ('sss', 'philhealth', 'pagibig')
     )
     tax = weekly_withholding_tax(
-        employee, contribution_taxable_month(contributions, gross, weeks), weeks
+        employee,
+        contribution_taxable_month(contributions, taxable_gross, weeks),
+        weeks,
     )
     if record.withholding_tax_override is not None:
         tax = float(record.withholding_tax_override)
@@ -9879,7 +9913,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
     total = statutory_total + tax + liability + loan + sum(
         float(getattr(record, field) or 0)
         for field in ('sss_loan', 'pagibig_loan', 'cash_advance', 'other_deductions')
-    )
+    ) + attendance_reduction
     snapshot = {
         'gross_income': gross, 'total_deductions': total,
         'net_pay': gross + rice_exempt - total,
@@ -10194,25 +10228,6 @@ def payroll_review_checklist(employee, record, cutoff_start, cutoff_end):
         'attendance_changed': source_changed,
         'has_checkpoint': bool(saved.get('payroll_attendance_fingerprint')),
     }
-
-
-def payroll_attention_queue(employee_ids=None):
-    start, end = completed_cutoff()
-    query = Payroll.query.filter(db.or_(
-        Payroll.is_paid.is_(True),
-        db.and_(Payroll.cutoff_start == start, Payroll.cutoff_end == end - timedelta(days=1)),
-    ))
-    if employee_ids is not None:
-        query = query.filter(Payroll.employee_id.in_(employee_ids))
-    rows = []
-    for record in query.order_by(Payroll.cutoff_start.desc(), Payroll.employee_id, Payroll.id).all():
-        employee = db.session.get(Employee, record.employee_id)
-        review = payroll_review_checklist(
-            employee, record, record.cutoff_start, record.cutoff_end + timedelta(days=1),
-        )
-        if review['alerts']:
-            rows.append({'employee': employee, 'record': record, 'review': review})
-    return {'start': start, 'end': end - timedelta(days=1), 'rows': rows}
 
 
 def payroll_auto_finalize_blockers(employee, cutoff_start, cutoff_end):
@@ -11026,6 +11041,9 @@ def payroll_dashboard():
         )
         basic_pay = sum(regular_day_pay(attendance, daily_rate) for attendance in paid_attendance)
         basic_pay += unworked_holiday_pay
+        attendance_deduction = payroll_attendance_reduction(
+            paid_attendance, lambda _day: daily_rate,
+        )
         ot_records = [
             attendance for attendance in paid_attendance
             if payroll_overtime_hours(attendance) > 0
@@ -11054,7 +11072,10 @@ def payroll_dashboard():
             weeks_in_month,
             rice_monthly_used=rice_monthly_used,
         )
-        gross_income = basic_pay + float(emp.allowance or 0) + float(emp.incentives or 0) + rice_taxable + approved_ot_pay
+        gross_income = (
+            basic_pay + attendance_deduction + float(emp.allowance or 0)
+            + float(emp.incentives or 0) + rice_taxable + approved_ot_pay
+        )
 
         cutoff_salary = sum(
             regular_day_pay(attendance, daily_rate) for attendance in paid_attendance
@@ -11095,7 +11116,7 @@ def payroll_dashboard():
         pagibig = deduction_values['pagibig']
 
         monthly_taxable_income = contribution_taxable_month(
-            contributions, gross_income, weeks_in_month
+            contributions, gross_income - attendance_deduction, weeks_in_month
         )
         withholding_tax = weekly_withholding_tax(
             emp, monthly_taxable_income, weeks_in_month
@@ -11107,6 +11128,7 @@ def payroll_dashboard():
         deductions = (
             sss + philhealth + pagibig + sss_loan + pagibig_loan + loan
             + liability_deduction + cash_advance + withholding_tax + other_deductions
+            + attendance_deduction
         )
         net_pay = gross_income + rice_exempt - deductions
         if payroll_record and payroll_record.is_paid:
@@ -11165,7 +11187,8 @@ def payroll_dashboard():
             if has_changes:
                 review_reasons.append('Payroll amounts differ from the current calculation')
         card_breakdown = {
-            'basic_pay': basic_pay,
+            'basic_pay': basic_pay + attendance_deduction,
+            'attendance_deduction': attendance_deduction,
             'allowance': float(emp.allowance or 0),
             'incentives': float(emp.incentives or 0),
             'rice_allowance': float(rice_taxable + rice_exempt),
@@ -11194,6 +11217,7 @@ def payroll_dashboard():
                 else:
                     card_breakdown.update({
                         'basic_pay': float(saved_breakdown['basic_pay'] or 0),
+                        'attendance_deduction': saved_breakdown.get('attendance_deduction'),
                         'allowance': float(saved_breakdown['allowance'] or 0),
                         'incentives': float(saved_breakdown['incentives'] or 0),
                         'rice_allowance': float(saved_breakdown['rice_allowance'] or 0),
@@ -11265,9 +11289,54 @@ def payroll_dashboard():
             "finalized_update": finalized_update,
         })
 
+    previous_cutoff_start = cutoff_start - timedelta(days=7)
+    previous_cutoff_end = cutoff_end - timedelta(days=7)
+    previous_payroll_records = Payroll.query.join(
+        Employee, Employee.id == Payroll.employee_id
+    ).filter(
+        Payroll.cutoff_start == previous_cutoff_start,
+        Payroll.cutoff_end == previous_cutoff_end - timedelta(days=1),
+        Payroll.is_paid.is_(True),
+        Employee.payroll_attendance_exempt.is_(False),
+    ).all()
+    previous_payroll_comparison = None
+    if previous_payroll_records:
+        employee_days = 0
+        employee_days_complete = True
+        for record in previous_payroll_records:
+            snapshot = (
+                json.loads(record.payslip_snapshot)
+                if record.payslip_snapshot else None
+            )
+            worked_days = (
+                snapshot.get('actual_worked_days')
+                if snapshot and snapshot.get('snapshot_version') == 1
+                else None
+            )
+            if worked_days is None:
+                employee_days_complete = False
+            else:
+                employee_days += int(worked_days)
+        previous_payroll_comparison = {
+            'start': previous_cutoff_start,
+            'end': previous_cutoff_end - timedelta(days=1),
+            'employee_days': employee_days if employee_days_complete else None,
+            'gross_income': sum(
+                float(record.gross_income or 0) for record in previous_payroll_records
+            ),
+            'total_deductions': sum(
+                float(record.total_deductions or 0)
+                for record in previous_payroll_records
+            ),
+            'net_pay': sum(
+                float(record.net_pay or 0) for record in previous_payroll_records
+            ),
+        }
+
     return render_template("payroll_dashboard.html",
                            payroll_data=payroll_data,
                            accounting_totals=accounting_totals,
+                           previous_payroll_comparison=previous_payroll_comparison,
                            cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
                            start_cutoff=start_cutoff.date(),
                            end_cutoff=(end_cutoff - timedelta(days=1)).date(),

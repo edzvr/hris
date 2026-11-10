@@ -208,15 +208,16 @@ def test_future_snapshot_reconciles_and_survives_attendance_and_rate_edits(peopl
         db.session.commit()
         original = record.payslip_snapshot
         detail = build_payslip_breakdown(staff, record)
-        assert detail["basic_pay"] == 300
+        assert detail["basic_pay"] == 600
         assert detail["late_ut"] == 300
         assert detail["late_ut_hours"] == 4
+        assert detail["attendance_deduction"] == 300
         assert detail["payslip_adjustment"] == 35
-        assert detail["gross_pay"] == 430
+        assert detail["gross_pay"] == 730
         deduction_sum = sum(detail[key] for key in (
             "sss", "philhealth", "pagibig", "withholding_tax", "company_loan",
             "sss_loan", "pagibig_loan", "liability_deduction", "cash_advance", "other_deductions",
-        ))
+        )) + detail["attendance_deduction"]
         assert deduction_sum == pytest.approx(detail["total_deductions"])
         assert detail["gross_pay"] - deduction_sum == pytest.approx(detail["net_pay"])
         staff.daily_rate = 900

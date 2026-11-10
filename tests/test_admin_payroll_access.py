@@ -268,6 +268,8 @@ def test_finalized_payroll_card_keeps_saved_amounts_and_locked_deductions():
     try:
         response = client.get('/payroll_dashboard?cutoff_start=2026-10-03')
         assert response.status_code == 200
+        assert b'Previous Finalized Payroll' in response.data
+        assert b'No finalized payroll found for the previous cutoff.' in response.data
         parser = PayrollCardParser()
         parser.feed(response.get_data(as_text=True))
         card = parser.cards[str(staff_id)]

@@ -162,6 +162,7 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
         allowance=0,
         incentives=0,
         rice_allowance_per_day=95,
+        loan_balance=0,
     )
     attendance_records = []
     for day in (3, 5, 6, 7, 8, 9):
@@ -195,6 +196,7 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
         loan=500,
         liability_deduction=0,
         cash_advance=0,
+        loan_deduction_applied=False,
     )
     application = SimpleNamespace(
         start_time=datetime(2026, 10, 5, 18, 0).time(),
@@ -233,7 +235,7 @@ def test_payslip_uses_approved_ot_applications_and_daily_rice_allowance():
     assert payslip["adjustment"] == 0
 
 
-def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy():
+def test_payslip_shows_halfday_reduction_as_deduction_and_includes_rice_subsidy():
     employee = SimpleNamespace(
         id=5,
         company="Trece-Uno",
@@ -241,6 +243,7 @@ def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy()
         allowance=0,
         incentives=0,
         rice_allowance_per_day=95,
+        loan_balance=0,
     )
     attendance_records = [
         SimpleNamespace(
@@ -275,8 +278,8 @@ def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy()
     payroll_record = SimpleNamespace(
         cutoff_start=date(2026, 10, 3),
         cutoff_end=date(2026, 10, 9),
-        gross_income=900,
-        total_deductions=0,
+        gross_income=1200,
+        total_deductions=300,
         net_pay=1090,
         sss=0,
         philhealth=0,
@@ -285,6 +288,7 @@ def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy()
         loan=0,
         liability_deduction=0,
         cash_advance=0,
+        loan_deduction_applied=False,
     )
 
     employee.full_name = lambda: "Test Staff"
@@ -303,13 +307,14 @@ def test_payslip_includes_halfday_reduction_in_basic_and_includes_rice_subsidy()
 
     assert payslip["actual_worked_days"] == 2
     assert payslip["basic_hours"] == 12
-    assert payslip["basic_pay"] == 900
+    assert payslip["basic_pay"] == 1200
     assert payslip["late_ut_hours"] == 4
     assert payslip["late_ut"] == 300
     assert payslip["rice_allowance_per_day"] == 95
     assert payslip["rice_allowance"] == 190
-    assert payslip["gross_pay"] == 1090
-    assert payslip["total_deductions"] == 0
+    assert payslip["attendance_deduction"] == 300
+    assert payslip["gross_pay"] == 1390
+    assert payslip["total_deductions"] == 300
     assert payslip["net_pay"] == 1090
     assert payslip["adjustment"] == 0
 
@@ -722,6 +727,7 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
         daily_rate=600,
         allowance=0,
         incentives=0,
+        loan_balance=0,
     )
     weekday_attendances = [
         SimpleNamespace(
@@ -749,6 +755,7 @@ def test_trece_sunday_pay_survives_rejected_attendance_status_and_adds_approved_
         cash_advance=0,
         total_deductions=0,
         net_pay=4233.75,
+        loan_deduction_applied=False,
     )
 
     application = SimpleNamespace(
