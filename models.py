@@ -417,6 +417,24 @@ class LoanDeductionSkipRequest(db.Model):
     reviewer = db.relationship("Employee", foreign_keys=[reviewed_by])
 
 
+class LoanCheck(db.Model):
+    """Loan balance/deduction submitted by the shared-task staff for Admin comparison."""
+    __tablename__ = "loan_checks"
+    __table_args__ = (
+        db.UniqueConstraint("employee_id", "cutoff_start", name="uq_loan_check_employee_cutoff"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    cutoff_start = db.Column(db.Date, nullable=False)
+    balance = db.Column(db.Float, nullable=False)
+    deduction = db.Column(db.Float, nullable=False)
+    submitted_by = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    submitter = db.relationship("Employee", foreign_keys=[submitted_by])
+
+
 class LoanHistory(db.Model):
     __tablename__ = "loan_history"
 

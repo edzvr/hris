@@ -6,7 +6,7 @@ from flask import url_for
 
 import hris
 from hris import app, ensure_employee_hr_columns
-from models import Attendance, Employee, OTApplication, Payroll, PayslipVerification, db
+from models import Attendance, Employee, LoanCheck, OTApplication, Payroll, PayslipVerification, db
 from pypdf import PdfReader
 
 
@@ -907,12 +907,30 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
                 Employee, other_company_staff_id
             )
             payroll = db.session.get(Payroll, payroll_id)
-            assert delegate.loan_balance == 700
+            assert delegate.loan_balance == 900
             assert other_company_staff.loan_balance == 1200
             assert delegate.daily_rate == 695
-            assert payroll.loan == 350
+            assert payroll.loan == 150
             assert payroll.gross_income == 12345
             assert payroll.net_pay == 10000
+            check = LoanCheck.query.filter_by(employee_id=delegate_id).one()
+            assert (check.balance, check.deduction) == (700, 350)
+            assert LoanCheck.query.filter_by(employee_id=other_company_staff_id).count() == 0
+
+        locked = client.get('/payroll-loan-review?cutoff_start=2026-10-03').get_data(as_text=True)
+        assert f'name="loan_balance_{delegate_id}"' not in locked
+        assert '₱350.00 — Submitted' in locked
+        client.post('/payroll-loan-review', data={
+            'cutoff_start': '2026-10-03',
+            f'loan_balance_{delegate_id}': '1',
+            f'loan_deduction_{delegate_id}': '1',
+        })
+        with app.app_context():
+            assert LoanCheck.query.filter_by(employee_id=delegate_id).one().balance == 700
+        assert client.post(
+            f'/payroll-loan-review/check/{delegate_id}/unlock',
+            data={'cutoff_start': '2026-10-03'},
+        ).status_code == 403
 
         assert client.post(
             '/payroll/bulk-finalize',
@@ -933,9 +951,31 @@ def test_loan_reviewer_only_sees_and_updates_loan_fields():
         assert b'Private Owner' not in admin_payroll.data
         assert b'Owner Monthly Contributions' not in admin_payroll.data
         assert b'Owner payroll is kept' not in admin_payroll.data
+
+        review = admin_client.get('/payroll-loan-review?cutoff_start=2026-10-03').get_data(as_text=True)
+        row = review[review.index('Loan Reviewer'):]
+        row = row[:row.index('</tr>')]
+        assert 'Mismatch' in row
+        assert 'Staff: ₱700.00 / ₱350.00' in row
+        stale = admin_client.post('/payroll-loan-review', data={
+            'cutoff_start': '2026-10-03',
+            f'loan_balance_{delegate_id}': '800',
+            f'loan_deduction_{delegate_id}': '100',
+            f'loan_balance_seen_{delegate_id}': '500.00',
+        })
+        assert stale.status_code == 302
+        with app.app_context():
+            assert db.session.get(Employee, delegate_id).loan_balance == 900
+        assert admin_client.post(
+            f'/payroll-loan-review/check/{delegate_id}/unlock',
+            data={'cutoff_start': '2026-10-03'},
+        ).status_code == 302
+        with app.app_context():
+            assert LoanCheck.query.filter_by(employee_id=delegate_id).count() == 0
     finally:
         with app.app_context():
             db.session.rollback()
+            LoanCheck.query.filter_by(employee_id=delegate_id).delete()
             db.session.delete(db.session.get(Payroll, payroll_id))
             db.session.delete(db.session.get(Payroll, owner_payroll_id))
             db.session.delete(db.session.get(Employee, delegate_id))

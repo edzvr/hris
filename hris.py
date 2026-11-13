@@ -273,6 +273,7 @@ from models import (
     LeaveRequest,
     LeaveHistory,
     Loan,
+    LoanCheck,
     LoanDeductionSkipRequest,
     LoanHistory,
     Evaluation,
@@ -6026,11 +6027,21 @@ def payroll_loan_review():
     approved_skip_employee_ids = {
         item.employee_id for item in skip_requests if item.status == 'Approved'
     }
+    is_admin_reviewer = can_manage_admin_payroll(current_user)
+    loan_checks = {
+        item.employee_id: item for item in LoanCheck.query.filter(
+            LoanCheck.cutoff_start == cutoff_start,
+            LoanCheck.employee_id.in_(employee_ids),
+        ).all()
+    }
 
     if request.method == 'POST':
+        stale_names = []
         try:
             updates = []
             for employee in employees:
+                if not is_admin_reviewer and employee.id in loan_checks:
+                    continue
                 balance_value = request.form.get(f'loan_balance_{employee.id}')
                 deduction_value = request.form.get(f'loan_deduction_{employee.id}')
                 if balance_value is None or deduction_value is None:
@@ -6053,6 +6064,12 @@ def payroll_loan_review():
                     payroll_record.is_paid or payroll_record.loan_deduction_applied
                 ):
                     return 'Loan details cannot be changed after payroll finalization.', 409
+                seen_balance = request.form.get(f'loan_balance_seen_{employee.id}')
+                if (
+                    is_admin_reviewer and seen_balance is not None
+                    and abs(float(seen_balance) - float(employee.loan_balance or 0)) > 0.005
+                ):
+                    stale_names.append(employee.full_name())
                 updates.append((
                     employee,
                     balance,
@@ -6062,6 +6079,47 @@ def payroll_loan_review():
         except (TypeError, ValueError):
             db.session.rollback()
             flash('Enter valid non-negative loan balances and deductions.', 'danger')
+            return redirect(url_for(
+                'payroll_loan_review',
+                cutoff_start=cutoff_start.isoformat(),
+            ))
+
+        if stale_names:
+            flash(
+                'Loan balance changed since this page was opened for: '
+                f'{", ".join(stale_names)}. Nothing was saved. Review the refreshed values and save again.',
+                'danger',
+            )
+            return redirect(url_for(
+                'payroll_loan_review',
+                cutoff_start=cutoff_start.isoformat(),
+            ))
+
+        if not is_admin_reviewer:
+            for employee, balance, requested_deduction, _ in updates:
+                db.session.add(LoanCheck(
+                    employee_id=employee.id,
+                    cutoff_start=cutoff_start,
+                    balance=balance,
+                    deduction=(
+                        0.0 if employee.id in approved_skip_employee_ids
+                        else requested_deduction
+                    ),
+                    submitted_by=current_user.id,
+                ))
+            try:
+                db.session.commit()
+            except SQLAlchemyError:
+                db.session.rollback()
+                flash('Loan check could not be submitted. Reload the page and try again.', 'danger')
+                return redirect(url_for(
+                    'payroll_loan_review',
+                    cutoff_start=cutoff_start.isoformat(),
+                ))
+            if updates:
+                flash('Loan check submitted. Admin will compare it with the system before finalizing payroll.', 'success')
+            else:
+                flash('No new loan checks to submit.', 'warning')
             return redirect(url_for(
                 'payroll_loan_review',
                 cutoff_start=cutoff_start.isoformat(),
@@ -6117,11 +6175,19 @@ def payroll_loan_review():
             balance = after_deduction + deduction
         else:
             after_deduction = max(balance - deduction, 0.0)
+        loan_check = loan_checks.get(employee.id)
         loan_rows.append({
             'employee': employee,
             'balance': balance,
+            'saved_balance': float(employee.loan_balance or 0),
             'deduction': deduction,
             'after_deduction': after_deduction,
+            'check': loan_check,
+            'check_match': bool(
+                loan_check
+                and abs(float(loan_check.balance) - balance) < 0.005
+                and abs(float(loan_check.deduction) - deduction) < 0.005
+            ),
             'skip_request': skip_request,
             'skip_approved': bool(skip_request and skip_request.status == 'Approved'),
             'finalized': bool(
@@ -6135,7 +6201,30 @@ def payroll_loan_review():
         cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
         start_cutoff=cutoff_start,
         end_cutoff=cutoff_end - timedelta(days=1),
+        is_admin_reviewer=is_admin_reviewer,
     )
+
+
+@app.route('/payroll-loan-review/check/<int:employee_id>/unlock', methods=['POST'])
+@login_required
+def unlock_loan_check(employee_id):
+    if not can_manage_admin_payroll(current_user):
+        return 'Access denied', 403
+    try:
+        cutoff_start, _ = payroll_cutoff_from_request(request.form.get('cutoff_start'))
+    except ValueError:
+        flash('Select a valid Saturday cutoff start date.', 'danger')
+        return redirect(url_for('payroll_loan_review'))
+    removed = LoanCheck.query.filter_by(
+        employee_id=employee_id, cutoff_start=cutoff_start,
+    ).delete()
+    db.session.commit()
+    flash(
+        'Staff loan check unlocked. Staff can submit it again.' if removed
+        else 'No staff loan check to unlock.',
+        'success' if removed else 'warning',
+    )
+    return redirect(url_for('payroll_loan_review', cutoff_start=cutoff_start.isoformat()))
 
 
 def manual_owner_contribution_deductions(employee, cutoff_start):
@@ -9033,15 +9122,27 @@ def de_minimis_monthly_ceiling():
     )
 
 
+def employee_has_rice_de_minimis(employee):
+    company = ''.join(ch for ch in str(getattr(employee, 'company', '') or '').lower() if ch.isalpha())
+    return not company.startswith(('autoexpert', 'autoxpert'))
+
+
+app.jinja_env.globals['employee_has_rice_de_minimis'] = employee_has_rice_de_minimis
+
+
+def employee_rice_allowance_per_day(employee):
+    """Auto Expert pays no rice de minimis; elsewhere a blank/0 setting means the default rate."""
+    if not employee_has_rice_de_minimis(employee):
+        return 0.0
+    configured_amount = getattr(employee, 'rice_allowance_per_day', None)
+    return max(float(configured_amount or RICE_SUBSIDY_PER_DAY), 0.0)
+
+
 def rice_allowance_breakdown(
     employee, worked_days, cutoff_count=4, monthly_used=0.0
 ):
     """Split this cutoff's rice subsidy against the remaining monthly limit."""
-    configured_amount = getattr(employee, 'rice_allowance_per_day', None)
-    amount = max(
-        float(configured_amount or RICE_SUBSIDY_PER_DAY),
-        0.0,
-    )
+    amount = employee_rice_allowance_per_day(employee)
     total = amount * max(float(worked_days or 0), 0.0)
     remaining_limit = max(
         RICE_SUBSIDY_MONTHLY_DE_MINIMIS_LIMIT
@@ -9061,11 +9162,7 @@ def rice_allowance_month_context(employee, cutoff_start, worked_days):
         )
         prior_days = payroll_worked_days_count(employee, prior_attendance)
 
-    configured_amount = getattr(employee, 'rice_allowance_per_day', None)
-    daily_amount = max(
-        float(configured_amount or RICE_SUBSIDY_PER_DAY),
-        0.0,
-    )
+    daily_amount = employee_rice_allowance_per_day(employee)
     # Rice is paid for every day worked; amounts above the monthly de minimis ceiling become taxable.
     current_days = max(float(worked_days or 0), 0.0)
     return current_days, prior_days * daily_amount
@@ -9251,10 +9348,7 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
     cash_advance = float(payroll_record.cash_advance or 0)
     night_differential = 0.0
     allowance = float(emp.allowance or 0)
-    rice_allowance_per_day = max(
-        float(getattr(emp, "rice_allowance_per_day", None) or RICE_SUBSIDY_PER_DAY),
-        0.0,
-    )
+    rice_allowance_per_day = employee_rice_allowance_per_day(emp)
     rice_days, rice_monthly_used = rice_allowance_month_context(
         emp, payroll_record.cutoff_start, worked_days_count
     )
