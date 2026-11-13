@@ -557,6 +557,16 @@ def test_rice_allowance_defaults_to_95_per_worked_day_without_paying_the_ceiling
     ) == (570, 0)
 
 
+def test_auto_expert_gets_no_rice_de_minimis():
+    employee = SimpleNamespace(company="Auto-Expert", rice_allowance_per_day=95)
+
+    assert rice_allowance_breakdown(employee, worked_days=6, cutoff_count=5) == (0, 0)
+    assert de_minimis_allowance_breakdown(employee, worked_days=6, cutoff_count=5) == (0, 0)
+    assert rice_allowance_breakdown(
+        SimpleNamespace(company="Trece-Uno", rice_allowance_per_day=95), worked_days=6,
+    ) == (570, 0)
+
+
 def test_trece_rice_subsidy_is_paid_for_every_worked_day_in_five_cutoff_month():
     employee = SimpleNamespace(
         id=17,
