@@ -5639,6 +5639,24 @@ def approved_ot_application(attendance):
     ).first()
 
 
+def overtime_start_time(target_date, holiday):
+    return (
+        time(17, 1)
+        if target_date.weekday() != 6 and not holiday
+        else time(17, 0)
+    )
+
+
+def unapproved_overtime_hours(attendance, holiday):
+    overtime_start = datetime.combine(
+        attendance.date, overtime_start_time(attendance.date, holiday)
+    )
+    return round(
+        max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
+        2,
+    )
+
+
 def payroll_overtime_hours(attendance):
     automatic_sunday_hours = automatic_trece_sunday_hours(attendance)
     if attendance.ot_status == "Approved" or automatic_sunday_hours > 0:
@@ -5653,6 +5671,13 @@ def payroll_overtime_hours(attendance):
             return automatic_sunday_hours
         if attendance.ot_status == "Approved":
             return 0.0
+    if (
+        attendance.ot_status in (None, "", "Pending")
+        and getattr(attendance, "clock_in", None)
+        and attendance.clock_out
+    ):
+        holiday = Holiday.query.filter_by(date=attendance.date).first()
+        return unapproved_overtime_hours(attendance, holiday)
     return float(attendance.overtime_hours or 0)
 
 
@@ -5671,11 +5696,6 @@ def apply_overtime_details(attendance):
 
     automatic_sunday_hours = automatic_trece_sunday_hours(attendance)
     holiday = Holiday.query.filter_by(date=attendance.date).first()
-    is_regular_weekday = attendance.date.weekday() != 6 and not holiday
-    overtime_start = datetime.combine(
-        attendance.date,
-        time(18, 0) if is_regular_weekday else time(17, 0)
-    )
     application = approved_ot_application(attendance)
     is_approved = bool(
         application or automatic_sunday_hours > 0
@@ -5689,10 +5709,7 @@ def apply_overtime_details(attendance):
     elif application:
         attendance.overtime_hours = applied_overtime_hours(attendance, application)
     else:
-        attendance.overtime_hours = round(
-            max((attendance.clock_out - overtime_start).total_seconds() / 3600, 0),
-            2,
-        )
+        attendance.overtime_hours = unapproved_overtime_hours(attendance, holiday)
     attendance.is_restday_ot = bool(
         is_approved and attendance.overtime_hours > 0 and attendance.date.weekday() == 6
     )
@@ -8307,12 +8324,14 @@ def apply_ot():
         scheduled_end = (
             time(12, 0)
             if is_trece_sunday(current_user, ot_date)
-            else time(17, 0)
+            else overtime_start_time(
+                ot_date, Holiday.query.filter_by(date=ot_date).first()
+            )
         )
         if start_time < scheduled_end:
             flash(
-                f'OT applications must start after the regular schedule ends '
-                f'at {scheduled_end.strftime("%I:%M %p")}.',
+                f'OT applications must start at or after '
+                f'{scheduled_end.strftime("%I:%M %p")}.',
                 'danger',
             )
             return redirect(url_for('apply_ot'))
@@ -8346,6 +8365,9 @@ def decide_ot_application(application_id, action):
         return 'Access denied', 403
     application = OTApplication.query.get_or_404(application_id)
     lock_attendance_employee(application.employee_id)
+    db.session.refresh(application)
+    if application.status != 'Pending':
+        abort(409, 'This OT application has already been decided.')
     application.status = 'Approved' if action == 'approve' else 'Rejected'
     application.decision_note = request.form.get('decision_note', '').strip() or None
     application.decided_at = datetime.now()
@@ -8370,7 +8392,13 @@ def decide_ot_application(application_id, action):
             + (f' Admin note: {application.decision_note}' if application.decision_note else '')
         ),
     )
-    return redirect(url_for('holiday_ot_dashboard'))
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=request.form.get('cutoff_start') or None,
+        company=request.form.get('company') or None,
+        employee_search=request.form.get('employee_search') or None,
+        status=request.form.get('status') or None,
+    ))
 
 
 @app.route('/attendance_action/<int:employee_id>', methods=['POST'])
@@ -11344,7 +11372,7 @@ def payroll_dashboard():
                            latest_completed_start=latest_completed_start,
                            latest_completed_end=latest_completed_end - timedelta(days=1))
 
-# ------------------ HOLIDAY + OVERTIME (Unified with Approvals + Beyond 6PM) ------------------
+# ------------------ HOLIDAY + OVERTIME ------------------
 @app.route('/holiday_overtime', methods=['GET'])
 @login_required
 def holiday_ot_dashboard():
@@ -11357,7 +11385,7 @@ def holiday_ot_dashboard():
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('holiday_ot_dashboard'))
 
-    # --- Query lahat ng attendance na may OT OR lumabas beyond 6 PM ---
+    # --- Query attendance with OT or clock-out after the regular schedule ---
     query = Attendance.query.filter(
         Attendance.clock_out != None,
         Attendance.date >= cutoff_start,
@@ -11384,7 +11412,7 @@ def holiday_ot_dashboard():
             or (
                 attendance.date.weekday() != 6
                 and not Holiday.query.filter_by(date=attendance.date).first()
-                and attendance.clock_out.time() >= time(18, 0)
+                and attendance.clock_out.time() > time(17, 1)
             )
         )
     ]
@@ -11426,6 +11454,12 @@ def holiday_ot_dashboard():
                 f"{attendance.employee.last_name}"
             ).casefold()
         ]
+    pending_applications = {}
+    for application in applications:
+        if application.status == "Pending":
+            pending_applications.setdefault(
+                (application.employee_id, application.ot_date), []
+            ).append(application)
     attendance_report_rows = []
     for attendance in attendance_report:
         clock_in = attendance.clock_in
@@ -11463,6 +11497,9 @@ def holiday_ot_dashboard():
             ),
             "overtime_hours": payroll_overtime_hours(attendance),
             "ot_status": attendance_overtime_status(attendance),
+            "pending_applications": pending_applications.get(
+                (attendance.employee_id, attendance.date), []
+            ),
             "missing_clock_in": clock_in is None,
             "missing_clock_out": clock_out is None,
         })

@@ -20,14 +20,19 @@
 <body>
     <div class="card">
         <h2>Apply for Overtime</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <p role="status" class="alert alert-{{ category }}">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
         <form method="POST">
             <label for="ot_date">OT Date</label>
             <input id="ot_date" type="date" name="ot_date" required>
             <label for="start_time">Expected Start Time</label>
-            <input id="start_time" type="time" name="start_time" value="17:00" required>
+            <input id="start_time" type="time" name="start_time" value="17:01" required>
             <label for="end_time">Expected End Time</label>
             <input id="end_time" type="time" name="end_time" required>
-            <p>Approved overtime hours are based on the requested time range and added across approved applications in the cutoff.</p>
+            <p>On regular workdays, OT starts at 5:01 PM. Approved overtime hours are based on the requested time range and added across approved applications in the cutoff.</p>
             <label for="reason">Reason</label>
             <textarea id="reason" name="reason" rows="3" required></textarea>
             <div class="actions">

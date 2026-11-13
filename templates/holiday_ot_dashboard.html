@@ -12,7 +12,7 @@
         th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
         th { background: #1976d2; color: white; }
         tr:nth-child(even) { background: #f9f9f9; }
-        th:last-child, td:last-child { min-width: 170px; white-space: nowrap; }
+        th:nth-last-child(2), td:nth-last-child(2) { min-width: 170px; white-space: nowrap; }
         td:last-child form { display: inline-block !important; margin: 0 3px; vertical-align: middle; }
         .btn { display: inline-block; padding: 6px 12px; background: #388e3c; color: white; text-decoration: none; border-radius: 6px; font-size:14px; }
         .btn:hover { background: #2e7d32; }
@@ -42,6 +42,22 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
 </head>
 <body>
+    {% macro application_actions(application) %}
+    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='approve') }}">
+        <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+        <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+        <input type="hidden" name="employee_search" value="{{ employee_search }}">
+        <input type="hidden" name="status" value="{{ filter_status or '' }}">
+        <button type="submit" class="btn">Approve</button>
+    </form>
+    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='reject') }}">
+        <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+        <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+        <input type="hidden" name="employee_search" value="{{ employee_search }}">
+        <input type="hidden" name="status" value="{{ filter_status or '' }}">
+        <button type="submit" class="btn btn-reject">Reject</button>
+    </form>
+    {% endmacro %}
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
       <p class="payroll-update-notice" role="status">{{ message }}</p>
@@ -49,7 +65,7 @@
     {% endwith %}
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
-        <p class="notice"><strong>Approval rule:</strong> Trece-Uno Sunday work from 8:00 AM to 12:00 PM is automatically counted as Rest Day OT when clock-in and clock-out are complete. Approve or reject only overtime applications listed below; attendance rows are informational.</p>
+        <p class="notice"><strong>Approval rule:</strong> On regular workdays, attendance OT starts at 5:01 PM. Approve or reject submitted OT applications; attendance OT alone is not payable. Trece-Uno Sunday work from 8:00 AM to 12:00 PM is automatically counted as Rest Day OT when clock-in and clock-out are complete. <a href="#ot-applications">View all OT applications</a>.</p>
         <p class="notice"><strong>Strict regular holiday rule:</strong> Regular holiday pay is allowed only when the employee actually worked (completed Clock In/Out) on the scheduled workday before and after the regular holiday. Paid leave does not qualify. Approved OT applications are reviewed separately.</p>
 
         <!-- Filter dropdown -->
@@ -74,7 +90,7 @@
 
         <section aria-labelledby="attendance-report-heading">
         <h3 id="attendance-report-heading">Attendance Report by Cutoff</h3>
-        <p>One card per employee, with cutoff totals and daily attendance details. Includes missing clock-in or clock-out punches, late, undertime, half-day, and overtime details. On smaller screens, scroll each card's table sideways.</p>
+        <p>One card per employee, with cutoff totals and daily attendance details. OT hours are decimal hours, rounded using the full clock-out time including seconds. On smaller screens, scroll each card's table sideways.</p>
         <div class="attendance-cards">
         {% for employee_id, employee_rows in attendance_report_rows|groupby('attendance.employee_id') %}
         {% set employee = employee_rows[0].attendance.employee %}
@@ -100,7 +116,7 @@
             <tr>
                 <th>Date</th><th>Clock In</th><th>Clock Out</th>
                 <th>Late (mins)</th><th>Regular Hours</th><th>Undertime (hrs)</th>
-                <th>Half-day</th><th>OT Hours</th><th>OT Status</th><th>Punch Exceptions</th>
+                <th>Half-day</th><th>OT Hours</th><th>OT Status</th><th>Punch Exceptions</th><th>OT Application Approval</th>
             </tr>
             {% for row in employee_rows %}
             {% set att = row.attendance %}
@@ -113,12 +129,23 @@
                 <td>{{ "%.2f"|format(row.undertime_hours) }}</td>
                 <td>{{ 'Yes' if row.half_day else 'No' }}</td>
                 <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
-                <td>{{ att.ot_status or 'Pending' }}</td>
+                <td>{{ row.ot_status or att.ot_status or 'Pending' }}</td>
                 <td>
                     {% if row.missing_clock_in %}No In{% endif %}
                     {% if row.missing_clock_in and row.missing_clock_out %} / {% endif %}
                     {% if row.missing_clock_out %}No Out{% endif %}
                     {% if not row.missing_clock_in and not row.missing_clock_out %}—{% endif %}
+                </td>
+                <td>
+                    {% for application in row.pending_applications %}
+                    <div>
+                        {{ application.start_time.strftime('%H:%M') }} - {{ application.end_time.strftime('%H:%M') }}<br>
+                        {{ application.reason }}<br>
+                        {{ application_actions(application) }}
+                    </div>
+                    {% else %}
+                    &mdash;
+                    {% endfor %}
                 </td>
             </tr>
             {% endfor %}
@@ -133,7 +160,7 @@
         </section>
 
         <div class="table-wrap">
-        <h3>Employee OT Applications</h3>
+        <h3 id="ot-applications">Employee OT Applications</h3>
         <table>
             <tr><th>Employee</th><th>Date</th><th>Requested Time</th><th>Reason</th><th>Status</th><th>Action</th></tr>
             {% for application in applications %}
@@ -145,8 +172,7 @@
                 <td>{{ application.status }}</td>
                 <td>
                     {% if application.status == 'Pending' %}
-                    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='approve') }}" style="display:inline"><button type="submit" class="btn">Approve</button></form>
-                    <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='reject') }}" style="display:inline"><button type="submit" class="btn btn-reject">Reject</button></form>
+                    {{ application_actions(application) }}
                     {% else %}{{ application.decision_note or 'Decided' }}{% endif %}
                 </td>
             </tr>
@@ -185,7 +211,7 @@
                     {% elif att.is_holiday_ot %}Holiday
                     {% elif att.date in holidays %}Holiday
                     {% elif att.date.weekday() == 6 and not att.employee.company.lower().startswith('trece') %}Rest Day
-                    {% elif att.clock_out and att.clock_out.time() >= time(18, 0) %}Beyond 6PM
+                    {% elif att.clock_out and att.clock_out.time() > time(17, 1) %}Beyond 5:01PM
                     {% else %}None{% endif %}
                 </td>
                 <td>{{ ot_status_by_attendance_id.get(att.id, 'Pending') }}</td>
