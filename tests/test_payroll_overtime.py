@@ -3,6 +3,8 @@ from math import isclose
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from hris import (
     app,
     apply_overtime_details,
@@ -82,14 +84,19 @@ def test_previously_rejected_trece_sunday_punches_still_count_as_automatic_rest_
     assert regular_attendance_hours(attendance) == 4
 
 
-def test_weekday_overtime_requires_six_pm_clock_out():
+@pytest.mark.parametrize(
+    "hour,minute,second,expected",
+    [(17, 0, 0, 0), (17, 1, 0, 0), (17, 30, 0, 0.48),
+     (19, 2, 0, 2.02), (19, 3, 0, 2.03), (19, 3, 54, 2.05)],
+)
+def test_weekday_pending_overtime_starts_at_five_oh_one(hour, minute, second, expected):
     attendance = SimpleNamespace(
         employee_id=1,
         employee=SimpleNamespace(company="Auto-Expert"),
         date=date(2026, 9, 14),
         clock_in=datetime(2026, 9, 14, 8, 0),
-        clock_out=datetime(2026, 9, 14, 17, 30),
-        overtime_hours=0,
+        clock_out=datetime(2026, 9, 14, hour, minute, second),
+        overtime_hours=1,
         is_restday_ot=False,
         is_holiday_ot=False,
         is_weekday_ot=False,
@@ -99,10 +106,33 @@ def test_weekday_overtime_requires_six_pm_clock_out():
     with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:
         applications.filter_by.return_value.first.return_value = None
         holidays.filter_by.return_value.first.return_value = None
+        assert payroll_overtime_hours(attendance) == expected
         apply_overtime_details(attendance)
 
-    assert attendance.overtime_hours == 0
+    assert attendance.overtime_hours == expected
     assert attendance.is_weekday_ot is False
+    assert attendance.ot_status is None
+
+
+def test_holiday_pending_overtime_keeps_existing_five_pm_start():
+    attendance = SimpleNamespace(
+        employee_id=1,
+        employee=SimpleNamespace(company="Auto-Expert"),
+        date=date(2026, 9, 14),
+        clock_in=datetime(2026, 9, 14, 8),
+        clock_out=datetime(2026, 9, 14, 19),
+        overtime_hours=2,
+        is_restday_ot=False,
+        is_holiday_ot=False,
+        is_weekday_ot=False,
+        ot_status="Pending",
+    )
+    with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:
+        applications.filter_by.return_value.first.return_value = None
+        holidays.filter_by.return_value.first.return_value = SimpleNamespace()
+        assert payroll_overtime_hours(attendance) == 2
+        apply_overtime_details(attendance)
+    assert attendance.overtime_hours == 2
     assert attendance.ot_status is None
 
 
