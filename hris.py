@@ -335,6 +335,7 @@ from services.government_contributions import (
     setting_values as gov_setting_values,
     validate_setting as validate_gov_setting,
 )
+from services.payroll_deduction_pause import employee_deductions_paused
 
 
 @app.route('/assessment', endpoint='assessment', methods=['GET', 'POST'])
@@ -2037,6 +2038,11 @@ def build_government_contribution_month(month, company='', only_employee_id=None
         for field, agency in (('sss', 'SSS'), ('philhealth', 'PhilHealth'), ('pagibig', 'Pag-IBIG MID')):
             if not gov_id_digits(getattr(employee, field)):
                 issues.append(f'Missing {agency} number')
+        if any(employee_deductions_paused(
+            employee.company, employee.role, cutoff,
+            attendance_exempt=employee.payroll_attendance_exempt,
+        ) for cutoff in cutoff_dates):
+            issues.append('Employee deductions are temporarily paused; statutory remittance dues still apply.')
         issues.extend(duplicate_messages.get(employee.id, []))
         deducted_ee = deducted['sss'] + deducted['philhealth'] + deducted['pagibig']
         employee_share = amounts['sss_ee'] + amounts['ph_ee'] + amounts['pi_ee']
@@ -6366,6 +6372,12 @@ def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_s
         calculator, bases, index, prior, employee.daily_rate,
         getattr(employee, 'contribution_workweek', None),
     )
+    if employee_deductions_paused(
+        employee.company, employee.role, cutoff_start,
+        attendance_exempt=employee.payroll_attendance_exempt,
+    ):
+        amounts = {**amounts, **ZERO_EMPLOYEE_CONTRIBUTIONS}
+        monthly_employee_total = 0
     return {
         'employee': {key: float(amounts[key]) for key in ('sss', 'philhealth', 'pagibig')},
         'employer': {
@@ -7246,7 +7258,10 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
     pdf.drawString(30, 560, f'{company.upper()} PAYROLL SUMMARY')
     pdf.setFont('Helvetica', 9)
     pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
-    pdf.drawString(30, 532, 'Gross includes non-taxable de minimis.')
+    if employee_deductions_paused(company, 'staff', cutoff_start):
+        pdf.drawString(30, 532, 'Staff employee deductions paused; statutory remittance dues still apply.')
+    else:
+        pdf.drawString(30, 532, 'Gross includes non-taxable de minimis.')
     pdf.drawString(550, 544, 'Address: Trece Martires Cavite, Philippines')
     pdf.drawString(550, 532, 'Prepared by: Admin')
     headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Other Ded.', 'Deductions', 'Net Pay', 'Status']
