@@ -3199,32 +3199,36 @@ def profile(user_id):
 def parse_ngteco_timecard(upload):
     lines = upload.stream.read().decode('utf-8-sig', errors='replace').splitlines()
     rows = []
-    biometric_match = None
-    employee_name = None
+    # NGTeco reports place employee timecards side by side in 9-column blocks.
+    block_employees = {}
     for raw_line in lines:
-        values = next(csv.reader([raw_line]))
-        values = [value.strip() for value in values]
-        if values and values[0] == 'Employee':
-            employee_match = re.search(r'^(.*?)\s*\(([^)]+)\)\s*$', values[3] if len(values) > 3 else '')
-            employee_name = employee_match.group(1).strip() if employee_match else None
-            biometric_match = employee_match.group(2).strip() if employee_match else None
-            continue
-        if not biometric_match or len(values) < 5 or not re.fullmatch(r'\d{8}', values[1] if len(values) > 1 else ''):
-            continue
-        try:
-            record_date = datetime.strptime(values[1], '%Y%m%d').date()
-            clock_in = datetime.strptime(f'{values[1]} {values[2]}', '%Y%m%d %I:%M %p') if values[2] else None
-            clock_out = datetime.strptime(f'{values[1]} {values[3]}', '%Y%m%d %I:%M %p') if values[3] else None
-        except ValueError:
-            continue
-        rows.append({
-            'biometric_id': biometric_match,
-            'employee_name': employee_name,
-            'date': record_date.isoformat(),
-            'clock_in': clock_in.isoformat() if clock_in else None,
-            'clock_out': clock_out.isoformat() if clock_out else None,
-            'note': values[6] if len(values) > 6 else '',
-        })
+        line_values = [value.strip() for value in next(csv.reader([raw_line]), [])]
+        for offset in range(0, len(line_values), 9):
+            values = line_values[offset:offset + 9]
+            if values and values[0] == 'Employee':
+                employee_match = re.search(r'^(.*?)\s*\(([^)]+)\)\s*$', values[3] if len(values) > 3 else '')
+                block_employees[offset] = (
+                    (employee_match.group(1).strip(), employee_match.group(2).strip())
+                    if employee_match else None
+                )
+                continue
+            employee_name, biometric_match = block_employees.get(offset) or (None, None)
+            if not biometric_match or len(values) < 5 or not re.fullmatch(r'\d{8}', values[1]):
+                continue
+            try:
+                record_date = datetime.strptime(values[1], '%Y%m%d').date()
+                clock_in = datetime.strptime(f'{values[1]} {values[2]}', '%Y%m%d %I:%M %p') if values[2] else None
+                clock_out = datetime.strptime(f'{values[1]} {values[3]}', '%Y%m%d %I:%M %p') if values[3] else None
+            except ValueError:
+                continue
+            rows.append({
+                'biometric_id': biometric_match,
+                'employee_name': employee_name,
+                'date': record_date.isoformat(),
+                'clock_in': clock_in.isoformat() if clock_in else None,
+                'clock_out': clock_out.isoformat() if clock_out else None,
+                'note': values[6] if len(values) > 6 else '',
+            })
     return rows
 
 

@@ -404,3 +404,20 @@ def test_wrong_date_blocks_automatic_payroll_until_pending_correction_is_rejecte
             AuditLog.query.filter(AuditLog.employee_id.in_(ids)).delete(synchronize_session=False)
             Employee.query.filter(Employee.id.in_(ids)).delete(synchronize_session=False)
             db.session.commit()
+
+
+def test_ngteco_parser_reads_side_by_side_employee_blocks():
+    from types import SimpleNamespace
+    from hris import parse_ngteco_timecard
+
+    csv_text = '\n'.join([
+        'Employee,,,Left Staff (4),,,,,,Employee,,,Right Staff (10),,,',
+        'Date,,IN,OUT,Work Time, Daily Total, Note,,,Date,,IN,OUT,Work Time, Daily Total, Note',
+        'SAT,20261107,7:59 AM,5:32 PM,9:33,9:33,,,,SAT,20261107,8:00 AM,,,,Missing OUT',
+    ])
+    rows = parse_ngteco_timecard(SimpleNamespace(stream=BytesIO(csv_text.encode())))
+
+    assert [(row['biometric_id'], row['clock_in'], row['clock_out']) for row in rows] == [
+        ('4', '2026-11-07T07:59:00', '2026-11-07T17:32:00'),
+        ('10', '2026-11-07T08:00:00', None),
+    ]
