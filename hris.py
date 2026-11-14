@@ -2041,6 +2041,7 @@ def build_government_contribution_month(month, company='', only_employee_id=None
         if any(employee_deductions_paused(
             employee.company, employee.role, cutoff,
             attendance_exempt=employee.payroll_attendance_exempt,
+            employee_id=employee.id,
         ) for cutoff in cutoff_dates):
             issues.append('Employee deductions are temporarily paused; statutory remittance dues still apply.')
         issues.extend(duplicate_messages.get(employee.id, []))
@@ -6379,6 +6380,7 @@ def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_s
     if employee_deductions_paused(
         employee.company, employee.role, cutoff_start,
         attendance_exempt=employee.payroll_attendance_exempt,
+        employee_id=employee.id,
     ):
         amounts = {**amounts, **ZERO_EMPLOYEE_CONTRIBUTIONS}
         monthly_employee_total = 0

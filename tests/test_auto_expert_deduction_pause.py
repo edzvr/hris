@@ -43,6 +43,22 @@ def test_employee_deduction_pause_keeps_employer_shares(company, role, start, pa
         db.session.rollback()
 
 
+def test_exempt_employee_keeps_statutory_deductions_during_pause():
+    with app.app_context():
+        start = date(2026, 11, 7)
+        employee = Employee(id=12, company='Auto Expert', role='staff', daily_rate=645)
+        db.session.add(employee)
+        db.session.add(Attendance(
+            employee_id=12, date=start, status='Present',
+            clock_in=datetime.combine(start, datetime.min.time()).replace(hour=8),
+            clock_out=datetime.combine(start, datetime.min.time()).replace(hour=17),
+        ))
+        db.session.flush()
+        contributions = cutoff_statutory_contributions(employee, start, 645)
+        assert sum(contributions['employee'].values()) > 0
+        db.session.rollback()
+
+
 def test_pause_flows_into_payroll_summary_and_preserves_government_dues():
     start = date(2026, 11, 7)
     with app.app_context():
