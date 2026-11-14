@@ -161,6 +161,9 @@ class Employee(db.Model, UserMixin):
     sl_credits = db.Column(db.Integer, default=5)
     payroll_preparation_access = db.Column(db.Boolean, nullable=False, default=False)
     admin_payroll_access = db.Column(db.Boolean, nullable=False, default=False)
+    hide_from_payroll_summary_pdf = db.Column(
+        db.Boolean, nullable=False, default=False, server_default=db.text("FALSE")
+    )
 
     # Relationships
     attendances = db.relationship("Attendance", back_populates="employee", lazy=True)

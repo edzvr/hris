@@ -41,6 +41,7 @@
         <p class="notice">Enter the remaining loan balance and this cutoff's deduction for each employee, then select "Submit Loan Check". Submitted rows are locked and do not change the system balance; Admin compares them before finalizing payroll.</p>
         {% endif %}
         <p><strong>Cutoff:</strong> {{ start_cutoff.strftime('%b %d, %Y') }} to {{ end_cutoff.strftime('%b %d, %Y') }}</p>
+        <p>By default, Saturday shows the previous cutoff; the new cutoff is selected on Sunday (Philippine time). You can select another cutoff.</p>
         <form method="GET">
             <label for="cutoff-start">Pumili ng payroll cutoff (Sabado–Biyernes):</label>
             <select id="cutoff-start" name="cutoff_start" required>
