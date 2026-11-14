@@ -179,6 +179,8 @@
                 <h3 class="section-heading">System &amp; Payroll Access (Admin Only)</h3>
                 <label class="form-field">Biometric ID<input type="text" name="biometric_id" value="{{ emp.biometric_id or '' }}"></label>
                 <label class="form-field"><span>Payroll Preparation Access</span><input type="checkbox" name="payroll_preparation_access" value="1" {% if emp.payroll_preparation_access %}checked{% endif %}></label>
+                <input type="hidden" name="payroll_summary_pdf_setting" value="1">
+                <label class="form-field"><span>Hide from downloaded payroll summary PDF (test accounts only; payroll and screen remain unchanged)</span><input type="checkbox" name="hide_from_payroll_summary_pdf" value="1" {% if emp.hide_from_payroll_summary_pdf %}checked{% endif %}></label>
                 {% if emp.role.lower() == 'staff' %}
                 <label class="form-field"><span>Payroll Loan Review Access (loan balance and deduction only; no finalization)</span><input type="checkbox" name="admin_payroll_access" value="1" {% if emp.admin_payroll_access %}checked{% endif %}></label>
                 {% else %}

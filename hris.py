@@ -1120,6 +1120,7 @@ def ensure_employee_hr_columns():
         "probation_end_date": "DATE",
         "regularization_date": "DATE",
         "payroll_attendance_exempt": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "hide_from_payroll_summary_pdf": "BOOLEAN NOT NULL DEFAULT FALSE",
         "manual_monthly_sss": "FLOAT NOT NULL DEFAULT 0",
         "manual_monthly_philhealth": "FLOAT NOT NULL DEFAULT 0",
         "manual_monthly_pagibig": "FLOAT NOT NULL DEFAULT 0",
@@ -3103,6 +3104,10 @@ def profile(user_id):
                 emp.bank_account_number = request.form.get('bank_account_number', '').strip() or None
                 emp.biometric_id = request.form.get('biometric_id', '').strip() or None
                 emp.payroll_preparation_access = request.form.get('payroll_preparation_access') == '1'
+                if request.form.get('payroll_summary_pdf_setting') == '1':
+                    emp.hide_from_payroll_summary_pdf = (
+                        request.form.get('hide_from_payroll_summary_pdf') == '1'
+                    )
 
                 role = request.form.get('role', emp.role or '').strip().lower()
                 if role not in {'staff', 'admin'}:
@@ -3156,7 +3161,9 @@ def profile(user_id):
         return redirect(url_for('profile', user_id=user_id))
 
     try:
-        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(
+            request.args.get('cutoff_start'), use_active_period=True,
+        )
     except ValueError:
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('profile', user_id=user_id))
@@ -4099,7 +4106,9 @@ def attendance(employee_id):
         flash("❌ You can only view your own attendance record.", "danger")
         return redirect(url_for('dashboard_staff'))
     try:
-        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.args.get('cutoff_start'))
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(
+            request.args.get('cutoff_start'), use_active_period=True,
+        )
     except ValueError:
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('attendance', employee_id=employee_id))
@@ -5915,14 +5924,17 @@ def completed_cutoff(today=None):
     )
     return start, start + timedelta(days=7)
 
-def payroll_cutoff_from_request(value=None):
-    """Return a selected Saturday-to-Friday cutoff or the active cutoff."""
+def payroll_cutoff_from_request(value=None, *, use_active_period=False):
+    """Return a selected cutoff or the default for payroll or attendance."""
     if value:
         selected_start = datetime.strptime(value, '%Y-%m-%d').date()
         if selected_start.weekday() != 5:
             raise ValueError('Cutoff start date must be a Saturday.')
         return selected_start, selected_start + timedelta(days=7)
-    current_start, _ = current_payroll_cutoff()
+    today = datetime.now(ZoneInfo('Asia/Manila')).date()
+    if not use_active_period and today.weekday() == 5:
+        today -= timedelta(days=1)
+    current_start, _ = current_payroll_cutoff(today)
     return current_start, current_start + timedelta(days=7)
 
 
@@ -7234,6 +7246,7 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
     pdf.drawString(30, 560, f'{company.upper()} PAYROLL SUMMARY')
     pdf.setFont('Helvetica', 9)
     pdf.drawString(30, 544, f'Cutoff: {cutoff_start} to {cutoff_end - timedelta(days=1)}')
+    pdf.drawString(30, 532, 'Gross includes non-taxable de minimis.')
     pdf.drawString(550, 544, 'Address: Trece Martires Cavite, Philippines')
     pdf.drawString(550, 532, 'Prepared by: Admin')
     headers = ['Employee', 'Days', 'Gross', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Loan', 'Other Ded.', 'Deductions', 'Net Pay', 'Status']
@@ -7261,7 +7274,7 @@ def payroll_summary_pdf(company, cutoff_start, cutoff_end, rows, employee_id):
             pdf.setFont('Helvetica', 8)
         values = [
             row['employee'].full_name()[:28], str(row['worked_days']),
-            f"{row['gross_income']:,.2f}", f"{row['sss']:,.2f}",
+            f"{row['net_pay'] + row['total_deductions']:,.2f}", f"{row['sss']:,.2f}",
             f"{row['philhealth']:,.2f}", f"{row['pagibig']:,.2f}",
             f"{row['withholding_tax']:,.2f}", f"{row['loan']:,.2f}",
             f"{row.get('other_deductions_total', 0):,.2f}", f"{row['total_deductions']:,.2f}",
@@ -7355,8 +7368,9 @@ def build_document_verification(document_type, employee_id, label, reference_id=
         'employee_id': employee_id, 'document_type': document_type,
         'document_label': label, 'payroll_id': reference_id,
     }
-    if document_type == 'payslip':
+    if document_type in {'payslip', 'payroll_summary'}:
         verification_filters['net_pay'] = float(net_pay or 0)
+    if document_type == 'payslip':
         verification_filters['superseded_at'] = None
     existing = PayslipVerification.query.filter_by(**verification_filters).first()
     if existing is not None:
@@ -8267,12 +8281,16 @@ def payroll_summary():
             cutoff_end=cutoff_end - timedelta(days=1),
             cutoff_options=payroll_dashboard_cutoff_options(cutoff_start),
         )
+    pdf_rows = [row for row in rows if not row['employee'].hide_from_payroll_summary_pdf]
     pdf_data = payroll_summary_pdf(
-        company, cutoff_start, cutoff_end, rows, current_user.id
+        company, cutoff_start, cutoff_end, pdf_rows, current_user.id
     )
     return send_file(
         io.BytesIO(pdf_data), as_attachment=True,
-        download_name=f'Payroll_Summary_{company}_{cutoff_start}.pdf',
+        download_name=(
+            f'Payroll_Summary_{cutoff_start}_to_'
+            f'{cutoff_end - timedelta(days=1)}_{company}.pdf'
+        ),
         mimetype='application/pdf'
     )
 
@@ -11474,7 +11492,9 @@ def holiday_ot_dashboard():
         flash("❌ Access denied. Admins only.", "danger")
         return redirect(url_for('login'))
     try:
-        cutoff_start, cutoff_end = payroll_cutoff_from_request(request.values.get("cutoff_start"))
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(
+            request.values.get("cutoff_start"), use_active_period=True,
+        )
     except ValueError:
         flash('Select a Saturday cutoff start date.', 'danger')
         return redirect(url_for('holiday_ot_dashboard'))
