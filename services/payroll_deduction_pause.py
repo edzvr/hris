@@ -10,13 +10,16 @@ from services.government_contributions import money
 
 AUTO_EXPERT_PAUSE_START = date(2026, 11, 7)
 AUTO_EXPERT_RESUME_FROM: date | None = None
+# Production employee IDs that keep SSS/PhilHealth/Pag-IBIG deductions during the pause (12 = Mark Gil Masilang).
+AUTO_EXPERT_PAUSE_EXEMPT_EMPLOYEE_IDS = frozenset({12})
 EMPLOYEE_DEDUCTIONS = ('sss', 'philhealth', 'pagibig')
 
 
-def employee_deductions_paused(company, role, cutoff_start, *, attendance_exempt=False):
+def employee_deductions_paused(company, role, cutoff_start, *, attendance_exempt=False, employee_id=None):
     normalized_company = ''.join(char for char in str(company or '').lower() if char.isalpha())
     return (
-        normalized_company.startswith(('autoexpert', 'autoxpert'))
+        employee_id not in AUTO_EXPERT_PAUSE_EXEMPT_EMPLOYEE_IDS
+        and normalized_company.startswith(('autoexpert', 'autoxpert'))
         and str(role or '').strip().lower() == 'staff'
         and not attendance_exempt
         and cutoff_start >= AUTO_EXPERT_PAUSE_START
@@ -46,6 +49,7 @@ def adjust_saved_employee_deductions(connection):
         if not employee_deductions_paused(
             row['company'], row['role'], row['cutoff_start'],
             attendance_exempt=row['payroll_attendance_exempt'],
+            employee_id=row['employee_id'],
         ):
             continue
         original = {key: money(row[key]) for key in EMPLOYEE_DEDUCTIONS}
@@ -70,6 +74,7 @@ def adjust_saved_employee_deductions(connection):
             if not employee_deductions_paused(
                 snapshot.get('company', row['company']), row['role'], row['cutoff_start'],
                 attendance_exempt=row['payroll_attendance_exempt'],
+                employee_id=row['employee_id'],
             ):
                 continue
             if any(key not in snapshot or money(snapshot[key]) != money(value)
