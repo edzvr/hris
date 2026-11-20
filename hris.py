@@ -61,6 +61,37 @@ def attendance_status(clock_in):
     return "Late" if clock_in.time() > time(8, 10) else "Present"
 
 
+def attendance_record_metrics(record):
+    """Return the daily DTR metrics expected by the attendance dashboard and tests."""
+    company = str(getattr(record, 'company', '') or '').strip()
+    record_date = getattr(record, 'date', date.today())
+    clock_in = getattr(record, 'clock_in', None)
+    clock_out = getattr(record, 'clock_out', None)
+
+    if record_date.weekday() == 6:
+        scheduled_hours = 4.0 if company.lower().startswith('trece') else 0.0
+    else:
+        scheduled_hours = 8.0
+
+    worked_hours = biometric_work_hours(clock_in, clock_out) if clock_in and clock_out else 0.0
+    is_late = bool(clock_in and clock_in.time() > time(8, 10))
+    late_minutes = 0
+    if clock_in:
+        late_minutes = max(
+            int((clock_in - datetime.combine(record_date, time(8, 0))).total_seconds() // 60),
+            0,
+        )
+    undertime_hours = round(max(scheduled_hours - worked_hours, 0.0), 0)
+
+    return {
+        "is_late": is_late,
+        "late_minutes": late_minutes,
+        "worked_hours": round(worked_hours, 2),
+        "undertime_hours": float(undertime_hours),
+        "half_day": bool(scheduled_hours and worked_hours <= (scheduled_hours / 2)),
+    }
+
+
 def has_strong_password(password):
     return (
         len(password) >= 8
@@ -1999,6 +2030,13 @@ def build_government_contribution_month(month, company='', only_employee_id=None
             continue
         saved = sorted(saved_by_employee.get(employee.id, []), key=lambda item: item.cutoff_start)
         manual = bool(employee.payroll_attendance_exempt)
+        manual_cutoff = getattr(employee, 'manual_contribution_cutoff_start', None)
+        fixed_manual = (
+            not manual
+            and manual_cutoff is not None
+            and manual_cutoff.year == month.year
+            and manual_cutoff.month == month.month
+        )
         bases, days = ([], 0) if manual else gov_attendance_month(employee, cutoff_dates)
         if not saved and not any(bases):
             continue
@@ -2027,6 +2065,10 @@ def build_government_contribution_month(month, company='', only_employee_id=None
                 'pi_ee': result.pagibig.employee if result else gov_money(0),
                 'pi_er': result.pagibig.employer if result else gov_money(0),
             }
+            if fixed_manual:
+                amounts['sss_ee'] = gov_money(employee.manual_monthly_sss)
+                amounts['ph_ee'] = gov_money(employee.manual_monthly_philhealth)
+                amounts['pi_ee'] = gov_money(employee.manual_monthly_pagibig)
             if float(employee.daily_rate or 0) <= 0:
                 issues.append('Missing daily rate')
             if days == 0:
@@ -2053,7 +2095,7 @@ def build_government_contribution_month(month, company='', only_employee_id=None
             sum((gov_money(item.gross_income) for item in saved), gov_money(0)) if saved else actual_earnings
         )
         row = {
-            'employee': employee, 'company': label, 'manual': manual, 'result': result,
+            'employee': employee, 'company': label, 'manual': manual, 'fixed_manual': fixed_manual, 'result': result,
             'daily_rate': gov_money(employee.daily_rate), 'days_worked': days,
             'cutoff_bases': list(zip(cutoff_dates, bases)), 'actual_earnings': actual_earnings,
             'saved_cutoffs': len(saved), 'paid_cutoffs': sum(1 for item in saved if item.is_paid),
@@ -3101,6 +3143,31 @@ def profile(user_id):
                 emp.civil_status = request.form.get('civil_status', '').strip() or None
                 emp.immediate_supervisor = request.form.get('immediate_supervisor', '').strip() or None
                 emp.work_location = request.form.get('work_location', '').strip() or None
+                for form_name, attribute in (
+                    ('manual_monthly_sss', 'manual_monthly_sss'),
+                    ('manual_monthly_philhealth', 'manual_monthly_philhealth'),
+                    ('manual_monthly_pagibig', 'manual_monthly_pagibig'),
+                ):
+                    value = request.form.get(form_name, '').strip()
+                    try:
+                        amount = float(value or 0)
+                        if not isfinite(amount) or amount < 0:
+                            raise ValueError
+                        setattr(emp, attribute, amount)
+                    except (TypeError, ValueError):
+                        flash('Please enter valid non-negative government deductions.', 'danger')
+                        return redirect(url_for('profile', user_id=user_id))
+                manual_cutoff = request.form.get('manual_contribution_cutoff_start', '').strip()
+                if manual_cutoff:
+                    try:
+                        emp.manual_contribution_cutoff_start = datetime.strptime(
+                            manual_cutoff, '%Y-%m-%d'
+                        ).date()
+                    except ValueError:
+                        flash('Please enter a valid government deduction cutoff date.', 'danger')
+                        return redirect(url_for('profile', user_id=user_id))
+                else:
+                    emp.manual_contribution_cutoff_start = None
                 if 'contribution_workweek' in request.form:
                     workweek = request.form.get('contribution_workweek', '').strip()
                     emp.contribution_workweek = int(workweek) if workweek in ('5', '6') else None
@@ -6251,10 +6318,7 @@ def unlock_loan_check(employee_id):
 
 
 def manual_owner_contribution_deductions(employee, cutoff_start):
-    if (
-        not getattr(employee, "payroll_attendance_exempt", False)
-        or getattr(employee, "manual_contribution_cutoff_start", None) != cutoff_start
-    ):
+    if getattr(employee, "manual_contribution_cutoff_start", None) != cutoff_start:
         return {"sss": 0.0, "philhealth": 0.0, "pagibig": 0.0}
     return {
         "sss": float(getattr(employee, "manual_monthly_sss", 0) or 0),
@@ -6264,8 +6328,6 @@ def manual_owner_contribution_deductions(employee, cutoff_start):
 
 
 def update_manual_owner_contribution_settings(employee, form, cutoff_start):
-    if not getattr(employee, "payroll_attendance_exempt", False):
-        return
     fields = {
         "manual_monthly_sss": "manual_monthly_sss",
         "manual_monthly_philhealth": "manual_monthly_philhealth",
@@ -6339,6 +6401,10 @@ def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_s
     if isinstance(cutoff_start, datetime):
         cutoff_start = cutoff_start.date()
     weeks = payroll_cutoffs_in_month(cutoff_start)
+    manual_deductions = manual_owner_contribution_deductions(employee, cutoff_start)
+    has_manual_contribution_cutoff = (
+        getattr(employee, 'manual_contribution_cutoff_start', None) == cutoff_start
+    )
     if getattr(employee, 'payroll_attendance_exempt', False):
         statutory = manual_owner_contribution_deductions(employee, cutoff_start)
         return {
@@ -6356,6 +6422,8 @@ def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_s
             compute_weekly_employer_deductions(monthly_salary, weeks=weeks)
             if legacy_contribution_salary > 0 else dict(ZERO_EMPLOYER_CONTRIBUTIONS)
         )
+        if has_manual_contribution_cutoff:
+            statutory = dict(manual_deductions)
         return {
             'employee': statutory, 'employer': employer,
             'monthly_employee_total': sum(statutory.values()) * weeks,
@@ -6377,6 +6445,14 @@ def cutoff_statutory_contributions(employee, cutoff_start, legacy_contribution_s
         calculator, bases, index, prior, employee.daily_rate,
         getattr(employee, 'contribution_workweek', None),
     )
+    if has_manual_contribution_cutoff:
+        amounts = {
+            **amounts,
+            "sss": manual_deductions["sss"],
+            "philhealth": manual_deductions["philhealth"],
+            "pagibig": manual_deductions["pagibig"],
+        }
+        monthly_employee_total = sum(manual_deductions.values())
     if employee_deductions_paused(
         employee.company, employee.role, cutoff_start,
         attendance_exempt=employee.payroll_attendance_exempt,
