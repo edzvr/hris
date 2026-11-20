@@ -95,6 +95,13 @@
             <p><strong>PhilHealth:</strong> {{ emp.philhealth or 'N/A' }}</p>
             <p><strong>Pag-IBIG:</strong> {{ emp.pagibig or 'N/A' }}</p>
             <p><strong>TIN:</strong> {{ emp.tin or 'N/A' }}</p>
+            {% if viewer.role.lower() == 'admin' %}
+            <h3 class="section-heading">Monthly Government Deductions (Employee Share)</h3>
+            <p><strong>Fixed SSS:</strong> PHP {{ '%.2f'|format(emp.manual_monthly_sss or 0) }}</p>
+            <p><strong>Fixed PhilHealth:</strong> PHP {{ '%.2f'|format(emp.manual_monthly_philhealth or 0) }}</p>
+            <p><strong>Fixed Pag-IBIG:</strong> PHP {{ '%.2f'|format(emp.manual_monthly_pagibig or 0) }}</p>
+            <p><strong>Fixed Deduction Cutoff:</strong> {{ emp.manual_contribution_cutoff_start or 'Automatic calculation' }}</p>
+            {% endif %}
             <h3 class="section-heading">Bank Information</h3>
             <p><strong>Bank:</strong> {{ emp.bank_name or 'N/A' }}</p>
             <p><strong>Bank Account Name:</strong> {{ emp.bank_account_name or 'N/A' }}</p>
@@ -192,6 +199,14 @@
                 <label class="form-field">PhilHealth<input type="text" name="philhealth" value="{{ emp.philhealth or '' }}"></label>
                 <label class="form-field">TIN<input type="text" name="tin" value="{{ emp.tin or '' }}"></label>
                 <label class="form-field">Pag-IBIG<input type="text" name="pagibig" value="{{ emp.pagibig or '' }}"></label>
+                {% if viewer.role.lower() == 'admin' %}
+                <h3 class="section-heading">Monthly Government Deductions (Employee Share)</h3>
+                <label class="form-field">Fixed monthly SSS<input type="number" name="manual_monthly_sss" min="0" step="0.01" value="{{ '%.2f'|format(emp.manual_monthly_sss or 0) }}"></label>
+                <label class="form-field">Fixed monthly PhilHealth<input type="number" name="manual_monthly_philhealth" min="0" step="0.01" value="{{ '%.2f'|format(emp.manual_monthly_philhealth or 0) }}"></label>
+                <label class="form-field">Fixed monthly Pag-IBIG<input type="number" name="manual_monthly_pagibig" min="0" step="0.01" value="{{ '%.2f'|format(emp.manual_monthly_pagibig or 0) }}"></label>
+                <label class="form-field">Apply fixed deduction on cutoff<input type="date" name="manual_contribution_cutoff_start" value="{{ emp.manual_contribution_cutoff_start or '' }}"></label>
+                <p class="form-field full" style="margin:0;color:#607d8b;">Set the cutoff date to apply these amounts to this employee for the month. Leave the cutoff date blank to use automatic contribution calculations.</p>
+                {% endif %}
                 <h3 class="section-heading">Emergency Contact</h3>
                 <label class="form-field">Emergency Person Name<input type="text" name="emergency_person" value="{{ emp.emergency_person or '' }}"></label>
                 <label class="form-field">Emergency Contact<input type="text" name="emergency_contact" value="{{ emp.emergency_contact or '' }}"></label>

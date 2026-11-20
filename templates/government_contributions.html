@@ -279,6 +279,34 @@
 {% if view == 'portal' %}
 <section class="section">
     <h3>Monthly Government Dues Guide &mdash; {{ month.strftime('%B %Y') }}</h3>
+    <h4>Per-Employee SSS Salary Bracket &amp; MSC</h4>
+    <p class="muted">Use this table to choose the correct monthly SSS bracket for each employee in the agency portal.</p>
+    <table>
+        <tr>
+            <th class="left">Employee</th>
+            <th class="left">SSS No.</th>
+            <th>Monthly Compensation Base</th>
+            <th>SSS Salary Bracket</th>
+            <th>Monthly Salary Credit (MSC)</th>
+            <th>SSS EE</th>
+            <th>SSS ER</th>
+            <th>EC</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="left">{{ row.employee.full_name() }}</td>
+            <td class="left">{{ row.employee.sss or 'Missing' }}</td>
+            <td>{{ peso.format(row.actual_earnings) }}</td>
+            <td>{{ row.result.sss.bracket_label if row.result else ('Manual' if row.manual or row.fixed_manual else 'Unavailable') }}</td>
+            <td>{{ peso.format(row.result.sss.msc) if row.result else '-' }}</td>
+            <td>{{ peso.format(row.sss_ee) }}</td>
+            <td>{{ peso.format(row.sss_er) }}</td>
+            <td>{{ peso.format(row.sss_ec) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="left">No employee contribution rows for this month.</td></tr>
+        {% endfor %}
+    </table>
     {% for label, totals in portal.companies.items() %}
     {% include 'partials/government_portal_totals.html' %}
     {% endfor %}

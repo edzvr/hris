@@ -42,6 +42,35 @@ def log_in(client, employee_id):
         session["_fresh"] = True
 
 
+def test_fixed_government_deduction_can_be_set_per_regular_employee():
+    employee = Employee(
+        first_name="Per",
+        last_name="Employee",
+        role="staff",
+        company="Trece-Uno",
+        manual_monthly_sss=900,
+        manual_monthly_philhealth=450,
+        manual_monthly_pagibig=300,
+        manual_contribution_cutoff_start=date(2026, 10, 31),
+    )
+    with app.app_context():
+        db.session.add(employee)
+        db.session.flush()
+        try:
+            result = cutoff_statutory_contributions(employee, date(2026, 10, 31), 645 * 5)
+            assert result["employee"] == {
+                "sss": 900.0,
+                "philhealth": 450.0,
+                "pagibig": 300.0,
+            }
+            assert result["monthly_employee_total"] == 1650.0
+            other_cutoff = cutoff_statutory_contributions(employee, date(2026, 10, 3), 645 * 5)
+            assert other_cutoff["employee"] != result["employee"]
+        finally:
+            db.session.delete(employee)
+            db.session.commit()
+
+
 @pytest.fixture
 def calculator():
     with app.app_context():
@@ -274,6 +303,8 @@ def test_dashboard_preview_portal_and_validations(people):
     text = portal.get_data(as_text=True)
     assert portal.status_code == 200
     assert "Grand Total SSS Payable" in text and "TOTAL TO PAY IN PORTALS" in text
+    assert "Per-Employee SSS Salary Bracket &amp; MSC" in text
+    assert "Monthly Salary Credit (MSC)" in text
     assert "SSS &mdash; PRN and e-CL" in text
     assert "PhilHealth &mdash; EPRS and SPA" in text
     assert "Open official EPRS employer portal" in text
