@@ -11930,6 +11930,12 @@ def holiday_ot_dashboard():
         regular_hours = (
             regular_attendance_hours(attendance) if complete_punches else 0.0
         )
+        detected_ot_hours = payroll_overtime_hours(attendance)
+        approved_ot_hours = (
+            detected_ot_hours
+            if attendance_overtime_is_payable(attendance)
+            else 0.0
+        )
         scheduled_hours = attendance_scheduled_hours(
             attendance.employee, attendance.date
         )
@@ -11957,7 +11963,8 @@ def holiday_ot_dashboard():
                 and scheduled_hours
                 and regular_hours <= scheduled_hours / 2
             ),
-            "overtime_hours": payroll_overtime_hours(attendance),
+            "overtime_hours": approved_ot_hours,
+            "detected_ot_hours": detected_ot_hours,
             "ot_status": attendance_overtime_status(attendance),
             "pending_applications": pending_applications.get(
                 (attendance.employee_id, attendance.date), []

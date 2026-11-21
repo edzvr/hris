@@ -162,9 +162,9 @@
                     </div>
                     {% endfor %}
                     {% set ot_status_text = row.ot_status or 'Pending' %}
-                    {% if not row.pending_applications and row.overtime_hours > 0 and ot_status_text|lower in ['pending', 'none'] %}
+                    {% if not row.pending_applications and (row.detected_ot_hours|default(0)) > 0 and ot_status_text|lower in ['pending', 'none'] %}
                     <div>
-                        Detected OT: {{ "%.2f"|format(row.overtime_hours) }} hour(s)<br>
+                        Detected OT: {{ "%.2f"|format(row.detected_ot_hours) }} hour(s)<br>
                         <form method="POST" action="{{ url_for('decide_attendance_overtime', attendance_id=att.id, action='approve') }}">
                             <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
                             <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">

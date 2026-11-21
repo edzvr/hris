@@ -161,6 +161,42 @@ def test_admin_csv_caps_sunday_shift_and_preserves_late_grace_period():
             db.session.commit()
 
 
+def test_dashboard_ot_metrics_only_include_approved_ot():
+    with app.app_context():
+        admin = Employee(first_name="Approved", last_name="Admin", role="admin")
+        staff = Employee(first_name="Pending", last_name="OT", role="staff", company="Auto Expert")
+        db.session.add_all([admin, staff])
+        db.session.flush()
+        record = Attendance(
+            employee_id=staff.id, date=date(2026, 11, 13),
+            clock_in=datetime(2026, 11, 13, 8),
+            clock_out=datetime(2026, 11, 13, 20),
+            status="Present", company="Auto Expert",
+            overtime_hours=3.0, ot_status="Pending",
+        )
+        db.session.add(record)
+        db.session.commit()
+        admin_id, staff_id = admin.id, staff.id
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(admin_id)
+            session["_fresh"] = True
+        text = client.get(
+            "/holiday_overtime?cutoff_start=2026-11-07&employee_search=Pending+OT"
+        ).get_data(as_text=True)
+        assert "OT: <strong>0.00 hrs</strong>" in text
+        assert "Detected OT: 2.98 hour(s)" in text
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            Attendance.query.filter_by(employee_id=staff_id).delete()
+            Employee.query.filter(Employee.id.in_([staff_id, admin_id])).delete(
+                synchronize_session=False
+            )
+            db.session.commit()
+
+
 def test_ot_dashboard_has_company_and_specific_staff_filters():
     with app.app_context():
         admin = Employee(first_name="Filter", last_name="Admin", role="admin")
@@ -327,7 +363,7 @@ def test_admin_can_approve_matching_application_from_attendance_card():
         card = response.get_data(as_text=True).split(
             f'<article class="attendance-employee" aria-labelledby="attendance-employee-{staff_id}">'
         )[1].split("</article>")[0]
-        assert "2.03" in card
+        assert "0.00" in card
         assert "Matching request" in card
         assert "Other request" not in card
         assert f"/admin/ot_applications/{application_id}/approve" in card
