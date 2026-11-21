@@ -296,10 +296,11 @@
     <summary>Pending Attendance Corrections ({{ pending_attendance_corrections|length }})</summary>
     <div class="admin-table-scroll" role="region" aria-label="Attendance corrections table" tabindex="0">
     <table>
-      <tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
+      <tr><th>Employee</th><th>Company</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
       {% for item in pending_attendance_corrections %}
       <tr>
         <td>{{ item.employee.full_name() }}</td>
+        <td>{{ item.employee.company or 'No company' }}</td>
         <td>{{ item.correction_date }}</td>
         <td>{{ item.requested_clock_in or 'N/A' }}</td>
         <td>{{ item.requested_clock_out or 'N/A' }}</td>
@@ -310,7 +311,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No pending attendance corrections.</td></tr>
+      <tr><td colspan="7">No pending attendance corrections.</td></tr>
       {% endfor %}
     </table>
     </div>

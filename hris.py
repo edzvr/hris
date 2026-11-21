@@ -4903,7 +4903,9 @@ def dashboard_admin():
         Employee.last_name != ''
     ).count()
 
-    pending_ot = scoped(OTApplication.query, OTApplication).filter_by(status="Pending").count()
+    pending_ot = scoped(OTApplication.query, OTApplication).filter(
+        db.func.lower(db.func.coalesce(OTApplication.status, 'pending')) == 'pending'
+    ).count()
     pending_leaves = scoped(LeaveRequest.query, LeaveRequest).filter_by(status="Pending").count()
     pending_loans = scoped(Loan.query, Loan).filter_by(status="Pending").count()
     pending_evaluations = scoped(Evaluation.query, Evaluation).filter_by(approval_status='Pending').count()
@@ -4936,9 +4938,13 @@ def dashboard_admin():
     staff_attendance_by_employee = {
         item['employee'].id: item for item in staff_attendance
     }
-    pending_attendance_corrections = scoped(AttendanceCorrection.query, AttendanceCorrection).filter_by(
-        status='Pending'
-    ).order_by(AttendanceCorrection.created_at.asc()).all()
+    pending_attendance_corrections = AttendanceCorrection.query.join(
+        Employee, AttendanceCorrection.employee_id == Employee.id
+    ).filter(
+        db.func.lower(db.func.coalesce(AttendanceCorrection.status, 'pending')) == 'pending'
+    ).order_by(
+        AttendanceCorrection.created_at.asc()
+    ).all()
 
     from sqlalchemy import func
     trend_records = (
@@ -8541,7 +8547,9 @@ def apply_ot():
             return redirect(url_for('apply_ot'))
         lock_attendance_employee(current_user.id)
         existing = OTApplication.query.filter_by(
-            employee_id=current_user.id, ot_date=ot_date, status='Pending'
+            employee_id=current_user.id, ot_date=ot_date
+        ).filter(
+            db.func.lower(db.func.coalesce(OTApplication.status, 'pending')) == 'pending'
         ).first()
         if existing:
             flash('You already have a pending OT application for this date.', 'warning')
@@ -8570,7 +8578,7 @@ def decide_ot_application(application_id, action):
     application = OTApplication.query.get_or_404(application_id)
     lock_attendance_employee(application.employee_id)
     db.session.refresh(application)
-    if application.status != 'Pending':
+    if str(application.status or '').strip().lower() != 'pending':
         abort(409, 'This OT application has already been decided.')
     application.status = 'Approved' if action == 'approve' else 'Rejected'
     application.decision_note = request.form.get('decision_note', '').strip() or None
@@ -9068,6 +9076,18 @@ def attendance_correction():
                     'danger',
                 )
                 return redirect(url_for('attendance_correction', correction_date=correction_date.isoformat()))
+            existing_pending = AttendanceCorrection.query.filter(
+                AttendanceCorrection.employee_id == current_user.id,
+                AttendanceCorrection.correction_date == correction_date,
+                db.func.lower(db.func.coalesce(AttendanceCorrection.status, 'pending')) == 'pending',
+            ).first()
+            if existing_pending:
+                flash(
+                    'A pending attendance correction already exists for this date. '
+                    'Wait for admin review or reject the existing request before submitting another.',
+                    'warning',
+                )
+                return redirect(url_for('attendance_correction'))
             db.session.add(AttendanceCorrection(
                 employee_id=current_user.id,
                 correction_date=correction_date,
@@ -9075,6 +9095,7 @@ def attendance_correction():
                 requested_clock_out=requested_clock_out,
                 reason=reason,
                 attendance=attendance_record,
+                status='Pending',
             ))
             db.session.commit()
             flash('Attendance correction submitted for admin review.', 'success')
@@ -9106,7 +9127,7 @@ def review_attendance_correction(correction_id, action):
     correction = AttendanceCorrection.query.get_or_404(correction_id)
     lock_attendance_employee(correction.employee_id)
     db.session.refresh(correction)
-    if correction.status != 'Pending':
+    if str(correction.status or '').strip().lower() != 'pending':
         flash('This correction request was already reviewed.', 'warning')
         return redirect(url_for('dashboard_admin'))
     if action == 'approve':
@@ -10374,7 +10395,7 @@ def payroll_cutoff_pending_issues(employee, cutoff_start, cutoff_end):
     if OTApplication.query.filter(
         OTApplication.employee_id == employee.id,
         OTApplication.ot_date >= cutoff_start, OTApplication.ot_date < cutoff_end,
-        OTApplication.status == 'Pending',
+        db.func.lower(db.func.coalesce(OTApplication.status, 'pending')) == 'pending',
     ).count():
         issues.append('OT request pending')
     return issues
@@ -11641,6 +11662,10 @@ def holiday_ot_dashboard():
             attendance for attendance in records
             if attendance_overtime_status(attendance) == filter_status
         ]
+        applications = [
+            application for application in applications
+            if str(application.status or 'Pending').strip().lower() == filter_status.lower()
+        ]
 
     # --- Holidays dictionary ---
     holidays = {h.date: h.description for h in Holiday.query.all()}
@@ -11657,6 +11682,14 @@ def holiday_ot_dashboard():
         attendance_report = [row for row in attendance_report if gov_company_label(row.employee) == company]
     if employee_search:
         search_value = employee_search.casefold()
+        applications = [
+            application for application in applications
+            if application.employee
+            and search_value in (
+                f"{application.employee.first_name} "
+                f"{application.employee.last_name}"
+            ).casefold()
+        ]
         attendance_report = [
             attendance for attendance in attendance_report
             if attendance.employee
@@ -11667,7 +11700,7 @@ def holiday_ot_dashboard():
         ]
     pending_applications = {}
     for application in applications:
-        if application.status == "Pending":
+        if str(application.status or '').strip().lower() == "pending":
             pending_applications.setdefault(
                 (application.employee_id, application.ot_date), []
             ).append(application)

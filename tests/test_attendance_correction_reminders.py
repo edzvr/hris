@@ -13,6 +13,60 @@ def log_in(client, employee):
         session['_fresh'] = True
 
 
+def test_submitted_correction_is_visible_to_admin_across_company_filter():
+    correction_date = datetime.now(ZoneInfo('Asia/Manila')).date() - timedelta(days=1)
+    with app.app_context():
+        staff = Employee(
+            first_name='Visible',
+            last_name='Staff',
+            role='staff',
+            company='Trece-Uno',
+        )
+        admin = Employee(first_name='Visible', last_name='Admin', role='admin')
+        db.session.add_all([staff, admin])
+        db.session.flush()
+        attendance = Attendance(
+            employee_id=staff.id,
+            date=correction_date,
+            status='Present',
+            clock_in=datetime.combine(correction_date, datetime.min.time()).replace(hour=8),
+            company='Trece-Uno',
+        )
+        db.session.add(attendance)
+        db.session.flush()
+        correction = AttendanceCorrection(
+            employee_id=staff.id,
+            attendance_id=attendance.id,
+            correction_date=correction_date,
+            requested_clock_out=datetime.combine(correction_date, datetime.min.time()).replace(hour=17),
+            reason='Missing clock out',
+            status='pending',
+        )
+        db.session.add(correction)
+        db.session.commit()
+        staff_id, admin_id, correction_id, attendance_id = (
+            staff.id, admin.id, correction.id, attendance.id
+        )
+
+    try:
+        client = app.test_client()
+        with app.app_context():
+            log_in(client, db.session.get(Employee, admin_id))
+        response = client.get('/dashboard_admin?company=Auto%20Expert')
+        assert response.status_code == 200
+        assert b'Visible Staff' in response.data
+        assert b'Missing clock out' in response.data
+        assert f'/admin/attendance-correction/{correction_id}/approve'.encode() in response.data
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            db.session.delete(db.session.get(AttendanceCorrection, correction_id))
+            db.session.delete(db.session.get(Attendance, attendance_id))
+            db.session.delete(db.session.get(Employee, staff_id))
+            db.session.delete(db.session.get(Employee, admin_id))
+            db.session.commit()
+
+
 def test_staff_dashboard_warns_about_missing_punches_in_current_cutoff():
     today = datetime.now(ZoneInfo('Asia/Manila')).date()
     cutoff_start = today - timedelta(days=(today.weekday() + 2) % 7)

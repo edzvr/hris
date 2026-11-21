@@ -171,7 +171,8 @@
                 <td>{{ application.reason }}</td>
                 <td>{{ application.status }}</td>
                 <td>
-                    {% if application.status == 'Pending' %}
+                    {% set application_status = application.status or 'Pending' %}
+                    {% if application_status|lower == 'pending' %}
                     {{ application_actions(application) }}
                     {% else %}{{ application.decision_note or 'Decided' }}{% endif %}
                 </td>
