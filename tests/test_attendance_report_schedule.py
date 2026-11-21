@@ -161,6 +161,50 @@ def test_admin_csv_caps_sunday_shift_and_preserves_late_grace_period():
             db.session.commit()
 
 
+def test_admin_can_approve_autoexpert_ot_from_clock_out_without_application():
+    with app.app_context():
+        admin = Employee(first_name="Delivery", last_name="Admin", role="admin")
+        staff = Employee(first_name="Marry Jane", last_name="Mendoza", role="staff", company="Auto Expert")
+        db.session.add_all([admin, staff])
+        db.session.flush()
+        record = Attendance(
+            employee_id=staff.id, date=date(2026, 11, 13),
+            clock_in=datetime(2026, 11, 13, 8, 0),
+            clock_out=datetime(2026, 11, 13, 20, 0),
+            status="Present", company="Auto Expert",
+        )
+        db.session.add(record)
+        db.session.commit()
+        admin_id, staff_id, attendance_id = admin.id, staff.id, record.id
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(admin_id)
+            session["_fresh"] = True
+        page = client.get(
+            "/holiday_overtime?cutoff_start=2026-11-07&employee_search=Marry+Jane+Mendoza"
+        )
+        assert page.status_code == 200
+        assert b"Approve Clock-out OT" in page.data
+        result = client.post(
+            f"/admin/attendance/{attendance_id}/overtime/approve",
+            data={"cutoff_start": "2026-11-07", "employee_search": "Marry Jane Mendoza"},
+        )
+        assert result.status_code == 302
+        with app.app_context():
+            saved = db.session.get(Attendance, attendance_id)
+            assert saved.ot_status == "Approved"
+            assert saved.overtime_hours == 2.98
+            assert saved.is_weekday_ot is True
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            db.session.delete(db.session.get(Attendance, attendance_id))
+            db.session.delete(db.session.get(Employee, staff_id))
+            db.session.delete(db.session.get(Employee, admin_id))
+            db.session.commit()
+
+
 def test_admin_can_approve_matching_application_from_attendance_card():
     with app.app_context():
         admin = Employee(first_name="OT", last_name="Admin", role="admin")

@@ -8613,6 +8613,64 @@ def decide_ot_application(application_id, action):
     ))
 
 
+@app.route('/admin/attendance/<int:attendance_id>/overtime/<action>', methods=['POST'])
+@login_required
+def decide_attendance_overtime(attendance_id, action):
+    if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
+        return 'Access denied', 403
+    attendance = Attendance.query.get_or_404(attendance_id)
+    lock_attendance_employee(attendance.employee_id)
+    db.session.refresh(attendance)
+    if str(attendance.ot_status or 'Pending').strip().lower() in {'approved', 'rejected'}:
+        abort(409, 'This attendance OT has already been decided.')
+    if not attendance.clock_in or not attendance.clock_out:
+        flash('Attendance OT can only be approved after Clock In and Clock Out are complete.', 'danger')
+        return redirect(url_for(
+            'holiday_ot_dashboard',
+            cutoff_start=request.form.get('cutoff_start') or None,
+            company=request.form.get('company') or None,
+            employee_search=request.form.get('employee_search') or None,
+            status=request.form.get('status') or None,
+        ))
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    overtime_hours = payroll_overtime_hours(attendance)
+    if overtime_hours <= 0:
+        flash('No payable overtime was detected for this clock-out.', 'warning')
+    elif action == 'approve':
+        attendance.overtime_hours = overtime_hours
+        attendance.ot_status = 'Approved'
+        attendance.is_restday_ot = (
+            attendance.date.weekday() == 6 and holiday is None
+        )
+        attendance.is_holiday_ot = bool(holiday)
+        attendance.is_weekday_ot = bool(
+            overtime_hours > 0
+            and not attendance.is_restday_ot
+            and not attendance.is_holiday_ot
+        )
+        flash(
+            f'Attendance OT approved: {overtime_hours:.2f} hour(s).',
+            'success',
+        )
+    else:
+        attendance.ot_status = 'Rejected'
+        attendance.is_restday_ot = False
+        attendance.is_holiday_ot = False
+        attendance.is_weekday_ot = False
+        flash('Attendance OT rejected.', 'info')
+    resume_correction_payroll_updates(
+        attendance.employee_id, attendance.date, attendance.date,
+    )
+    db.session.commit()
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=request.form.get('cutoff_start') or None,
+        company=request.form.get('company') or None,
+        employee_search=request.form.get('employee_search') or None,
+        status=request.form.get('status') or None,
+    ))
+
+
 @app.route('/attendance_action/<int:employee_id>', methods=['POST'])
 @login_required
 def attendance_action(employee_id):

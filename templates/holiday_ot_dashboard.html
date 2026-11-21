@@ -143,9 +143,29 @@
                         {{ application.reason }}<br>
                         {{ application_actions(application) }}
                     </div>
-                    {% else %}
-                    &mdash;
                     {% endfor %}
+                    {% set ot_status_text = row.ot_status or 'Pending' %}
+                    {% if not row.pending_applications and row.overtime_hours > 0 and ot_status_text|lower in ['pending', 'none'] %}
+                    <div>
+                        Detected OT: {{ "%.2f"|format(row.overtime_hours) }} hour(s)<br>
+                        <form method="POST" action="{{ url_for('decide_attendance_overtime', attendance_id=att.id, action='approve') }}">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                            <input type="hidden" name="status" value="{{ filter_status or '' }}">
+                            <button type="submit" class="btn">Approve Clock-out OT</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('decide_attendance_overtime', attendance_id=att.id, action='reject') }}">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                            <input type="hidden" name="status" value="{{ filter_status or '' }}">
+                            <button type="submit" class="btn btn-reject">Reject</button>
+                        </form>
+                    </div>
+                    {% elif not row.pending_applications %}
+                    &mdash;
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
