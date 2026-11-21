@@ -20,18 +20,22 @@
         .btn-reject:hover { background:#b71c1c; }
         .back-link { display:inline-block; margin-top:20px; color:#1976d2; text-decoration:none; font-weight:bold; }
         .back-link:hover { text-decoration:underline; }
-        .filter { margin-bottom:15px; text-align:center; }
+        .filter { margin-bottom:12px; padding:10px; border:1px solid #dce4ec; border-radius:10px; background:#f8fafc; }
+        .filter form { display:grid; grid-template-columns:repeat(5, minmax(130px, 1fr)); gap:8px; align-items:end; }
+        .filter label { display:block; text-align:left; font-size:12px; font-weight:700; }
+        .filter input, .filter select { width:100%; min-height:36px; box-sizing:border-box; }
+        .filter .btn { min-height:36px; }
         .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:12px; margin:12px 0; }
-        .attendance-cards { display:grid; gap:18px; margin:20px 0; }
+        .attendance-cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:10px; margin:12px 0; }
         .attendance-employee { min-width:0; border:1px solid #dce4ec; border-radius:16px; background:#fff; overflow:hidden; }
-        .attendance-employee-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px; background:#f3f6fa; border-bottom:1px solid #dce4ec; }
+        .attendance-employee-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:#f3f6fa; border-bottom:1px solid #dce4ec; }
         .attendance-identity { display:flex; align-items:center; gap:12px; }
         .attendance-avatar { display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:#dbeafe; color:#1e40af; font-weight:700; }
         .attendance-identity h4 { margin:0 0 5px; font-size:18px; color:#243247; }
         .attendance-identity p { margin:0; color:#526174; font-size:13px; }
-        .attendance-metrics { display:flex; flex-wrap:wrap; gap:8px; padding:14px 20px 0; }
+        .attendance-metrics { display:flex; flex-wrap:wrap; gap:5px; padding:8px 10px 0; }
         .attendance-metric { padding:8px 12px; border-radius:8px; background:#eef3f8; color:#334155; font-size:13px; }
-        .attendance-employee .table-wrap { box-sizing:border-box; padding:0 16px 16px; margin-top:14px; }
+        .attendance-employee .table-wrap { box-sizing:border-box; padding:0 8px 8px; margin-top:8px; }
         .attendance-employee table { min-width:900px; font-size:13px; }
         .attendance-empty { padding:24px; border:1px dashed #cbd5e1; border-radius:12px; color:#526174; }
         @media(max-width:600px) {
@@ -46,6 +50,7 @@
     <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='approve') }}">
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
         <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+        <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
         <input type="hidden" name="employee_search" value="{{ employee_search }}">
         <input type="hidden" name="status" value="{{ filter_status or '' }}">
         <button type="submit" class="btn">Approve</button>
@@ -53,6 +58,7 @@
     <form method="POST" action="{{ url_for('decide_ot_application', application_id=application.id, action='reject') }}">
         <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
         <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+        <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
         <input type="hidden" name="employee_search" value="{{ employee_search }}">
         <input type="hidden" name="status" value="{{ filter_status or '' }}">
         <button type="submit" class="btn btn-reject">Reject</button>
@@ -71,19 +77,30 @@
         <!-- Filter dropdown -->
         <div class="filter">
             <form method="GET">
-                {% if request.args.get('company') %}<input type="hidden" name="company" value="{{ request.args.get('company') }}">{% endif %}
-                <label for="cutoff-start">Cutoff Start (Saturday):</label>
-                <input id="cutoff-start" type="date" name="cutoff_start" value="{{ cutoff_start }}" required>
-                <label for="status">Filter by Status:</label>
-                <select id="status" name="status">
-                    <option value="">All</option>
-                    <option value="Pending" {% if filter_status == 'Pending' %}selected{% endif %}>Pending</option>
-                    <option value="Approved" {% if filter_status == 'Approved' %}selected{% endif %}>Approved</option>
-                    <option value="Rejected" {% if filter_status == 'Rejected' %}selected{% endif %}>Rejected</option>
-                </select>
-                <label for="employee-search">Employee:</label>
-                <input id="employee-search" type="search" name="employee_search"
-                       value="{{ employee_search }}" placeholder="Search employee name">
+                <div><label for="cutoff-start">Cutoff Start (Saturday)</label><input id="cutoff-start" type="date" name="cutoff_start" value="{{ cutoff_start }}" required></div>
+                <div><label for="company">Company</label>
+                    <select id="company" name="company">
+                        <option value="">All companies</option>
+                        <option value="Trece-Uno" {% if selected_company == 'Trece-Uno' %}selected{% endif %}>Trece-Uno</option>
+                        <option value="Auto Expert" {% if selected_company == 'Auto Expert' %}selected{% endif %}>Auto Expert</option>
+                    </select>
+                </div>
+                <div><label for="employee-id">Specific staff</label>
+                    <select id="employee-id" name="employee_id">
+                        <option value="">All staff</option>
+                        {% for employee in employee_choices %}
+                        <option value="{{ employee.id }}" {% if employee.id == employee_id %}selected{% endif %}>{{ employee.full_name() }} - {{ employee.company or 'No company' }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div><label for="status">OT Status</label>
+                    <select id="status" name="status">
+                        <option value="">All</option>
+                        <option value="Pending" {% if filter_status == 'Pending' %}selected{% endif %}>Pending</option>
+                        <option value="Approved" {% if filter_status == 'Approved' %}selected{% endif %}>Approved</option>
+                        <option value="Rejected" {% if filter_status == 'Rejected' %}selected{% endif %}>Rejected</option>
+                    </select>
+                </div>
                 <button type="submit" class="btn">Load Cutoff</button>
             </form>
         </div>
@@ -151,6 +168,7 @@
                         <form method="POST" action="{{ url_for('decide_attendance_overtime', attendance_id=att.id, action='approve') }}">
                             <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
                             <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
                             <input type="hidden" name="employee_search" value="{{ employee_search }}">
                             <input type="hidden" name="status" value="{{ filter_status or '' }}">
                             <button type="submit" class="btn">Approve Clock-out OT</button>
@@ -158,13 +176,37 @@
                         <form method="POST" action="{{ url_for('decide_attendance_overtime', attendance_id=att.id, action='reject') }}">
                             <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
                             <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
                             <input type="hidden" name="employee_search" value="{{ employee_search }}">
                             <input type="hidden" name="status" value="{{ filter_status or '' }}">
                             <button type="submit" class="btn btn-reject">Reject</button>
                         </form>
+                        <details>
+                            <summary>OT Correction</summary>
+                            <form method="POST" action="{{ url_for('correct_attendance_overtime', attendance_id=att.id) }}">
+                                <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                                <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                                <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
+                                <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                                <label>Start <input type="time" name="start_time" value="17:01" required></label>
+                                <label>End <input type="time" name="end_time" value="{{ att.clock_out.strftime('%H:%M') if att.clock_out else '17:01' }}" required></label>
+                                <label>Reason <input type="text" name="reason" value="Admin OT correction" required></label>
+                                <button type="submit" class="btn">Save OT Correction</button>
+                            </form>
+                        </details>
                     </div>
                     {% elif not row.pending_applications %}
-                    &mdash;
+                        {% if ot_status_text|lower == 'approved' %}
+                        <form method="POST" action="{{ url_for('revert_attendance_overtime', attendance_id=att.id) }}">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
+                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                            <button type="submit" class="btn btn-reject">Revert Approved OT</button>
+                        </form>
+                        {% else %}
+                        &mdash;
+                        {% endif %}
                     {% endif %}
                 </td>
             </tr>
@@ -194,7 +236,22 @@
                     {% set application_status = application.status or 'Pending' %}
                     {% if application_status|lower == 'pending' %}
                     {{ application_actions(application) }}
-                    {% else %}{{ application.decision_note or 'Decided' }}{% endif %}
+                    <details>
+                        <summary>Correct &amp; Approve</summary>
+                        <form method="POST" action="{{ url_for('correct_ot_application', application_id=application.id) }}">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
+                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                            <label>Start <input type="time" name="start_time" value="{{ application.start_time.strftime('%H:%M') }}" required></label>
+                            <label>End <input type="time" name="end_time" value="{{ application.end_time.strftime('%H:%M') }}" required></label>
+                            <label>Reason <input type="text" name="reason" value="{{ application.reason }}" required></label>
+                            <button type="submit" class="btn">Save OT Correction</button>
+                        </form>
+                    </details>
+                    {% elif application_status|lower == 'approved' %}
+                        {{ application.decision_note or 'Approved' }}
+                    {% else %}{{ application.decision_note or 'Rejected' }}{% endif %}
                 </td>
             </tr>
             {% else %}

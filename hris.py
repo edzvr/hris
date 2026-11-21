@@ -8608,6 +8608,7 @@ def decide_ot_application(application_id, action):
         'holiday_ot_dashboard',
         cutoff_start=request.form.get('cutoff_start') or None,
         company=request.form.get('company') or None,
+        employee_id=request.form.get('employee_id') or None,
         employee_search=request.form.get('employee_search') or None,
         status=request.form.get('status') or None,
     ))
@@ -8629,6 +8630,7 @@ def decide_attendance_overtime(attendance_id, action):
             'holiday_ot_dashboard',
             cutoff_start=request.form.get('cutoff_start') or None,
             company=request.form.get('company') or None,
+            employee_id=request.form.get('employee_id') or None,
             employee_search=request.form.get('employee_search') or None,
             status=request.form.get('status') or None,
         ))
@@ -8666,6 +8668,153 @@ def decide_attendance_overtime(attendance_id, action):
         'holiday_ot_dashboard',
         cutoff_start=request.form.get('cutoff_start') or None,
         company=request.form.get('company') or None,
+        employee_search=request.form.get('employee_search') or None,
+        status=request.form.get('status') or None,
+    ))
+
+
+@app.route('/admin/attendance/<int:attendance_id>/overtime/revert', methods=['POST'])
+@login_required
+def revert_attendance_overtime(attendance_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    attendance = Attendance.query.get_or_404(attendance_id)
+    lock_attendance_employee(attendance.employee_id)
+    db.session.refresh(attendance)
+
+    applications = OTApplication.query.filter_by(
+        employee_id=attendance.employee_id,
+        ot_date=attendance.date,
+    ).all()
+    for application in applications:
+        if str(application.status or '').strip().lower() == 'approved':
+            application.status = 'Pending'
+            application.decision_note = None
+            application.decided_at = None
+
+    attendance.ot_status = 'Pending'
+    attendance.is_weekday_ot = False
+    attendance.is_restday_ot = False
+    attendance.is_holiday_ot = False
+    holiday = Holiday.query.filter_by(date=attendance.date).first()
+    attendance.overtime_hours = unapproved_overtime_hours(attendance, holiday)
+    resume_correction_payroll_updates(
+        attendance.employee_id, attendance.date, attendance.date,
+    )
+    db.session.commit()
+    flash('OT approval reverted. The record is pending review again.', 'success')
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=request.form.get('cutoff_start') or None,
+        company=request.form.get('company') or None,
+        employee_id=request.form.get('employee_id') or None,
+        employee_search=request.form.get('employee_search') or None,
+        status=request.form.get('status') or None,
+    ))
+
+
+@app.route('/admin/attendance/<int:attendance_id>/overtime/correct', methods=['POST'])
+@login_required
+def correct_attendance_overtime(attendance_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    attendance = Attendance.query.get_or_404(attendance_id)
+    if not attendance.clock_in or not attendance.clock_out:
+        flash('OT correction requires a complete Clock In and Clock Out.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
+    try:
+        start_time = datetime.strptime(
+            request.form.get('start_time', ''), '%H:%M'
+        ).time()
+        end_time = datetime.strptime(
+            request.form.get('end_time', ''), '%H:%M'
+        ).time()
+    except (TypeError, ValueError):
+        flash('Enter a valid OT start and end time.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
+    if end_time <= start_time:
+        flash('OT end time must be after the start time.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
+    reason = request.form.get('reason', '').strip() or 'Admin OT correction'
+    application = OTApplication.query.filter_by(
+        employee_id=attendance.employee_id,
+        ot_date=attendance.date,
+    ).order_by(OTApplication.id.desc()).first()
+    if application is None:
+        application = OTApplication(
+            employee_id=attendance.employee_id,
+            ot_date=attendance.date,
+            reason=reason,
+        )
+        db.session.add(application)
+    application.start_time = start_time
+    application.end_time = end_time
+    application.reason = reason
+    application.status = 'Approved'
+    application.decision_note = 'Approved through OT correction'
+    application.decided_at = datetime.now()
+    db.session.flush()
+    apply_overtime_details(attendance)
+    resume_correction_payroll_updates(
+        attendance.employee_id, attendance.date, attendance.date,
+    )
+    db.session.commit()
+    flash(
+        f'OT corrected and approved: {application.start_time.strftime("%H:%M")} '
+        f'to {application.end_time.strftime("%H:%M")}.',
+        'success',
+    )
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=request.form.get('cutoff_start') or None,
+        company=request.form.get('company') or None,
+        employee_id=request.form.get('employee_id') or None,
+        employee_search=request.form.get('employee_search') or None,
+        status=request.form.get('status') or None,
+    ))
+
+
+@app.route('/admin/ot_applications/<int:application_id>/correct', methods=['POST'])
+@login_required
+def correct_ot_application(application_id):
+    if 'admin' not in current_user.role.lower():
+        return 'Access denied', 403
+    application = OTApplication.query.get_or_404(application_id)
+    try:
+        start_time = datetime.strptime(
+            request.form.get('start_time', ''), '%H:%M'
+        ).time()
+        end_time = datetime.strptime(
+            request.form.get('end_time', ''), '%H:%M'
+        ).time()
+    except (TypeError, ValueError):
+        flash('Enter valid corrected OT times.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
+    if end_time <= start_time:
+        flash('Corrected OT end time must be after the start time.', 'danger')
+        return redirect(url_for('holiday_ot_dashboard'))
+    application.start_time = start_time
+    application.end_time = end_time
+    application.reason = request.form.get('reason', '').strip() or application.reason
+    application.status = 'Approved'
+    application.decision_note = 'Approved after OT correction'
+    application.decided_at = datetime.now()
+    attendance = Attendance.query.filter_by(
+        employee_id=application.employee_id,
+        date=application.ot_date,
+    ).filter(Attendance.clock_out != None).first()
+    if attendance:
+        apply_overtime_details(attendance)
+    resume_correction_payroll_updates(
+        application.employee_id, application.ot_date, application.ot_date,
+    )
+    db.session.commit()
+    flash('OT application corrected and approved.', 'success')
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=request.form.get('cutoff_start') or None,
+        company=request.form.get('company') or None,
+        employee_id=request.form.get('employee_id') or None,
         employee_search=request.form.get('employee_search') or None,
         status=request.form.get('status') or None,
     ))
@@ -11738,6 +11887,17 @@ def holiday_ot_dashboard():
         records = [row for row in records if gov_company_label(row.employee) == company]
         applications = [row for row in applications if gov_company_label(row.employee) == company]
         attendance_report = [row for row in attendance_report if gov_company_label(row.employee) == company]
+    employee_id = request.args.get('employee_id', type=int)
+    if employee_id:
+        records = [row for row in records if row.employee_id == employee_id]
+        applications = [
+            application for application in applications
+            if application.employee_id == employee_id
+        ]
+        attendance_report = [
+            attendance for attendance in attendance_report
+            if attendance.employee_id == employee_id
+        ]
     if employee_search:
         search_value = employee_search.casefold()
         applications = [
@@ -11874,6 +12034,17 @@ def holiday_ot_dashboard():
         return Response(generate(), mimetype="text/csv",
                         headers={"Content-Disposition":"attachment;filename=holiday_overtime.csv"})
 
+    employee_choices = Employee.query
+    if company:
+        employee_choices = employee_choices.filter(
+            Employee.company.ilike('%Trece%' if company == 'Trece-Uno' else '%Auto Expert%')
+        )
+    employee_choices = employee_choices.filter(
+        db.or_(Employee.role.ilike('%staff%'), Employee.id.in_(
+            db.session.query(OTApplication.employee_id).distinct()
+        ))
+    ).order_by(Employee.company, Employee.last_name, Employee.first_name).all()
+
     return render_template("holiday_ot_dashboard.html",
                            records=records,
                            overtime_hours_by_attendance_id={
@@ -11891,6 +12062,9 @@ def holiday_ot_dashboard():
                            filter_status=filter_status,
                            cutoff_start=cutoff_start,
                            cutoff_end=cutoff_end - timedelta(days=1),
+                           selected_company=company,
+                           employee_choices=employee_choices,
+                           employee_id=employee_id,
                            time=time)
 
 

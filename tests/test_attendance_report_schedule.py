@@ -161,6 +161,89 @@ def test_admin_csv_caps_sunday_shift_and_preserves_late_grace_period():
             db.session.commit()
 
 
+def test_ot_dashboard_has_company_and_specific_staff_filters():
+    with app.app_context():
+        admin = Employee(first_name="Filter", last_name="Admin", role="admin")
+        trece = Employee(first_name="Trece", last_name="Staff", role="staff", company="Trece-Uno")
+        auto = Employee(first_name="Auto", last_name="Staff", role="staff", company="Auto Expert")
+        db.session.add_all([admin, trece, auto])
+        db.session.commit()
+        admin_id, trece_id, auto_id = admin.id, trece.id, auto.id
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(admin_id)
+            session["_fresh"] = True
+        page = client.get(
+            "/holiday_overtime?cutoff_start=2026-11-07&company=Auto%20Expert"
+        )
+        text = page.get_data(as_text=True)
+        assert page.status_code == 200
+        assert "Trece-Uno" in text
+        assert "Auto Expert" in text
+        assert "Specific staff" in text
+        assert f'value="{auto_id}"' in text
+        staff_page = client.get(
+            f"/holiday_overtime?cutoff_start=2026-11-07&employee_id={trece_id}"
+        )
+        assert staff_page.status_code == 200
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            Employee.query.filter(Employee.id.in_([trece_id, auto_id, admin_id])).delete(
+                synchronize_session=False
+            )
+            db.session.commit()
+
+
+def test_admin_can_revert_approved_ot_for_correction():
+    with app.app_context():
+        admin = Employee(first_name="Revert", last_name="Admin", role="admin")
+        staff = Employee(first_name="Revert", last_name="Staff", role="staff", company="Auto Expert")
+        db.session.add_all([admin, staff])
+        db.session.flush()
+        record = Attendance(
+            employee_id=staff.id, date=date(2026, 11, 13),
+            clock_in=datetime(2026, 11, 13, 8),
+            clock_out=datetime(2026, 11, 13, 20),
+            status="Present", company="Auto Expert",
+            overtime_hours=3.0, ot_status="Approved",
+            is_weekday_ot=True,
+        )
+        application = OTApplication(
+            employee_id=staff.id, ot_date=date(2026, 11, 13),
+            start_time=time(17, 1), end_time=time(20),
+            reason="Approved OT", status="Approved",
+        )
+        db.session.add_all([record, application])
+        db.session.commit()
+        admin_id, staff_id, attendance_id = admin.id, staff.id, record.id
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(admin_id)
+            session["_fresh"] = True
+        response = client.post(
+            f"/admin/attendance/{attendance_id}/overtime/revert",
+            data={"cutoff_start": "2026-11-07", "employee_id": str(staff_id)},
+        )
+        assert response.status_code == 302
+        with app.app_context():
+            saved_attendance = db.session.get(Attendance, attendance_id)
+            saved_application = OTApplication.query.filter_by(employee_id=staff_id).one()
+            assert saved_attendance.ot_status == "Pending"
+            assert saved_attendance.is_weekday_ot is False
+            assert saved_application.status == "Pending"
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            OTApplication.query.filter_by(employee_id=staff_id).delete()
+            db.session.delete(db.session.get(Attendance, attendance_id))
+            db.session.delete(db.session.get(Employee, staff_id))
+            db.session.delete(db.session.get(Employee, admin_id))
+            db.session.commit()
+
+
 def test_admin_can_approve_autoexpert_ot_from_clock_out_without_application():
     with app.app_context():
         admin = Employee(first_name="Delivery", last_name="Admin", role="admin")
