@@ -255,11 +255,11 @@
             | Absent: <strong>{{ profile_attendance_records|selectattr('status', 'equalto', 'Absent')|list|length }}</strong>
         </p>
         <div class="table-scroll"><table>
-            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>OT</th></tr></thead>
+            <thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th><th>OT</th><th>Action</th></tr></thead>
             <tbody>
             {% for record in profile_attendance_records %}
-                <tr><td>{{ record.date }}</td><td>{{ record.clock_in }}</td><td>{{ record.clock_out }}</td><td>{{ '%.2f'|format(record.hours) }}</td><td>{{ record.status }}</td><td>{{ record.ot or '—' }}</td></tr>
-            {% else %}<tr><td colspan="6">No attendance records found.</td></tr>{% endfor %}
+                <tr><td>{{ record.date }}</td><td>{{ record.clock_in }}</td><td>{{ record.clock_out }}</td><td>{{ '%.2f'|format(record.hours) }}</td><td>{{ record.status }}</td><td>{{ record.ot or '—' }}</td><td>{% if record.id %}<form method="POST" action="{{ url_for('delete_attendance', attendance_id=record.id) }}" style="display:inline;" onsubmit="return confirm('Delete this attendance record?');"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form>{% endif %}</td></tr>
+            {% else %}<tr><td colspan="7">No attendance records found.</td></tr>{% endfor %}
             </tbody>
         </table></div>
     </div>
