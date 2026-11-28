@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Corrections</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='soft_theme.css') }}">
+  <style>
+    body { margin:0; padding:24px; background:#f1f3f6; color:#263238; font-family:Arial,sans-serif; }
+    main { max-width:1200px; margin:auto; }
+    .panel { padding:18px; background:#fff; border:1px solid #dce5de; border-radius:8px; }
+    h1 { margin:0 0 6px; font-size:24px; }
+    .intro { margin:0 0 16px; color:#52616b; }
+    .table-scroll { overflow-x:auto; }
+    table { width:100%; min-width:760px; border-collapse:collapse; }
+    th, td { padding:11px; border-bottom:1px solid #e1e8e3; text-align:left; vertical-align:top; }
+    th { background:#eff4f0; color:#42594b; white-space:nowrap; }
+    .actions form { display:inline-block; margin:0 4px 4px 0; }
+    .btn { display:inline-block; padding:9px 12px; border:0; border-radius:6px; background:#2563eb; color:#fff; font:inherit; cursor:pointer; }
+    .btn-danger { background:#c0392b; }
+    .empty { padding:28px 0; color:#52616b; }
+    @media(max-width:600px) { body { padding:14px; } .panel { padding:14px; } }
+  </style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>Attendance Corrections</h1>
+    <p class="intro">{{ corrections|length }} pending correction request(s).</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Employee</th><th>Company</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for item in corrections %}
+          <tr>
+            <td>{{ item.employee.full_name() }}</td>
+            <td>{{ item.employee.company or 'No company' }}</td>
+            <td>{{ item.correction_date }}</td>
+            <td>{{ item.requested_clock_in.strftime('%I:%M %p') if item.requested_clock_in else 'N/A' }}</td>
+            <td>{{ item.requested_clock_out.strftime('%I:%M %p') if item.requested_clock_out else 'N/A' }}</td>
+            <td>{{ item.reason }}</td>
+            <td class="actions">
+              <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='approve') }}"><button class="btn" type="submit">Approve</button></form>
+              <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='reject') }}"><button class="btn btn-danger" type="submit">Reject</button></form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td class="empty" colspan="7">No pending attendance corrections.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

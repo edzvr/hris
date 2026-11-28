@@ -56,7 +56,11 @@ def test_submitted_correction_is_visible_to_admin_across_company_filter():
         assert response.status_code == 200
         assert b'Visible Staff' in response.data
         assert b'Missing clock out' in response.data
-        assert f'/admin/attendance-correction/{correction_id}/approve'.encode() in response.data
+        assert b'/admin/attendance-corrections' in response.data
+        corrections = client.get('/admin/attendance-corrections')
+        assert corrections.status_code == 200
+        assert f'/admin/attendance-correction/{correction_id}/approve'.encode() in corrections.data
+        assert b'Visible Staff' in corrections.data
     finally:
         with app.app_context():
             db.session.rollback()

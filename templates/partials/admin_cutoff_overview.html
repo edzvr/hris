@@ -36,6 +36,12 @@
     <p>{{ cutoff_overview.totals.finalized }} finalized · {{ cutoff_overview.totals.draft }} drafts · {{ cutoff_overview.totals.not_prepared }} not prepared <small>(attendance-exempt staff excluded)</small></p>
     <a class="btn" href="{{ url_for('payroll_dashboard', cutoff_start=cutoff_overview.start, company=selected_company or '') }}">Open payroll</a>
   </div>
+  <div class="cutoff-company-totals" aria-label="Finalized net pay totals by company">
+    {% for company, amount in cutoff_overview.finalized_net_by_company|dictsort %}
+    <div><span>{{ company }}</span><strong>PHP {{ amount|currency }}</strong><small>Finalized net pay</small></div>
+    {% endfor %}
+    <div class="cutoff-company-grand-total"><span>Grand Total</span><strong>PHP {{ cutoff_overview.grand_finalized_net|currency }}</strong><small>All companies · selected cutoff</small></div>
+  </div>
   <p class="cutoff-explainer">Read-only overview. Last pay uses each employee’s latest finalized cutoff before this period, with its exact dates.
     No record does not automatically mean absent. Today’s open shift is awaiting clock-out, not a confirmed missing clock-out.
     Current loan balances are live, not historical cutoff balances.</p>
@@ -121,7 +127,7 @@
           <a href="{{ url_for('attendance', employee_id=row.employee.id, cutoff_start=cutoff_overview.start) }}">Attendance / DTR</a>
           <a href="{{ url_for('loan', company=selected_company or '') }}">Loan accounts</a>
           <a href="{{ url_for('payroll_loan_review', cutoff_start=cutoff_overview.start) }}">Loan skips</a>
-          {% if row.requests.corrections %}<a href="#attendance-corrections">Review corrections</a>{% endif %}
+          {% if row.requests.corrections %}<a href="{{ url_for('admin_attendance_corrections') }}">Review corrections</a>{% endif %}
           {% if row.requests.overtime %}<a href="{{ url_for('holiday_ot_dashboard', company=selected_company or '', cutoff_start=cutoff_overview.start) }}">Review overtime</a>{% endif %}
           {% if row.requests.leaves %}<a href="{{ url_for('leave') }}">Review leave</a>{% endif %}
         </div>

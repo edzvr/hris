@@ -106,6 +106,8 @@ def test_overview_reads_saved_payroll_per_employee_without_mutations(cutoff_peop
         assert first['payroll_state'] == 'Draft'
         assert second['payroll_state'] == 'Finalized'
         assert overview['finalized_net'] == 3456
+        assert overview['finalized_net_by_company'] == {'Trece-Uno': 3456}
+        assert overview['grand_finalized_net'] == 3456
         assert overview['totals']['finalized'] == overview['totals']['draft'] == 1
         assert overview['totals']['not_prepared'] == 0
         db.session.commit()

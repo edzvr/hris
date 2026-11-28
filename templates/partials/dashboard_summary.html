@@ -18,7 +18,7 @@
       <details><summary>More actions</summary>
         {% if dashboard_is_admin %}
           <a href="{{ url_for('biometric_import') }}">Biometric upload</a>
-          <a href="#attendance-corrections">Review attendance corrections</a>
+          <a href="{{ url_for('admin_attendance_corrections') }}">Review attendance corrections</a>
           <a href="#employees">Employee attendance and DTR</a>
         {% else %}
           <a href="{{ url_for('attendance_correction') }}">Request correction</a>

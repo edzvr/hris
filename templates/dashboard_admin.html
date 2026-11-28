@@ -192,6 +192,17 @@
     <h2>Welcome, {{ admin.first_name }} {{ admin.last_name }} 👋</h2>
     <p class="active-company"><strong>Active company: {{ selected_company or 'All Companies' }}</strong></p>
   </div>
+  <nav class="admin-priority-actions" aria-label="Priority admin workflows">
+    <a href="{{ url_for('holiday_ot_dashboard', company=selected_company or '') }}" class="btn">OT Applications: {{ pending_ot }} pending</a>
+    <a href="{{ url_for('admin_attendance_corrections') }}" class="btn">Attendance Corrections: {{ pending_attendance_corrections|length }} pending</a>
+  </nav>
+  {% if pending_attendance_corrections %}
+  <p class="admin-priority-preview">Pending attendance corrections:
+    {% for item in pending_attendance_corrections %}
+      <a href="{{ url_for('admin_attendance_corrections') }}">{{ item.employee.full_name() }} ({{ item.correction_date }}) — {{ item.reason }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
 
   {% include 'partials/admin_cutoff_overview.html' %}
 
@@ -206,7 +217,7 @@
     <summary>Review queue &amp; reminders</summary>
     <p>Review these items regularly so attendance, payroll, and employee requests stay updated.</p>
     <div class="admin-actions-grid">
-      <a href="#attendance-corrections" class="btn">Attendance corrections: {{ pending_attendance_corrections|length }} pending</a>
+      <a href="{{ url_for('admin_attendance_corrections') }}" class="btn">Attendance corrections: {{ pending_attendance_corrections|length }} pending</a>
       <a href="{{ url_for('holiday_ot_dashboard', company=selected_company or '') }}" class="btn">Overtime requests: {{ pending_ot }} pending</a>
       <a href="{{ url_for('leave') }}" class="btn">Leave requests: {{ pending_leaves }} pending</a>
       <a href="{{ url_for('loan') }}" class="btn">Loan requests: {{ pending_loans }} pending</a>
@@ -291,30 +302,6 @@
     <button onclick="showTab('settings')">Settings</button>
   </div>
 
-  <details class="card" id="attendance-corrections">
-    <summary>Pending Attendance Corrections ({{ pending_attendance_corrections|length }})</summary>
-    <div class="admin-table-scroll" role="region" aria-label="Attendance corrections table" tabindex="0">
-    <table>
-      <tr><th>Employee</th><th>Company</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Reason</th><th>Actions</th></tr>
-      {% for item in pending_attendance_corrections %}
-      <tr>
-        <td>{{ item.employee.full_name() }}</td>
-        <td>{{ item.employee.company or 'No company' }}</td>
-        <td>{{ item.correction_date }}</td>
-        <td>{{ item.requested_clock_in or 'N/A' }}</td>
-        <td>{{ item.requested_clock_out or 'N/A' }}</td>
-        <td>{{ item.reason }}</td>
-        <td>
-          <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='approve') }}" style="display:inline;"><button class="btn" type="submit">Approve</button></form>
-          <form method="POST" action="{{ url_for('review_attendance_correction', correction_id=item.id, action='reject') }}" style="display:inline;"><button class="btn btn-danger" type="submit">Reject</button></form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7">No pending attendance corrections.</td></tr>
-      {% endfor %}
-    </table>
-    </div>
-  </details>
   <!-- Employees Tab -->
   <div id="employees" class="tab-content active">
     <details class="card"{% if selected_company %} open{% endif %}>

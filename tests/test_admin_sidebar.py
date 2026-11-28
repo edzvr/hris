@@ -45,6 +45,7 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
             "employee_201_selector", "evaluation_dashboard", "admin_quiz_upload",
             "admin_incidents", "staff_concerns", "hr_documents", "admin_files",
             "tax_reports", "compliance_reports", "backup", "audit_logs", "logout", "analytics",
+            "admin_attendance_corrections",
         ):
             assert f'href="{url_for(endpoint)}"' in html
         assert f'href="{url_for("government_portal_payment")}"' in html
@@ -211,7 +212,7 @@ def test_admin_dashboard_has_mobile_table_regions_and_compact_sections():
         )
     parser = LayoutParser()
     parser.feed(html)
-    assert parser.tables == 6
+    assert parser.tables == 5
     assert not parser.stack
     assert "admin_dashboard.css" in html
     assert '<details class="profile">' in html

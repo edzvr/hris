@@ -4563,6 +4563,29 @@ def admin_cutoff_overview(cutoff_start, employee_ids=None, today=None):
             'previous_duplicate': previous_duplicate, 'requests': requests,
             'payroll_review': review,
         })
+    company_payrolls = Payroll.query.join(
+        Employee, Payroll.employee_id == Employee.id
+    ).filter(
+        Employee.role.ilike('%staff%'),
+        Payroll.cutoff_start == cutoff_start,
+        Payroll.cutoff_end == cutoff_end,
+    ).order_by(Payroll.employee_id, Payroll.id).all()
+    valid_company_payrolls = {}
+    for payroll in company_payrolls:
+        valid_company_payrolls.setdefault(payroll.employee_id, []).append(payroll)
+    finalized_net_by_company = {}
+    for employee_id, records in valid_company_payrolls.items():
+        employee = records[0].employee
+        if (
+            len(records) == 1
+            and records[0].is_paid
+            and not employee.payroll_attendance_exempt
+        ):
+            company = employee.company or 'Unassigned'
+            finalized_net_by_company[company] = (
+                finalized_net_by_company.get(company, 0.0)
+                + float(records[0].net_pay or 0)
+            )
     return {
         'start': cutoff_start, 'end': cutoff_end, 'today': today, 'rows': rows, 'totals': totals,
         'previous': cutoff_start - timedelta(days=7), 'next': cutoff_start + timedelta(days=7),
@@ -4570,6 +4593,8 @@ def admin_cutoff_overview(cutoff_start, employee_ids=None, today=None):
             float(row['current_payroll'].net_pay or 0) for row in rows
             if row['payroll_state'] == 'Finalized' and not row['employee'].payroll_attendance_exempt
         ),
+        'finalized_net_by_company': finalized_net_by_company,
+        'grand_finalized_net': round(sum(finalized_net_by_company.values()), 2),
     }
 
 
@@ -9599,7 +9624,7 @@ def review_attendance_correction(correction_id, action):
     db.session.refresh(correction)
     if str(correction.status or '').strip().lower() != 'pending':
         flash('This correction request was already reviewed.', 'warning')
-        return redirect(url_for('dashboard_admin'))
+        return redirect(url_for('admin_attendance_corrections'))
     if action == 'approve':
         attendance_records = Attendance.query.filter_by(
             employee_id=correction.employee_id,
@@ -9611,7 +9636,7 @@ def review_attendance_correction(correction_id, action):
                 'Reconcile them before approving the correction.',
                 'danger',
             )
-            return redirect(url_for('dashboard_admin'))
+            return redirect(url_for('admin_attendance_corrections'))
         attendance_record = attendance_records[0] if attendance_records else None
         if any(
             value is not None and value.date() != correction.correction_date
@@ -9622,7 +9647,7 @@ def review_attendance_correction(correction_id, action):
                 'Reject it and ask the staff to submit again with the correct date.',
                 'danger',
             )
-            return redirect(url_for('dashboard_admin'))
+            return redirect(url_for('admin_attendance_corrections'))
         if correction.attendance_id and (
             attendance_record is None
             or attendance_record.id != correction.attendance_id
@@ -9632,7 +9657,7 @@ def review_attendance_correction(correction_id, action):
                 'Review the attendance before approving.',
                 'danger',
             )
-            return redirect(url_for('dashboard_admin'))
+            return redirect(url_for('admin_attendance_corrections'))
         clock_in = correction.requested_clock_in or (attendance_record.clock_in if attendance_record else None)
         clock_out = correction.requested_clock_out or (attendance_record.clock_out if attendance_record else None)
         if clock_in is None or (clock_out is not None and clock_out <= clock_in):
@@ -9641,7 +9666,7 @@ def review_attendance_correction(correction_id, action):
                 'Payroll was not changed.',
                 'danger',
             )
-            return redirect(url_for('dashboard_admin'))
+            return redirect(url_for('admin_attendance_corrections'))
         if attendance_record is None:
             employee = db.session.get(Employee, correction.employee_id)
             attendance_record = Attendance(
@@ -9695,7 +9720,26 @@ def review_attendance_correction(correction_id, action):
             + (f' Admin note: {correction.admin_note}' if correction.admin_note else '')
         ),
     )
-    return redirect(url_for('dashboard_admin'))
+    return redirect(url_for('admin_attendance_corrections'))
+
+
+@app.route('/admin/attendance-corrections')
+@login_required
+def admin_attendance_corrections():
+    if 'admin' not in str(current_user.role or '').lower():
+        return 'Access denied', 403
+    corrections = AttendanceCorrection.query.join(
+        Employee, AttendanceCorrection.employee_id == Employee.id
+    ).filter(
+        db.func.lower(db.func.coalesce(AttendanceCorrection.status, 'pending')) == 'pending'
+    ).order_by(
+        AttendanceCorrection.created_at.asc(),
+        AttendanceCorrection.id.asc(),
+    ).all()
+    return render_template(
+        'admin_attendance_corrections.html',
+        corrections=corrections,
+    )
 
 
 # ------------------ PAYROLL + PAYSLIP ------------------
