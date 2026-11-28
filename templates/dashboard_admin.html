@@ -179,7 +179,10 @@
   <!-- Welcome -->
   <header class="admin-workspace-header">
     <div><strong>Dashboard</strong><span>HRIS admin workspace</span></div>
-    <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Review payroll</a>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+      <input type="text" id="dashboardSearch" placeholder="🔍 Search (e.g., payroll, attendance, loan)..." style="padding: 12px 16px; border: 2px solid #86a9cf; border-radius: 8px; font-size: 18px; width: 300px; max-width: 100%;">
+      <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Review payroll</a>
+    </div>
   </header>
   <main class="admin-workspace-content">
   <div class="admin-welcome">
@@ -666,6 +669,51 @@
           if (target && target.tagName === 'DETAILS') target.open = true;
         }
       });
+
+      // Search functionality
+      const searchInput = document.getElementById('dashboardSearch');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const query = e.target.value.toLowerCase();
+          const cards = document.querySelectorAll('main > .card, main > details');
+          
+          cards.forEach(card => {
+            const summary = card.querySelector('summary') || card;
+            const text = (summary?.textContent || card.textContent || '').toLowerCase();
+            const shouldShow = !query || text.includes(query);
+            card.style.display = shouldShow ? '' : 'none';
+          });
+
+          // Also search quick action buttons
+          const actionGrid = document.querySelector('.admin-actions-grid');
+          if (actionGrid) {
+            actionGrid.querySelectorAll('.btn').forEach(btn => {
+              const shouldShow = !query || btn.textContent.toLowerCase().includes(query);
+              btn.style.display = shouldShow ? '' : 'none';
+            });
+          }
+
+          // Show no results message
+          const main = document.querySelector('main');
+          let noResultsMsg = main.querySelector('.search-no-results');
+          if (query) {
+            const hasVisibleContent = document.querySelectorAll('main > .card:not([style*="display: none"]), main > details:not([style*="display: none"]), .admin-actions-grid .btn:not([style*="display: none"])').length > 0;
+            if (!hasVisibleContent) {
+              if (!noResultsMsg) {
+                noResultsMsg = document.createElement('div');
+                noResultsMsg.className = 'search-no-results';
+                noResultsMsg.style.cssText = 'text-align: center; padding: 40px; color: #999; font-size: 20px;';
+                main.appendChild(noResultsMsg);
+              }
+              noResultsMsg.textContent = `No results found for "${e.target.value}"`;
+            } else if (noResultsMsg) {
+              noResultsMsg.remove();
+            }
+          } else if (noResultsMsg) {
+            noResultsMsg.remove();
+          }
+        });
+      }
     });
   </script>
   <!-- Settings Tab -->
