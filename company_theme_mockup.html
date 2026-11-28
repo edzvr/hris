@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HRIS Company Theme Mock-up</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --brand: #2516b8;
+      --brand-dark: #1c118f;
+      --brand-soft: #eeecff;
+      --brand-contrast: #fff;
+      --canvas: #f4f6fa;
+      --surface: #fff;
+      --text: #1f2937;
+      --muted: #667085;
+      --border: #e4e7ec;
+      --success: #16804a;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--text); }
+    button, select { font: inherit; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+    .sidebar { background: var(--brand-dark); color: #fff; padding: 24px 16px; }
+    .logo-wrap { min-height: 74px; display: flex; align-items: center; justify-content: center; padding: 8px; margin-bottom: 22px; background: #fff; border-radius: 10px; }
+    .logo-wrap img { width: 100%; max-height: 58px; object-fit: contain; }
+    .workspace-label { margin: 0 0 16px 10px; color: #ffffffb8; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .nav { display: grid; gap: 6px; }
+    .nav a { padding: 11px 12px; border-radius: 8px; color: #ffffffd9; text-decoration: none; font-size: 14px; }
+    .nav a.active { background: var(--brand); color: var(--brand-contrast); font-weight: 700; }
+    .nav a:hover { background: #ffffff1c; }
+    .main { min-width: 0; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar-title { margin: 0; font-size: 15px; font-weight: 700; }
+    .user { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--brand-dark); background: var(--brand-soft); font-weight: 700; }
+    .content { max-width: 1180px; margin: 0 auto; padding: 32px; }
+    .welcome-row { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 24px; }
+    .eyebrow { margin: 0 0 7px; color: var(--brand); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.03em; }
+    .welcome-copy { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .company-control { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+    select { padding: 10px 34px 10px 12px; color: var(--text); border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 8px #1018280a; }
+    .stat { padding: 19px; }
+    .stat-label { color: var(--muted); font-size: 13px; }
+    .stat-value { margin-top: 10px; font-size: 27px; font-weight: 750; letter-spacing: -.03em; }
+    .stat-note { margin-top: 6px; color: var(--success); font-size: 12px; }
+    .columns { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(250px, 1fr); gap: 20px; }
+    .section { padding: 21px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    h2 { margin: 0; font-size: 17px; }
+    .link { color: var(--brand); font-size: 13px; font-weight: 700; text-decoration: none; }
+    .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .action { min-height: 88px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: #fff; text-align: left; cursor: pointer; }
+    .action:hover { border-color: var(--brand); background: var(--brand-soft); }
+    .action-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--brand-dark); background: var(--brand-soft); font-weight: 800; }
+    .action-label { font-size: 13px; font-weight: 700; }
+    .request { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 13px 0; border-top: 1px solid var(--border); font-size: 13px; }
+    .request-title { font-weight: 650; }
+    .request-date { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .status { padding: 5px 9px; border-radius: 20px; color: #8a5b00; background: #fff3cd; font-size: 11px; font-weight: 700; }
+    .primary-button { padding: 10px 14px; border: 0; border-radius: 8px; color: var(--brand-contrast); background: var(--brand); font-size: 13px; font-weight: 700; cursor: pointer; }
+    .primary-button:hover { background: var(--brand-dark); }
+    .palette-note { margin-top: 18px; padding: 12px 14px; border-left: 3px solid var(--brand); border-radius: 0 8px 8px 0; color: var(--muted); background: var(--brand-soft); font-size: 12px; line-height: 1.5; }
+
+    body[data-company="auto"] {
+      --brand: #e7dc26;
+      --brand-dark: #4a4b50;
+      --brand-soft: #fbf8ce;
+      --brand-contrast: #292a2d;
+    }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 205px minmax(0, 1fr); }
+      .content { padding: 24px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 650px) {
+      .app { display: block; }
+      .sidebar { padding: 12px; }
+      .logo-wrap { min-height: 54px; margin-bottom: 10px; }
+      .logo-wrap img { max-height: 40px; }
+      .workspace-label { display: none; }
+      .nav { display: flex; overflow-x: auto; }
+      .nav a { flex: 0 0 auto; }
+      .topbar { padding: 14px 18px; }
+      .content { padding: 22px 16px; }
+      .welcome-row { align-items: start; flex-direction: column; }
+      .columns { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 390px) {
+      .stats { gap: 10px; }
+      .stat { padding: 14px; }
+      .stat-value { font-size: 23px; }
+      .actions { grid-template-columns: 1fr; }
+      .company-control { align-items: start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body data-company="trece">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo-wrap">
+        <img id="company-logo" src="static/images/trece-uno-logo.jpg" alt="Trece-Uno Auto Supply">
+      </div>
+      <p class="workspace-label">Staff workspace</p>
+      <nav class="nav" aria-label="Main navigation">
+        <a class="active" href="#">Dashboard</a>
+        <a href="#">Attendance</a>
+        <a href="#">Payroll &amp; Reports</a>
+        <a href="#">Loan &amp; Leave</a>
+        <a href="#">Documents</a>
+        <a href="#">My Account</a>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <p class="topbar-title">HRIS · Employee Portal</p>
+        <div class="user"><span class="avatar">JD</span><span>Juan Dela Cruz</span></div>
+      </header>
+      <div class="content">
+        <div class="welcome-row">
+          <div>
+            <p class="eyebrow" id="company-name">Trece-Uno Auto Supply</p>
+            <h1>Good morning, Juan</h1>
+            <p class="welcome-copy">Here’s your employee workspace at a glance.</p>
+          </div>
+          <label class="company-control" for="company-select">
+            Preview company
+            <select id="company-select">
+              <option value="trece">Trece-Uno</option>
+              <option value="auto">AutoXpert</option>
+            </select>
+          </label>
+        </div>
+        <section class="stats" aria-label="Employee summary">
+          <article class="card stat"><div class="stat-label">Attendance this month</div><div class="stat-value">18 days</div><div class="stat-note">On track</div></article>
+          <article class="card stat"><div class="stat-label">Leave balance</div><div class="stat-value">8.5 days</div><div class="stat-note">Available to use</div></article>
+          <article class="card stat"><div class="stat-label">Next payday</div><div class="stat-value">Oct 15</div><div class="stat-note">Payroll schedule</div></article>
+          <article class="card stat"><div class="stat-label">Pending requests</div><div class="stat-value">2</div><div class="stat-note">Awaiting review</div></article>
+        </section>
+        <div class="columns">
+          <section class="card section">
+            <div class="section-head"><h2>Quick actions</h2><a class="link" href="#">View all</a></div>
+            <div class="actions">
+              <button class="action" type="button"><span class="action-icon">+</span><span class="action-label">File a leave request</span></button>
+              <button class="action" type="button"><span class="action-icon">↗</span><span class="action-label">Apply for overtime</span></button>
+              <button class="action" type="button"><span class="action-icon">₱</span><span class="action-label">View my payslip</span></button>
+              <button class="action" type="button"><span class="action-icon">?</span><span class="action-label">Get HR help</span></button>
+            </div>
+            <div class="palette-note">Company colors update the navigation, selected states, buttons, and highlights while keeping the dashboard readable.</div>
+          </section>
+          <section class="card section">
+            <div class="section-head"><h2>Recent requests</h2><button class="primary-button" type="button">New request</button></div>
+            <div class="request"><div><div class="request-title">Leave request</div><div class="request-date">Oct 21–22 · Vacation leave</div></div><span class="status">Pending</span></div>
+            <div class="request"><div><div class="request-title">Overtime application</div><div class="request-date">Oct 4 · 2 hours</div></div><span class="status">Pending</span></div>
+            <div class="request"><div><div class="request-title">Payslip available</div><div class="request-date">September 2026 payroll</div></div><a class="link" href="#">View</a></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script>
+    const select = document.getElementById('company-select');
+    const logo = document.getElementById('company-logo');
+    const companyName = document.getElementById('company-name');
+
+    select.addEventListener('change', () => {
+      const isAutoXpert = select.value === 'auto';
+      document.body.dataset.company = isAutoXpert ? 'auto' : 'trece';
+      logo.src = isAutoXpert
+        ? 'static/images/autoxpertlogo.jpg'
+        : 'static/images/trece-uno-logo.jpg';
+      logo.alt = isAutoXpert ? 'AutoXpert Auto Supply' : 'Trece-Uno Auto Supply';
+      companyName.textContent = isAutoXpert ? 'AutoXpert Auto Supply' : 'Trece-Uno Auto Supply';
+    });
+  </script>
+</body>
+</html>

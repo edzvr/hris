@@ -399,17 +399,6 @@
             <td>Regular Holiday</td>
             <td></td>
             <td>₱{{ "%.2f"|format(payslip.regular_holiday) }}</td>
-            <td>Withholding Tax</td>
-            <td></td>
-            <td>
-                {% if can_manage_payroll and loan_editable %}
-                <input type="number" name="withholding_tax" min="0" step="0.01"
-                       value="{{ '%.2f'|format(payslip.withholding_tax) }}"
-                       aria-label="Withholding tax deduction this cutoff">
-                {% else %}
-                ₱{{ "%.2f"|format(payslip.withholding_tax) }}
-                {% endif %}
-            </td>
         </tr>
         <tr>
             <td>Regular Holiday OT</td>

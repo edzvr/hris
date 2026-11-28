@@ -78,16 +78,22 @@ def test_previously_rejected_trece_sunday_punches_still_count_as_automatic_rest_
     with app.app_context(), patch("hris.OTApplication.query") as applications:
         applications.filter_by.return_value.first.return_value = None
         assert payroll_overtime_hours(attendance) == 4
-
-    assert attendance_overtime_is_payable(attendance)
-    assert attendance_overtime_status(attendance) == "Approved"
-    assert regular_attendance_hours(attendance) == 4
+        assert attendance_overtime_is_payable(attendance)
+        assert attendance_overtime_status(attendance) == "Approved"
+        assert regular_attendance_hours(attendance) == 4
 
 
 @pytest.mark.parametrize(
     "hour,minute,second,expected",
-    [(17, 0, 0, 0), (17, 1, 0, 0), (17, 30, 0, 0.48),
-     (19, 2, 0, 2.02), (19, 3, 0, 2.03), (19, 3, 54, 2.05)],
+    [
+        (17, 0, 0, 0),
+        (17, 1, 0, 0),
+        (17, 59, 0, 0),
+        (18, 1, 0, 1),
+        (19, 0, 0, 1),
+        (20, 1, 0, 3),
+        (23, 59, 0, 3),
+    ],
 )
 def test_weekday_pending_overtime_starts_at_five_oh_one(hour, minute, second, expected):
     attendance = SimpleNamespace(
@@ -114,6 +120,29 @@ def test_weekday_pending_overtime_starts_at_five_oh_one(hour, minute, second, ex
     assert attendance.ot_status is None
 
 
+def test_non_trece_sunday_overtime_is_still_limited_to_three_full_hours():
+    attendance = SimpleNamespace(
+        employee_id=1,
+        employee=SimpleNamespace(company="Auto Expert"),
+        date=date(2026, 9, 13),
+        clock_in=datetime(2026, 9, 13, 8, 0),
+        clock_out=datetime(2026, 9, 13, 22, 30),
+        overtime_hours=0,
+        is_restday_ot=False,
+        is_holiday_ot=False,
+        is_weekday_ot=False,
+        ot_status="Pending",
+    )
+
+    with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:
+        applications.filter_by.return_value.first.return_value = None
+        holidays.filter_by.return_value.first.return_value = None
+        assert payroll_overtime_hours(attendance) == 3
+        apply_overtime_details(attendance)
+
+    assert attendance.overtime_hours == 3
+
+
 def test_holiday_pending_overtime_keeps_existing_five_pm_start():
     attendance = SimpleNamespace(
         employee_id=1,
@@ -136,7 +165,7 @@ def test_holiday_pending_overtime_keeps_existing_five_pm_start():
     assert attendance.ot_status is None
 
 
-def test_approved_application_counts_requested_hours_even_if_clock_out_is_earlier():
+def test_approved_application_caps_at_three_hours_even_if_clock_out_is_earlier():
     attendance = SimpleNamespace(
         employee_id=1,
         employee=SimpleNamespace(company="Auto Expert"),
@@ -151,7 +180,7 @@ def test_approved_application_counts_requested_hours_even_if_clock_out_is_earlie
     )
     application = SimpleNamespace(
         start_time=datetime(2026, 9, 14, 18, 0).time(),
-        end_time=datetime(2026, 9, 14, 21, 0).time(),
+        end_time=datetime(2026, 9, 14, 21, 45).time(),
     )
 
     with app.app_context(), patch("hris.OTApplication.query") as applications, patch("hris.Holiday.query") as holidays:

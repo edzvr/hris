@@ -26,6 +26,9 @@
         .filter input, .filter select { width:100%; min-height:36px; box-sizing:border-box; }
         .filter .btn { min-height:36px; }
         .notice { border-left:5px solid #e5b85c; background:#fff7e3; padding:12px; margin:12px 0; }
+        .ot-bulk-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px; border:1px solid #dce4ec; border-radius:8px; background:#f8fafc; }
+        .ot-bulk-actions label { display:flex; align-items:center; gap:6px; margin-right:auto; }
+        .ot-bulk-actions input[type="checkbox"], .ot-application-select { width:18px; height:18px; }
         .attendance-cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:10px; margin:12px 0; }
         .attendance-employee { min-width:0; border:1px solid #dce4ec; border-radius:16px; background:#fff; overflow:hidden; }
         .attendance-employee-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:#f3f6fa; border-bottom:1px solid #dce4ec; }
@@ -71,6 +74,7 @@
     {% endwith %}
     <div class="card">
         <h2>Holiday + Overtime Dashboard</h2>
+        {% set pending_ids = pending_application_ids|default([]) %}
         <p class="notice"><strong>Approval rule:</strong> On regular workdays, attendance OT starts at 5:01 PM. Approve or reject submitted OT applications; attendance OT alone is not payable. Trece-Uno Sunday work from 8:00 AM to 12:00 PM is automatically counted as Rest Day OT when clock-in and clock-out are complete. <a href="#ot-applications">View all OT applications</a>.</p>
         <p class="notice"><strong>Strict regular holiday rule:</strong> Regular holiday pay is allowed only when the employee actually worked (completed Clock In/Out) on the scheduled workday before and after the regular holiday. Paid leave does not qualify. Approved OT applications are reviewed separately.</p>
 
@@ -105,9 +109,74 @@
             </form>
         </div>
 
+        <section class="table-wrap ot-applications" aria-labelledby="ot-applications">
+        <h3 id="ot-applications">Employee OT Applications</h3>
+        {% if pending_ids %}
+        <form id="bulk-ot-form" method="POST" action="{{ url_for('decide_ot_applications_bulk') }}">
+            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+            <input type="hidden" name="company" value="{{ selected_company or '' }}">
+            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
+            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+            <input type="hidden" name="status" value="{{ filter_status or '' }}">
+            <div class="ot-bulk-actions">
+                <label for="select-all-pending-ot">
+                    <input type="checkbox" id="select-all-pending-ot" aria-label="Select all pending OT applications">
+                    Select all pending
+                </label>
+                <button type="submit" class="btn" name="action" value="approve"
+                        onclick="return confirm('Approve the selected OT applications?')">Approve Selected</button>
+                <button type="submit" class="btn btn-reject" name="action" value="reject"
+                        onclick="return confirm('Reject the selected OT applications?')">Reject Selected</button>
+            </div>
+        </form>
+        {% endif %}
+        <table>
+            <tr><th>Select</th><th>Employee</th><th>Date</th><th>Requested Time</th><th>Reason</th><th>Status</th><th>Action</th></tr>
+            {% for application in applications %}
+            <tr>
+                <td>
+                    {% if application.id in pending_ids %}
+                    <input class="ot-application-select" type="checkbox" name="application_ids"
+                           value="{{ application.id }}" form="bulk-ot-form"
+                           aria-label="Select OT application for {{ application.employee.first_name }} {{ application.employee.last_name }} on {{ application.ot_date }}">
+                    {% endif %}
+                </td>
+                <td>{{ application.employee.first_name }} {{ application.employee.last_name }}</td>
+                <td>{{ application.ot_date }}</td>
+                <td>{{ application.start_time.strftime('%H:%M') }} - {{ application.end_time.strftime('%H:%M') }}</td>
+                <td>{{ application.reason }}</td>
+                <td>{{ application.status }}</td>
+                <td>
+                    {% set application_status = application.status or 'Pending' %}
+                    {% if application_status|lower == 'pending' %}
+                    {{ application_actions(application) }}
+                    <details>
+                        <summary>Correct &amp; Approve</summary>
+                        <form method="POST" action="{{ url_for('correct_ot_application', application_id=application.id) }}">
+                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
+                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
+                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
+                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
+                            <label>Start <input type="time" name="start_time" value="{{ application.start_time.strftime('%H:%M') }}" required></label>
+                            <label>End <input type="time" name="end_time" value="{{ application.end_time.strftime('%H:%M') }}" required></label>
+                            <label>Reason <input type="text" name="reason" value="{{ application.reason }}" required></label>
+                            <button type="submit" class="btn">Save OT Correction</button>
+                        </form>
+                    </details>
+                    {% elif application_status|lower == 'approved' %}
+                        {{ application.decision_note or 'Approved' }}
+                    {% else %}{{ application.decision_note or 'Rejected' }}{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No OT applications yet.</td></tr>
+            {% endfor %}
+        </table>
+        </section>
+
         <section aria-labelledby="attendance-report-heading">
         <h3 id="attendance-report-heading">Attendance Report by Cutoff</h3>
-        <p>One card per employee, with cutoff totals and daily attendance details. OT hours are decimal hours, rounded using the full clock-out time including seconds. On smaller screens, scroll each card's table sideways.</p>
+        <p>One card per employee, with cutoff totals and daily attendance details. OT counts whole hours only, with a 3-hour daily maximum except for Trece-Uno Sunday OT. On smaller screens, scroll each card's table sideways.</p>
         <div class="attendance-cards">
         {% for employee_id, employee_rows in attendance_report_rows|groupby('attendance.employee_id') %}
         {% set employee = employee_rows[0].attendance.employee %}
@@ -222,43 +291,6 @@
         </section>
 
         <div class="table-wrap">
-        <h3 id="ot-applications">Employee OT Applications</h3>
-        <table>
-            <tr><th>Employee</th><th>Date</th><th>Requested Time</th><th>Reason</th><th>Status</th><th>Action</th></tr>
-            {% for application in applications %}
-            <tr>
-                <td>{{ application.employee.first_name }} {{ application.employee.last_name }}</td>
-                <td>{{ application.ot_date }}</td>
-                <td>{{ application.start_time.strftime('%H:%M') }} - {{ application.end_time.strftime('%H:%M') }}</td>
-                <td>{{ application.reason }}</td>
-                <td>{{ application.status }}</td>
-                <td>
-                    {% set application_status = application.status or 'Pending' %}
-                    {% if application_status|lower == 'pending' %}
-                    {{ application_actions(application) }}
-                    <details>
-                        <summary>Correct &amp; Approve</summary>
-                        <form method="POST" action="{{ url_for('correct_ot_application', application_id=application.id) }}">
-                            <input type="hidden" name="cutoff_start" value="{{ cutoff_start }}">
-                            <input type="hidden" name="company" value="{{ request.args.get('company', '') }}">
-                            <input type="hidden" name="employee_id" value="{{ employee_id or '' }}">
-                            <input type="hidden" name="employee_search" value="{{ employee_search }}">
-                            <label>Start <input type="time" name="start_time" value="{{ application.start_time.strftime('%H:%M') }}" required></label>
-                            <label>End <input type="time" name="end_time" value="{{ application.end_time.strftime('%H:%M') }}" required></label>
-                            <label>Reason <input type="text" name="reason" value="{{ application.reason }}" required></label>
-                            <button type="submit" class="btn">Save OT Correction</button>
-                        </form>
-                    </details>
-                    {% elif application_status|lower == 'approved' %}
-                        {{ application.decision_note or 'Approved' }}
-                    {% else %}{{ application.decision_note or 'Rejected' }}{% endif %}
-                </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6">No OT applications yet.</td></tr>
-            {% endfor %}
-        </table>
-
         <table>
             <tr>
                 <th>Attendance ID</th>
@@ -305,5 +337,18 @@
             <a href="{{ url_for('dashboard_admin') }}" class="dashboard-back-link">⬅ Back to Admin Dashboard</a>
         </div>
     </div>
+    <script>
+        const selectAllPendingOt = document.getElementById('select-all-pending-ot');
+        if (selectAllPendingOt) {
+            const pendingOtCheckboxes = Array.from(
+                document.querySelectorAll('.ot-application-select')
+            );
+            selectAllPendingOt.addEventListener('change', () => {
+                pendingOtCheckboxes.forEach(
+                    checkbox => { checkbox.checked = selectAllPendingOt.checked; }
+                );
+            });
+        }
+    </script>
 </body>
 </html>

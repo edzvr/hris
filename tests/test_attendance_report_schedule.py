@@ -44,10 +44,21 @@ def test_attendance_cards_keep_each_employees_records_separate():
             "missing_clock_in": True, "missing_clock_out": True,
         })
     with app.test_request_context():
+        application = SimpleNamespace(
+            id=17,
+            employee=SimpleNamespace(
+                first_name="Alice", last_name="Staff", company="Auto Expert"
+            ),
+            ot_date=date(2026, 10, 19),
+            start_time=time(17, 1),
+            end_time=time(19, 0),
+            reason="Delivery",
+            status="Pending",
+        )
         html = render_template(
             "holiday_ot_dashboard.html", attendance_report_rows=rows,
             cutoff_start="2026-10-17", filter_status="", employee_search="",
-            applications=[], records=[],
+            applications=[application], pending_application_ids=[17], records=[],
         )
         empty = render_template(
             "holiday_ot_dashboard.html", attendance_report_rows=[],
@@ -56,6 +67,10 @@ def test_attendance_cards_keep_each_employees_records_separate():
         )
     parser = CardParser()
     parser.feed(html)
+    assert html.index("Employee OT Applications") < html.index("Attendance Report by Cutoff")
+    assert 'id="select-all-pending-ot"' in html
+    assert 'name="application_ids"' in html
+    assert "Approve Selected" in html and "Reject Selected" in html
     assert len(parser.cards) == 2
     assert "Alice Staff" in parser.cards[0] and "Bob Staff" not in parser.cards[0]
     assert "2026-10-19" in parser.cards[0] and "2026-10-21" in parser.cards[0]
@@ -186,7 +201,7 @@ def test_dashboard_ot_metrics_only_include_approved_ot():
             "/holiday_overtime?cutoff_start=2026-11-07&employee_search=Pending+OT"
         ).get_data(as_text=True)
         assert "OT: <strong>0.00 hrs</strong>" in text
-        assert "Detected OT: 2.98 hour(s)" in text
+        assert "Detected OT: 2.00 hour(s)" in text
     finally:
         with app.app_context():
             db.session.rollback()
@@ -313,7 +328,7 @@ def test_admin_can_approve_autoexpert_ot_from_clock_out_without_application():
         with app.app_context():
             saved = db.session.get(Attendance, attendance_id)
             assert saved.ot_status == "Approved"
-            assert saved.overtime_hours == 2.98
+            assert saved.overtime_hours == 2
             assert saved.is_weekday_ot is True
     finally:
         with app.app_context():
@@ -381,7 +396,7 @@ def test_admin_can_approve_matching_application_from_attendance_card():
             assert saved.status == "Approved"
             saved_record = Attendance.query.filter_by(employee_id=staff_id).one()
             assert saved_record.ot_status == "Approved"
-            assert saved_record.overtime_hours == 2.03
+            assert saved_record.overtime_hours == 2
         assert f"/admin/ot_applications/{application_id}/approve" not in client.get(url).get_data(as_text=True)
         assert client.post(f"/admin/ot_applications/{application_id}/reject").status_code == 409
         with app.app_context():
@@ -395,6 +410,136 @@ def test_admin_can_approve_matching_application_from_attendance_card():
             Attendance.query.filter_by(employee_id=staff_id).delete()
             for employee_id in (admin_id, staff_id, other_id):
                 db.session.delete(db.session.get(Employee, employee_id))
+            db.session.commit()
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_status"),
+    [("approve", "Approved"), ("reject", "Rejected")],
+)
+def test_admin_can_bulk_decide_pending_ot_applications(action, expected_status):
+    with app.app_context():
+        admin = Employee(first_name="Bulk", last_name="Admin", role="admin")
+        first = Employee(
+            first_name="First", last_name="Staff", role="staff", company="Auto Expert"
+        )
+        second = Employee(
+            first_name="Second", last_name="Staff", role="staff", company="Auto Expert"
+        )
+        db.session.add_all([admin, first, second])
+        db.session.flush()
+        admin_id, first_id, second_id = admin.id, first.id, second.id
+        first_attendance = Attendance(
+            employee_id=first_id, date=date(2026, 11, 23),
+            clock_in=datetime(2026, 11, 23, 8),
+            clock_out=datetime(2026, 11, 23, 20),
+            status="Present", company="Auto Expert",
+        )
+        second_attendance = Attendance(
+            employee_id=second_id, date=date(2026, 11, 24),
+            clock_in=datetime(2026, 11, 24, 8),
+            clock_out=datetime(2026, 11, 24, 20),
+            status="Present", company="Auto Expert",
+        )
+        selected = [
+            OTApplication(
+                employee_id=first_id, ot_date=date(2026, 11, 23),
+                start_time=time(17, 1), end_time=time(20),
+                reason="First application", status="Pending",
+            ),
+            OTApplication(
+                employee_id=second_id, ot_date=date(2026, 11, 24),
+                start_time=time(17, 1), end_time=time(20),
+                reason="Second application", status="Pending",
+            ),
+        ]
+        outside_cutoff = OTApplication(
+            employee_id=first_id, ot_date=date(2026, 11, 20),
+            start_time=time(17, 1), end_time=time(20),
+            reason="Outside selected cutoff", status="Pending",
+        )
+        db.session.add_all([first_attendance, second_attendance, *selected, outside_cutoff])
+        db.session.commit()
+        selected_ids = [application.id for application in selected]
+        outside_cutoff_id = outside_cutoff.id
+
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(admin_id)
+            session["_fresh"] = True
+        with patch("hris.send_notification_email") as send_email:
+            response = client.post(
+                "/admin/ot_applications/bulk",
+                data={
+                    "action": action,
+                    "application_ids": [str(value) for value in selected_ids]
+                    + [str(outside_cutoff_id)],
+                    "cutoff_start": "2026-11-21",
+                    "company": "Auto Expert",
+                    "employee_id": "",
+                    "employee_search": "",
+                    "status": "",
+                },
+            )
+        assert response.status_code == 302
+        assert "cutoff_start=2026-11-21" in response.location
+        assert send_email.call_count == 2
+        with app.app_context():
+            saved = [
+                db.session.get(OTApplication, application_id)
+                for application_id in selected_ids
+            ]
+            assert [application.status for application in saved] == [
+                expected_status, expected_status,
+            ]
+            saved_attendance = [
+                Attendance.query.filter_by(employee_id=employee_id).one()
+                for employee_id in (first_id, second_id)
+            ]
+            assert [record.ot_status for record in saved_attendance] == [
+                expected_status, expected_status,
+            ]
+            if action == "approve":
+                assert [record.overtime_hours for record in saved_attendance] == [2, 2]
+            assert db.session.get(OTApplication, outside_cutoff_id).status == "Pending"
+    finally:
+        with app.app_context():
+            db.session.rollback()
+            OTApplication.query.filter(
+                OTApplication.employee_id.in_([first_id, second_id])
+            ).delete(synchronize_session=False)
+            Attendance.query.filter(
+                Attendance.employee_id.in_([first_id, second_id])
+            ).delete(synchronize_session=False)
+            Employee.query.filter(Employee.id.in_([admin_id, first_id, second_id])).delete(
+                synchronize_session=False
+            )
+            db.session.commit()
+
+
+def test_staff_cannot_bulk_decide_ot_applications():
+    with app.app_context():
+        staff = Employee(
+            first_name="Bulk", last_name="Staff", role="staff", company="Auto Expert"
+        )
+        db.session.add(staff)
+        db.session.commit()
+        staff_id = staff.id
+
+    try:
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(staff_id)
+            session["_fresh"] = True
+        response = client.post(
+            "/admin/ot_applications/bulk",
+            data={"action": "approve", "cutoff_start": "2026-11-21"},
+        )
+        assert response.status_code == 403
+    finally:
+        with app.app_context():
+            db.session.delete(db.session.get(Employee, staff_id))
             db.session.commit()
 
 

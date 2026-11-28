@@ -413,7 +413,6 @@
                         <div class="advanced-edit-fields">
                             <label>SSS Loan<input type="number" min="0" step="0.01" name="sss_loan_{{ p.emp.id }}" value="{{ p.sss_loan or 0 }}"></label>
                             <label>Pag-IBIG Loan<input type="number" min="0" step="0.01" name="pagibig_loan_{{ p.emp.id }}" value="{{ p.pagibig_loan or 0 }}"></label>
-                            <label>Tax Override<input type="number" min="0" step="0.01" name="withholding_tax_{{ p.emp.id }}" value="{{ p.withholding_tax_override if p.withholding_tax_override is not none else '' }}" placeholder="Automatic"></label>
                             <label>Liability<input type="number" min="0" step="0.01" name="liability_deduction_{{ p.emp.id }}" value="{{ p.liability_deduction_override if p.liability_deduction_override is not none else '' }}" placeholder="Automatic"></label>
                             <label>Cash Advance<input type="number" min="0" step="0.01" name="cash_advance_{{ p.emp.id }}" value="{{ p.card_breakdown.cash_advance }}"></label>
                             <label>Other Deduction<input type="number" min="0" step="0.01" name="other_deductions_{{ p.emp.id }}" value="{{ p.card_breakdown.other_deductions }}"></label>

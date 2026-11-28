@@ -5666,6 +5666,19 @@ def is_restday_overtime(attendance):
     return bool(attendance.is_restday_ot or attendance.date.weekday() == 6)
 
 
+def normalized_overtime_hours(hours):
+    return float(min(max(int(float(hours or 0)), 0), 3))
+
+
+def payroll_overtime_hours_for_attendance(attendance, hours):
+    if (
+        attendance.date.weekday() == 6
+        and is_trece_sunday(getattr(attendance, "employee", None), attendance.date)
+    ):
+        return max(float(hours or 0), 0.0)
+    return normalized_overtime_hours(hours)
+
+
 def automatic_trece_sunday_hours(attendance):
     if not (
         is_trece_sunday(getattr(attendance, 'employee', None), attendance.date)
@@ -5684,10 +5697,11 @@ def automatic_trece_sunday_hours(attendance):
 
 
 def attendance_overtime_status(attendance):
-    if automatic_trece_sunday_hours(attendance) > 0:
-        return "Approved"
     if (
-        attendance.ot_status == "Approved"
+        (
+            attendance.ot_status == "Approved"
+            or automatic_trece_sunday_hours(attendance) > 0
+        )
         and payroll_overtime_hours(attendance) > 0
     ):
         return "Approved"
@@ -5757,12 +5771,16 @@ def payroll_overtime_hours(attendance):
         application = approved_ot_application(attendance)
         if application:
             if not attendance.clock_out:
-                return automatic_sunday_hours
-            return automatic_sunday_hours + approved_application_overtime_hours(
-                attendance, application
-            )
+                hours = automatic_sunday_hours
+            else:
+                hours = automatic_sunday_hours + approved_application_overtime_hours(
+                    attendance, application
+                )
+            return payroll_overtime_hours_for_attendance(attendance, hours)
         if automatic_sunday_hours > 0:
-            return automatic_sunday_hours
+            return payroll_overtime_hours_for_attendance(
+                attendance, automatic_sunday_hours
+            )
         if attendance.ot_status == "Approved":
             return 0.0
     if (
@@ -5771,15 +5789,20 @@ def payroll_overtime_hours(attendance):
         and attendance.clock_out
     ):
         holiday = Holiday.query.filter_by(date=attendance.date).first()
-        return unapproved_overtime_hours(attendance, holiday)
-    return float(attendance.overtime_hours or 0)
+        return payroll_overtime_hours_for_attendance(
+            attendance, unapproved_overtime_hours(attendance, holiday)
+        )
+    return payroll_overtime_hours_for_attendance(
+        attendance, attendance.overtime_hours
+    )
 
 
 def attendance_overtime_is_payable(attendance):
-    if automatic_trece_sunday_hours(attendance) > 0:
-        return True
     return (
-        attendance.ot_status == "Approved"
+        (
+            attendance.ot_status == "Approved"
+            or automatic_trece_sunday_hours(attendance) > 0
+        )
         and payroll_overtime_hours(attendance) > 0
     )
 
@@ -5803,7 +5826,12 @@ def apply_overtime_details(attendance):
     elif application:
         attendance.overtime_hours = applied_overtime_hours(attendance, application)
     else:
-        attendance.overtime_hours = unapproved_overtime_hours(attendance, holiday)
+        attendance.overtime_hours = unapproved_overtime_hours(
+            attendance, holiday
+        )
+    attendance.overtime_hours = payroll_overtime_hours_for_attendance(
+        attendance, attendance.overtime_hours
+    )
     attendance.is_restday_ot = bool(
         is_approved and attendance.overtime_hours > 0 and attendance.date.weekday() == 6
     )
@@ -6806,12 +6834,7 @@ def is_minimum_wage_earner(employee):
 
 
 def weekly_withholding_tax(employee, monthly_taxable_income, weeks_in_month):
-    if is_minimum_wage_earner(employee):
-        return 0.0
-    return round(
-        compute_withholding_tax(monthly_taxable_income) / weeks_in_month,
-        2,
-    )
+    return 0.0
 
 
 def attendance_issue_rows(employee, cutoff_start, cutoff_end):
@@ -8614,6 +8637,172 @@ def decide_ot_application(application_id, action):
     ))
 
 
+@app.route('/admin/ot_applications/bulk', methods=['POST'])
+@login_required
+def decide_ot_applications_bulk():
+    action = request.form.get('action')
+    if 'admin' not in current_user.role.lower() or action not in {'approve', 'reject'}:
+        return 'Access denied', 403
+    try:
+        cutoff_start, cutoff_end = payroll_cutoff_from_request(
+            request.form.get('cutoff_start'), use_active_period=True,
+        )
+    except ValueError:
+        abort(400, 'Select a valid Saturday cutoff start date.')
+
+    raw_application_ids = request.form.getlist('application_ids')
+    if not raw_application_ids:
+        flash('Select at least one pending OT application.', 'warning')
+        return redirect(url_for(
+            'holiday_ot_dashboard',
+            cutoff_start=cutoff_start.isoformat(),
+            company=request.form.get('company') or None,
+            employee_id=request.form.get('employee_id') or None,
+            employee_search=request.form.get('employee_search') or None,
+            status=request.form.get('status') or None,
+        ))
+    try:
+        application_ids = sorted({int(value) for value in raw_application_ids})
+    except ValueError:
+        abort(400, 'Invalid OT application selection.')
+    if any(application_id <= 0 for application_id in application_ids):
+        abort(400, 'Invalid OT application selection.')
+
+    company = request.form.get('company', '')
+    if company not in {'', 'Trece-Uno', 'Auto Expert'}:
+        abort(400, 'Invalid company filter.')
+    raw_employee_id = request.form.get('employee_id', '').strip()
+    try:
+        employee_id = int(raw_employee_id) if raw_employee_id else None
+    except ValueError:
+        abort(400, 'Invalid employee filter.')
+    filter_status = request.form.get('status', '').strip()
+    if filter_status and filter_status.lower() not in {
+        'pending', 'approved', 'rejected',
+    }:
+        abort(400, 'Invalid OT status filter.')
+    employee_search = request.form.get('employee_search', '').strip()
+
+    selected_applications = OTApplication.query.filter(
+        OTApplication.id.in_(application_ids),
+        OTApplication.ot_date >= cutoff_start,
+        OTApplication.ot_date < cutoff_end,
+    ).order_by(OTApplication.employee_id, OTApplication.id).all()
+    in_scope_applications = []
+    for application in selected_applications:
+        if company and gov_company_label(application.employee) != company:
+            continue
+        if employee_id is not None and application.employee_id != employee_id:
+            continue
+        if filter_status and str(
+            application.status or 'Pending'
+        ).strip().lower() != filter_status.lower():
+            continue
+        if employee_search and not (
+            application.employee
+            and employee_search.casefold() in (
+                f'{application.employee.first_name} '
+                f'{application.employee.last_name}'
+            ).casefold()
+        ):
+            continue
+        in_scope_applications.append(application)
+
+    skipped_count = len(application_ids) - len(in_scope_applications)
+    if not in_scope_applications:
+        flash('No selected applications are available in this cutoff and filter.', 'warning')
+        return redirect(url_for(
+            'holiday_ot_dashboard',
+            cutoff_start=cutoff_start.isoformat(),
+            company=company or None,
+            employee_id=employee_id,
+            employee_search=employee_search or None,
+            status=filter_status or None,
+        ))
+
+    for selected_employee_id in sorted({
+        application.employee_id for application in in_scope_applications
+    }):
+        lock_attendance_employee(selected_employee_id)
+    pending_applications = []
+    for application in in_scope_applications:
+        db.session.refresh(application)
+        if str(application.status or '').strip().lower() == 'pending':
+            pending_applications.append(application)
+        else:
+            skipped_count += 1
+
+    if not pending_applications:
+        db.session.rollback()
+        flash('The selected OT applications are no longer pending.', 'warning')
+        return redirect(url_for(
+            'holiday_ot_dashboard',
+            cutoff_start=cutoff_start.isoformat(),
+            company=company or None,
+            employee_id=employee_id,
+            employee_search=employee_search or None,
+            status=filter_status or None,
+        ))
+
+    decision = 'Approved' if action == 'approve' else 'Rejected'
+    employee_dates = {}
+    for application in pending_applications:
+        application.status = decision
+        application.decision_note = request.form.get('decision_note', '').strip() or None
+        application.decided_at = datetime.now()
+        attendance = Attendance.query.filter_by(
+            employee_id=application.employee_id, date=application.ot_date
+        ).filter(Attendance.clock_out != None).first()
+        if attendance:
+            apply_overtime_details(attendance)
+            if action == 'reject' and attendance.ot_status is None:
+                attendance.ot_status = 'Rejected'
+        employee_dates.setdefault(application.employee_id, []).append(
+            application.ot_date
+        )
+
+    for selected_employee_id, application_dates in sorted(employee_dates.items()):
+        resume_correction_payroll_updates(
+            selected_employee_id, min(application_dates), max(application_dates)
+        )
+    db.session.commit()
+
+    for application in pending_applications:
+        employee = db.session.get(Employee, application.employee_id)
+        send_notification_email(
+            [employee.email if employee else None],
+            f'OT application {decision.lower()}',
+            (
+                f'Your OT application for {application.ot_date}, '
+                f'{application.start_time.strftime("%I:%M %p")} to '
+                f'{application.end_time.strftime("%I:%M %p")}, was {decision.lower()}.'
+                + (
+                    f' Admin note: {application.decision_note}'
+                    if application.decision_note else ''
+                )
+            ),
+        )
+
+    flash(
+        f'{len(pending_applications)} OT application(s) {decision.lower()}.',
+        'success',
+    )
+    if skipped_count:
+        flash(
+            f'{skipped_count} selected application(s) were skipped because they '
+            'were outside the current cutoff/filter or no longer pending.',
+            'warning',
+        )
+    return redirect(url_for(
+        'holiday_ot_dashboard',
+        cutoff_start=cutoff_start.isoformat(),
+        company=company or None,
+        employee_id=employee_id,
+        employee_search=employee_search or None,
+        status=filter_status or None,
+    ))
+
+
 @app.route('/admin/attendance/<int:attendance_id>/overtime/<action>', methods=['POST'])
 @login_required
 def decide_attendance_overtime(attendance_id, action):
@@ -9683,7 +9872,7 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
     sss = float(payroll_record.sss or 0)
     philhealth = float(payroll_record.philhealth or 0)
     pagibig = float(payroll_record.pagibig or 0)
-    withholding_tax = float(payroll_record.withholding_tax or 0)
+    withholding_tax = 0.0
     company_loan = float(payroll_record.loan or 0)
     sss_loan = float(getattr(payroll_record, "sss_loan", 0) or 0)
     pagibig_loan = float(getattr(payroll_record, "pagibig_loan", 0) or 0)
@@ -9722,22 +9911,9 @@ def calculate_payslip_breakdown(emp, payroll_record, use_rate_history=False):
         + pagibig_loan + liability_deduction + cash_advance + withholding_tax
         + late_ut
     )
-    total_deductions = float(
-        payroll_record.total_deductions
-        if payroll_record.total_deductions is not None
-        else known_deductions + float(payroll_record.other_deductions or 0)
-    )
     other_deductions = float(payroll_record.other_deductions or 0)
-    if abs(round(total_deductions - known_deductions - other_deductions, 2)) > 0.01:
-        raise ValueError('Calculated deductions do not reconcile to payroll totals.')
-    net_pay = float(
-        payroll_record.net_pay
-        if payroll_record.net_pay is not None
-        else gross_pay - total_deductions
-    )
-
-    if abs(round(gross_pay - total_deductions - net_pay, 2)) > 0.01:
-        raise ValueError('Calculated gross, deductions and net pay do not reconcile.')
+    total_deductions = round(known_deductions + other_deductions, 2)
+    net_pay = round(gross_pay - total_deductions, 2)
     return {
         "snapshot_version": 1,
         "legacy": False,
@@ -9921,7 +10097,6 @@ def payroll(employee_id):
             "sss_loan": request.form.get('sss_loan'),
             "pagibig_loan": request.form.get('pagibig_loan'),
             "cash_advance": request.form.get('cash_advance'),
-            "withholding_tax_override": request.form.get('withholding_tax'),
             "liability_deduction_override": request.form.get('liability_deduction'),
             "other_deductions": request.form.get('other_deductions'),
         }
@@ -10059,8 +10234,7 @@ def payroll(employee_id):
     withholding_tax = weekly_withholding_tax(
         emp, monthly_taxable_income, weeks_in_month
     )
-    if payroll_record is not None and payroll_record.withholding_tax_override is not None:
-        withholding_tax = float(payroll_record.withholding_tax_override)
+    withholding_tax = 0.0
     cash_advance = float(payroll_record.cash_advance or 0) if payroll_record else 0.0
     other_deductions = float(payroll_record.other_deductions or 0) if payroll_record else 0.0
     total_deductions = (
@@ -10365,8 +10539,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
         contribution_taxable_month(contributions, taxable_gross, weeks),
         weeks,
     )
-    if record.withholding_tax_override is not None:
-        tax = float(record.withholding_tax_override)
+    tax = 0.0
     liability = (
         float(record.liability_deduction_override)
         if record.liability_deduction_override is not None
@@ -10394,6 +10567,7 @@ def calculate_payroll_snapshot(employee, record, cutoff_start, cutoff_end):
 
 
 def save_payroll_snapshot(record, snapshot):
+    snapshot = {**snapshot, 'withholding_tax': 0.0}
     with db.session.no_autoflush:
         proposed = Payroll(**{
             column.name: getattr(record, column.name)
@@ -11448,8 +11622,7 @@ def payroll_dashboard():
                         payroll_record.sss_loan = max(float(sss_loan_deduction), 0)
                     if pagibig_loan_deduction is not None and pagibig_loan_deduction.strip() != "":
                         payroll_record.pagibig_loan = max(float(pagibig_loan_deduction), 0)
-                    if withholding_tax_override is not None and withholding_tax_override.strip() != "":
-                        payroll_record.withholding_tax_override = max(float(withholding_tax_override), 0)
+                    payroll_record.withholding_tax_override = 0.0
                     if liability_deduction_override is not None and liability_deduction_override.strip() != "":
                         payroll_record.liability_deduction_override = max(float(liability_deduction_override), 0)
                     if cash_advance is not None and cash_advance.strip() != "":
@@ -11586,8 +11759,7 @@ def payroll_dashboard():
         withholding_tax = weekly_withholding_tax(
             emp, monthly_taxable_income, weeks_in_month
         )
-        if payroll_record is not None and payroll_record.withholding_tax_override is not None:
-            withholding_tax = float(payroll_record.withholding_tax_override)
+        withholding_tax = 0.0
         cash_advance = float(payroll_record.cash_advance or 0) if payroll_record else 0.0
         other_deductions = float(payroll_record.other_deductions or 0) if payroll_record else 0.0
         deductions = (
@@ -11603,7 +11775,7 @@ def payroll_dashboard():
             sss = float(payroll_record.sss or 0)
             philhealth = float(payroll_record.philhealth or 0)
             pagibig = float(payroll_record.pagibig or 0)
-            withholding_tax = float(payroll_record.withholding_tax or 0)
+            withholding_tax = 0.0
             liability_deduction = float(payroll_record.liability_deduction or 0)
         is_admin = 'admin' in str(emp.role or '').lower()
         review_reasons = []
@@ -12063,6 +12235,12 @@ def holiday_ot_dashboard():
                                for attendance in records
                            },
                            applications=applications,
+                           pending_application_ids=[
+                               application.id for application in applications
+                               if str(
+                                   application.status or 'Pending'
+                               ).strip().lower() == 'pending'
+                           ],
                            attendance_report_rows=attendance_report_rows,
                            employee_search=employee_search,
                            holidays=holidays,

@@ -160,10 +160,10 @@ def test_cavite_minimum_wage_earner_is_exempt_from_withholding_tax():
     assert weekly_withholding_tax(employee, 30000.0, 4) == 0.0
 
 
-def test_daily_rate_above_cavite_minimum_uses_train_tax_brackets():
+def test_daily_rate_above_cavite_minimum_has_no_payroll_tax_deduction():
     employee = SimpleNamespace(daily_rate=600.01)
 
-    assert weekly_withholding_tax(employee, 30000.0, 4) == 458.35
+    assert weekly_withholding_tax(employee, 30000.0, 4) == 0.0
 
 
 def test_weekly_payslip_table_is_itemized():
