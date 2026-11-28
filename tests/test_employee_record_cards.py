@@ -157,8 +157,8 @@ def test_open_liability_preserves_collected_amount_after_cutoff(people):
         assert liability.amount_deducted == 43500
         assert liability.status == 'Open'
         assert liability.balance_is_open
-        assert liability_cutoff_deduction(auto_id) == 10
-        liability.acknowledgment_status = 'Acknowledged'
+        assert liability_cutoff_deduction(auto_id) == 510
+        liability.acknowledgment_status = 'Pending'
         db.session.commit()
         assert liability_cutoff_deduction(auto_id) == 510
         apply_liability_deduction(auto_id, 510)

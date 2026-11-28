@@ -75,7 +75,8 @@ def test_admin_issues_private_pdf_and_staff_can_typed_sign_once():
             description='Test deduction',
             total_amount=1000,
             deduction_per_cutoff=250,
-            status='Active',
+            status='Open',
+            amount_deducted=100,
             acknowledgment_status='Pending',
         )
         db.session.add(liability)
@@ -108,7 +109,7 @@ def test_admin_issues_private_pdf_and_staff_can_typed_sign_once():
             assert document.status == 'Issued'
             assert document.attachment_sha256
             assert document.attachment_filename.endswith('.pdf')
-            assert liability_cutoff_deduction(staff_id) == 0
+            assert liability_cutoff_deduction(staff_id) == 250
 
         staff_client = app.test_client()
         with app.app_context():

@@ -3654,7 +3654,6 @@ def active_employee_liabilities(employee_id):
     records = EmployeeLiability.query.filter(
         EmployeeLiability.employee_id == employee_id,
         EmployeeLiability.status.in_(['Open', 'Active', 'Partially Recovered']),
-        EmployeeLiability.acknowledgment_status == 'Acknowledged',
     ).order_by(EmployeeLiability.created_at.asc()).all()
     return [record for record in records if record.balance_is_open or record.remaining_balance > 0]
 
@@ -3711,7 +3710,6 @@ def liability_deduction_after_reversal(employee_id, amount):
     for liability, deducted, status in liability_reversal_states(employee_id, amount):
         if (
             status not in ('Open', 'Active', 'Partially Recovered')
-            or liability.acknowledgment_status != 'Acknowledged'
         ):
             continue
         balance = None if status == 'Open' or float(liability.total_amount or 0) <= 0 else max(
@@ -7897,8 +7895,8 @@ def acknowledge_hr_document_liability(document, signed_at):
     if (
         liability is None
         or liability.employee_id != document.employee_id
-        or liability.status not in {'Active', 'Partially Recovered'}
-        or liability.remaining_balance <= 0
+        or liability.status not in {'Open', 'Active', 'Partially Recovered'}
+        or (not liability.balance_is_open and liability.remaining_balance <= 0)
     ):
         abort(409)
     liability.acknowledgment_status = 'Acknowledged'
@@ -7995,8 +7993,11 @@ def hr_documents():
             if document.document_type == 'Liability Agreement' and (
                 document.liability is None
                 or document.liability.employee_id != document.employee_id
-                or document.liability.status not in {'Active', 'Partially Recovered'}
-                or document.liability.remaining_balance <= 0
+                or document.liability.status not in {'Open', 'Active', 'Partially Recovered'}
+                or (
+                    not document.liability.balance_is_open
+                    and document.liability.remaining_balance <= 0
+                )
             ):
                 return 'A liability agreement must have a matching active liability balance before signing.', 409
             upload = request.files.get('wet_signed_copy')
@@ -8046,8 +8047,11 @@ def hr_documents():
                 or not document.attachment_filename
                 or document.liability is None
                 or document.liability.employee_id != document.employee_id
-                or document.liability.status not in {'Active', 'Partially Recovered'}
-                or document.liability.remaining_balance <= 0
+                or document.liability.status not in {'Open', 'Active', 'Partially Recovered'}
+                or (
+                    not document.liability.balance_is_open
+                    and document.liability.remaining_balance <= 0
+                )
             ):
                 return 'A liability agreement needs an uploaded PDF, a required employee signature, and the matching liability record.', 409
             document.status = 'Issued'
@@ -8088,8 +8092,8 @@ def hr_documents():
             or not signature_required
             or liability is None
             or liability.employee_id != employee.id
-            or liability.status not in {'Active', 'Partially Recovered'}
-            or liability.remaining_balance <= 0
+            or liability.status not in {'Open', 'Active', 'Partially Recovered'}
+            or (not liability.balance_is_open and liability.remaining_balance <= 0)
         ):
             flash(
                 'A liability agreement needs an uploaded PDF, a required employee signature, '
@@ -8149,9 +8153,9 @@ def hr_documents():
         employees = Employee.query.filter(Employee.first_name.isnot(None), Employee.last_name.isnot(None)).order_by(Employee.last_name, Employee.first_name).all()
         liabilities = [
             liability for liability in EmployeeLiability.query.filter(
-                EmployeeLiability.status.in_(['Active', 'Partially Recovered']),
+                EmployeeLiability.status.in_(['Open', 'Active', 'Partially Recovered']),
             ).order_by(EmployeeLiability.created_at.desc()).all()
-            if liability.remaining_balance > 0
+            if liability.balance_is_open or liability.remaining_balance > 0
         ]
     else:
         documents = HRDocument.query.filter(
