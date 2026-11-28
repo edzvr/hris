@@ -21,7 +21,7 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
     assert 'aria-label="Admin navigation"' in html
     assert '<header id="hris-global-sidebar" class="admin-topbar"' in html
     assert 'id="admin-topbar-navigation"' in html
-    assert 'class="admin-nav-dropdown"' in html
+    assert 'class="admin-nav-route"' in html
     assert 'padding-left:0 !important' in html
     assert 'new ResizeObserver' in html
     assert "window.matchMedia('(max-width: 760px)')" in html
@@ -30,19 +30,11 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
         "Payroll &amp; Contributions", "People &amp; Attendance",
         "Reports &amp; Performance", "Account &amp; System",
     ):
-        assert heading in html
-    assert '<details aria-label="Payroll &amp; Contributions">' in html
-    assert '<details aria-label="People &amp; Attendance">' in html
-    assert '<details aria-label="Reports &amp; Performance">' in html
-    assert '<details aria-label="Account &amp; System">' in html
-    assert html.index("Monthly Gov Dues Guide") > html.index("Payroll &amp; Contributions")
+        assert f'title="{heading}"' in html
     assert html.count("Monthly Gov Dues Guide") == 1
-    payroll_menu = html.split('<details aria-label="Payroll &amp; Contributions">', 1)[1].split('</details>', 1)[0]
-    assert 'Monthly Gov Dues Guide' in payroll_menu
     quick_links = html.split('aria-label="Quick access">', 1)[1].split('</div>', 1)[0]
     assert 'Monthly Gov Dues Guide' not in quick_links
     assert 'data-active-prefix="/admin/government-contributions/portal"' in html
-    assert "section.addEventListener('toggle'" in html
     with app.test_request_context():
         from flask import url_for
         for endpoint in (
