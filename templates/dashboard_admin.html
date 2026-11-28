@@ -565,12 +565,16 @@
       document.body.style.setProperty('--hris-topbar-font-size', topbarSize.font);
       document.body.style.setProperty('--hris-topbar-title-size', topbarSize.title);
       document.body.style.setProperty('--hris-topbar-column-width', topbarSize.column);
-      const defaultButtonColor = workspaceThemeButtonColor();
+      const defaultButtonColor = typeof workspaceThemeButtonColor === 'function'
+        ? workspaceThemeButtonColor()
+        : '#2563eb';
       document.documentElement.style.setProperty('--admin-button-color', settings.buttonColor || defaultButtonColor);
       document.documentElement.style.setProperty('--admin-button-hover', settings.buttonColor || defaultButtonColor);
       const selectedColor = settings.buttonColor && settings.buttonColor.toLowerCase() !== defaultButtonColor.toLowerCase()
         ? settings.buttonColor : null;
-      applyWorkspaceTheme(selectedColor, settings.topbarColor || null);
+      if (typeof applyWorkspaceTheme === 'function') {
+        applyWorkspaceTheme(selectedColor, settings.topbarColor || null);
+      }
       const sizes = {
         small: { height: '46px', padding: '10px', fontSize: '14px' },
         medium: { height: '56px', padding: '12px', fontSize: '16px' },
@@ -630,8 +634,14 @@
       document.getElementById('themeSelect').value = storedSettings.theme || 'light';
       document.getElementById('notifications').checked = Boolean(storedSettings.notifications);
       document.getElementById('topbarSize').value = storedSettings.topbarSize || localStorage.getItem('hrisTopbarSize') || 'medium';
-      document.getElementById('buttonColor').value = storedSettings.buttonColor || workspaceThemeButtonColor();
-      document.getElementById('topbarColor').value = storedSettings.topbarColor || workspaceThemeTopbarColor();
+      const defaultButtonColor = typeof workspaceThemeButtonColor === 'function'
+        ? workspaceThemeButtonColor()
+        : '#2563eb';
+      const defaultTopbarColor = typeof workspaceThemeTopbarColor === 'function'
+        ? workspaceThemeTopbarColor()
+        : '#2563eb';
+      document.getElementById('buttonColor').value = storedSettings.buttonColor || defaultButtonColor;
+      document.getElementById('topbarColor').value = storedSettings.topbarColor || defaultTopbarColor;
       document.getElementById('buttonSize').value = storedSettings.buttonSize || 'medium';
       document.getElementById('buttonsPerRow').value = storedSettings.buttonsPerRow || '3';
       applyAdminSettings(storedSettings);
