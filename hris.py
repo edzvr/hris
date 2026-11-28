@@ -3012,6 +3012,7 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
         is_rest_day = scheduled_hours == 0
         if log is None:
             rows.append({
+                "id": None,
                 "date": record_date.strftime('%Y-%m-%d'),
                 "clock_in": "N/A",
                 "clock_out": "N/A",
@@ -3037,6 +3038,7 @@ def build_cutoff_attendance_rows(employee, cutoff_start, cutoff_end):
         )
         overtime_hours = payroll_overtime_hours(log)
         rows.append({
+            "id": log.id,
             "date": log.date.strftime('%Y-%m-%d'),
             "clock_in": log.clock_in.strftime('%H:%M:%S') if log.clock_in else "N/A",
             "clock_out": log.clock_out.strftime('%H:%M:%S') if log.clock_out else "N/A",
@@ -4679,6 +4681,40 @@ def reminder_month():
     if not 1901 <= month.year <= 9998:
         raise ValueError('Calendar month out of range')
     return month
+
+
+@app.route('/attendance/<int:attendance_id>/delete', methods=['POST'])
+@login_required
+def delete_attendance(attendance_id):
+    if 'admin' not in current_user.role.lower():
+        flash('❌ Access denied. Admins only.', 'danger')
+        return redirect(url_for('dashboard_staff'))
+    
+    attendance = Attendance.query.get_or_404(attendance_id)
+    employee_id = attendance.employee_id
+    attendance_date = attendance.date
+    
+    # Log the deletion
+    db.session.add(AuditLog(
+        employee_id=current_user.id,
+        employee_name=current_user.full_name(),
+        action=f'Deleted attendance record for {attendance.employee.first_name} {attendance.employee.last_name} on {attendance_date}',
+        company=current_user.company,
+        path=request.path,
+        ip_address=request.remote_addr,
+        status_code=200,
+    ))
+    
+    # Delete the attendance record
+    db.session.delete(attendance)
+    db.session.commit()
+    
+    # Recalculate payroll for this employee/date range
+    lock_attendance_employee(employee_id)
+    resume_correction_payroll_updates(employee_id, attendance_date, attendance_date)
+    
+    flash(f'✅ Attendance record for {attendance_date} deleted successfully.', 'success')
+    return redirect(url_for('attendance', employee_id=employee_id))
 
 
 @app.route('/calendar/reminders')
