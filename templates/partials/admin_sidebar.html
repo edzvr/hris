@@ -71,20 +71,20 @@
   .hris-admin-sidebar-page .card { overflow-x: auto; }
   @media (max-width:760px) {
     body.hris-admin-sidebar-page { --admin-topbar-height:64px; }
-    #hris-global-sidebar { display:block; padding:0 12px; }
+    #hris-global-sidebar { display:flex; gap:8px; padding:0 8px; overflow:visible; }
     #hris-global-sidebar .admin-topbar-header { gap:8px; }
     #hris-global-sidebar .admin-topbar-title { display:none; }
-    #hris-global-sidebar .company-branding { margin-right:auto !important; }
-    #admin-menu-toggle { display:block; margin:0; padding:8px 10px; min-height:44px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer; }
-    #hris-global-sidebar nav { display:none; position:absolute; top:100%; left:0; right:0; max-height:calc(100dvh - var(--admin-topbar-height)); overflow-y:auto; padding:12px; border-bottom:1px solid #e5e7eb; background:var(--workspace-sidebar); }
-    #hris-global-sidebar.menu-open nav { display:block; }
-    #hris-global-sidebar .sidebar-quick-links { display:grid; }
-    #hris-global-sidebar .admin-nav-dropdown { --workspace-sidebar-text:inherit; position:static; width:auto; max-height:none; box-shadow:none; border:0; padding:0 0 0 12px; background:transparent; }
-    #hris-global-sidebar .sidebar-logout { margin-top:8px; }
-    #admin-menu-backdrop:not([hidden]) { display:block; position:fixed; inset:var(--admin-topbar-height) 0 0; z-index:9999; padding:0; margin:0; border:0; border-radius:0; background:rgba(0,0,0,.2); width:100%; height:calc(100% - var(--admin-topbar-height)); }
+    #hris-global-sidebar .company-branding { gap:4px; margin-right:0 !important; }
+    #hris-global-sidebar .company-branding img { width:72px; }
+    #admin-menu-toggle, #admin-menu-backdrop { display:none; }
+    #hris-global-sidebar nav { display:flex; flex-wrap:nowrap; min-width:0; overflow-x:auto; overflow-y:visible; padding:6px 0; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+    #hris-global-sidebar .sidebar-quick-links { display:flex; }
+    #hris-global-sidebar summary { padding:10px 8px; }
+    #hris-global-sidebar .admin-nav-dropdown { position:fixed; top:var(--admin-topbar-height); right:8px; width:min(260px, calc(100vw - 16px)); max-height:calc(100dvh - var(--admin-topbar-height) - 12px); box-shadow:0 8px 24px rgba(0,0,0,.18); }
+    #hris-global-sidebar .sidebar-logout { margin-left:0; white-space:nowrap; }
   }
   @media (max-width:360px) {
-    body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:88px; }
+    body.hris-admin-sidebar-page #hris-global-sidebar .company-branding img { width:62px; }
   }
 </style>
 {% set normalized_company = (workspace_company|default('', true)|trim|lower) %}
