@@ -616,7 +616,13 @@ class EmployeeLiability(db.Model):
 
     @property
     def remaining_balance(self):
+        if self.balance_is_open:
+            return 0.0
         return max(float(self.total_amount or 0) - float(self.amount_deducted or 0) - float(self.amount_recovered or 0), 0.0)
+
+    @property
+    def balance_is_open(self):
+        return self.status == 'Open' or float(self.total_amount or 0) <= 0
 
     @property
     def refundable_balance(self):

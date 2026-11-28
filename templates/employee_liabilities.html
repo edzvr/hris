@@ -36,6 +36,7 @@
             <div><strong>Customer Recovered</strong><br>PHP {{ totals.recovered|currency }}</div>
             <div><strong>Refundable to Employee</strong><br>PHP {{ totals.refundable|currency }}</div>
             <div><strong>Remaining</strong><br>PHP {{ totals.remaining|currency }}</div>
+            <div><strong>Open Liabilities</strong><br>{{ totals.open }} awaiting final total</div>
         </div>
     </section>
 
@@ -59,10 +60,14 @@
                 <input type="text" name="customer_name" placeholder="Customer name or account">
             </label>
             <label>Total Amount
-                <input type="number" name="total_amount" min="0.01" step="0.01" required>
+                <input type="number" name="total_amount" min="0.01" step="0.01" placeholder="Leave blank if not yet computed">
             </label>
             <label>Deduction per Cutoff
                 <input type="number" name="deduction_per_cutoff" min="0" step="0.01" required>
+            </label>
+            <label>Already Deducted / Current Collected
+                <input type="number" name="amount_deducted" min="0" step="0.01" value="0">
+                <small>Opening balance already collected before this record. Excluded from the remaining liability.</small>
             </label>
             <label>Reference
                 <input type="text" name="reference" placeholder="Agreement / OR / case reference">
@@ -75,6 +80,7 @@
             </label>
             <button class="btn" type="submit">Save Liability Record</button>
         </form>
+        <p>If the final total is not yet computed, leave <strong>Total Amount</strong> blank. The record stays Open; for Mark, enter 43500 as Already Deducted and 500 as Deduction per Cutoff. After the Liability Agreement is signed/acknowledged, each finalized cutoff adds up to PHP 500 to the collected amount without automatically closing the liability.</p>
     </section>
     {% endif %}
 
@@ -84,10 +90,12 @@
         {% for employee_id, employee_items in liabilities|groupby('employee_id') %}
         <article class="employee-record" data-employee="{{ employee_id }}">
             <header><div><h3>{{ employee_items[0].employee.full_name() }}</h3><p class="employee-company">{{ employee_items[0].employee.company or 'N/A' }}</p></div><span class="record-count">{{ employee_items|length }} liability records</span></header>
+            {% set open_count = employee_items|selectattr('balance_is_open')|list|length %}
             <dl class="record-metrics">
                 <div><dt>Original Amount</dt><dd>PHP {{ employee_items|sum(attribute='total_amount')|currency }}</dd></div>
                 <div><dt>Remaining</dt><dd>PHP {{ employee_items|sum(attribute='remaining_balance')|currency }}</dd></div>
                 <div><dt>Refundable</dt><dd>PHP {{ employee_items|sum(attribute='refundable_balance')|currency }}</dd></div>
+                {% if open_count %}<div><dt>Open</dt><dd>{{ open_count }} liability balance(s) not yet computed</dd></div>{% endif %}
             </dl>
             <details><summary>View liabilities and actions</summary>
         {% for item in employee_items %}
@@ -99,11 +107,14 @@
                 <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
                 {% endfor %}
                 {% for label, value in [('Original', item.total_amount), ('Per Cutoff', item.deduction_per_cutoff), ('Deducted', item.amount_deducted), ('Recovered', item.amount_recovered), ('Refunded', item.amount_refunded), ('Refundable', item.refundable_balance), ('Remaining', item.remaining_balance)] %}
-                <div><dt>{{ label }}</dt><dd>PHP {{ value|currency }}</dd></div>
+                <div><dt>{{ label }}</dt><dd>{% if item.balance_is_open and label in ['Original', 'Remaining'] %}To be computed — Open{% else %}PHP {{ value|currency }}{% endif %}</dd></div>
                 {% endfor %}
             </dl>
             {% if is_admin %}
             <div class="record-actions">
+                {% if item.balance_is_open %}
+                <form method="POST"><input type="hidden" name="action" value="set-total"><input type="hidden" name="liability_id" value="{{ item.id }}"><label>Final total amount<input type="number" name="total_amount" min="{{ item.amount_deducted }}" step="0.01" placeholder="Set when computed"></label><button class="btn" type="submit">Set Final Total</button></form>
+                {% endif %}
                 <form method="POST"><input type="hidden" name="action" value="recover"><input type="hidden" name="liability_id" value="{{ item.id }}"><label>Customer paid<input type="number" name="amount_recovered" min="0.01" step="0.01" placeholder="Customer paid"></label><button class="btn" type="submit">Record Recovery</button></form>
                 <form method="POST"><input type="hidden" name="action" value="refund"><input type="hidden" name="liability_id" value="{{ item.id }}"><label>Refund amount<input type="number" name="amount_refunded" min="0.01" step="0.01" max="{{ item.refundable_balance }}" placeholder="Refund amount"></label><button class="btn" type="submit">Record Refund</button></form>
                 <form method="POST"><input type="hidden" name="action" value="close"><input type="hidden" name="liability_id" value="{{ item.id }}"><button class="btn btn-danger" type="submit">Close</button></form>

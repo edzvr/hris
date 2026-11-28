@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 import pytest
 from flask import template_rendered
 
-from hris import app
+from hris import app, apply_liability_deduction, liability_cutoff_deduction
 from models import Attendance, Employee, EmployeeLiability, Loan, Payroll, db
 
 
@@ -135,6 +135,37 @@ def test_staff_cards_do_not_show_other_employee_records(people):
         assert set(cards) == {auto_id}
         assert trece_id not in cards
         assert b'TRECE-ONLY' not in response.data
+
+
+def test_open_liability_preserves_collected_amount_after_cutoff(people):
+    admin_id, auto_id, _ = people
+    client = client_for(admin_id)
+    response = client.post('/employee-liabilities', data={
+        'action': 'create',
+        'employee_id': str(auto_id),
+        'category': 'Cash Shortage',
+        'description': 'Existing deductions transferred to HRIS',
+        'total_amount': '',
+        'amount_deducted': '43500',
+        'deduction_per_cutoff': '500',
+        'reference': 'MARK-OPEN',
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        liability = EmployeeLiability.query.filter_by(reference='MARK-OPEN').one()
+        assert liability.total_amount == 0
+        assert liability.amount_deducted == 43500
+        assert liability.status == 'Open'
+        assert liability.balance_is_open
+        assert liability_cutoff_deduction(auto_id) == 10
+        liability.acknowledgment_status = 'Acknowledged'
+        db.session.commit()
+        assert liability_cutoff_deduction(auto_id) == 510
+        apply_liability_deduction(auto_id, 510)
+        db.session.commit()
+        db.session.refresh(liability)
+        assert liability.amount_deducted == 44000
+        assert liability.status == 'Open'
 
 
 def test_attendance_card_keeps_daily_details_and_filters(people):

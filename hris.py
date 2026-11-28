@@ -3653,10 +3653,10 @@ LIABILITY_CATEGORIES = [
 def active_employee_liabilities(employee_id):
     records = EmployeeLiability.query.filter(
         EmployeeLiability.employee_id == employee_id,
-        EmployeeLiability.status.in_(['Active', 'Partially Recovered']),
+        EmployeeLiability.status.in_(['Open', 'Active', 'Partially Recovered']),
         EmployeeLiability.acknowledgment_status == 'Acknowledged',
     ).order_by(EmployeeLiability.created_at.asc()).all()
-    return [record for record in records if record.remaining_balance > 0]
+    return [record for record in records if record.balance_is_open or record.remaining_balance > 0]
 
 
 def liability_cutoff_deduction(employee_id):
@@ -3665,7 +3665,7 @@ def liability_cutoff_deduction(employee_id):
         scheduled = float(liability.deduction_per_cutoff or 0)
         if scheduled <= 0:
             continue
-        total += min(scheduled, liability.remaining_balance)
+        total += scheduled if liability.balance_is_open else min(scheduled, liability.remaining_balance)
     return round(total, 2)
 
 
@@ -3674,12 +3674,15 @@ def apply_liability_deduction(employee_id, amount):
     for liability in active_employee_liabilities(employee_id):
         if remaining <= 0:
             break
-        applied = min(float(liability.deduction_per_cutoff or 0), liability.remaining_balance, remaining)
+        scheduled = float(liability.deduction_per_cutoff or 0)
+        applied = min(scheduled, remaining) if liability.balance_is_open else min(
+            scheduled, liability.remaining_balance, remaining
+        )
         if applied <= 0:
             continue
         liability.amount_deducted = float(liability.amount_deducted or 0) + applied
         remaining -= applied
-        if liability.remaining_balance <= 0:
+        if not liability.balance_is_open and liability.remaining_balance <= 0:
             liability.status = 'Fully Paid'
 
 
@@ -3707,18 +3710,18 @@ def liability_deduction_after_reversal(employee_id, amount):
     total = 0.0
     for liability, deducted, status in liability_reversal_states(employee_id, amount):
         if (
-            status not in ('Active', 'Partially Recovered')
+            status not in ('Open', 'Active', 'Partially Recovered')
             or liability.acknowledgment_status != 'Acknowledged'
         ):
             continue
-        balance = max(
+        balance = None if status == 'Open' or float(liability.total_amount or 0) <= 0 else max(
             float(liability.total_amount or 0) - deducted
             - float(liability.amount_recovered or 0),
             0.0,
         )
         scheduled = float(liability.deduction_per_cutoff or 0)
         if scheduled > 0:
-            total += min(scheduled, balance)
+            total += scheduled if balance is None else min(scheduled, balance)
     return round(total, 2)
 
 
@@ -3742,14 +3745,23 @@ def employee_liabilities():
             if action == 'create':
                 employee_id = request.form.get('employee_id', type=int)
                 employee = Employee.query.get_or_404(employee_id)
+                total_amount = max(float(request.form.get('total_amount') or 0), 0.0)
+                amount_deducted = max(float(request.form.get('amount_deducted') or 0), 0.0)
+                if total_amount > 0 and amount_deducted > total_amount:
+                    flash('Already deducted cannot exceed the total liability amount.', 'danger')
+                    return redirect(url_for('employee_liabilities'))
                 liability = EmployeeLiability(
                     employee_id=employee.id,
                     category=request.form.get('category') or 'Uncollected Company Receivable',
                     description=request.form.get('description', '').strip(),
                     customer_name=request.form.get('customer_name', '').strip() or None,
                     agreement_date=datetime.strptime(request.form.get('agreement_date'), '%Y-%m-%d').date() if request.form.get('agreement_date') else None,
-                    total_amount=max(float(request.form.get('total_amount') or 0), 0.0),
+                    total_amount=total_amount,
                     deduction_per_cutoff=max(float(request.form.get('deduction_per_cutoff') or 0), 0.0),
+                    amount_deducted=amount_deducted,
+                    status='Open' if total_amount <= 0 else (
+                        'Fully Paid' if amount_deducted >= total_amount else 'Active'
+                    ),
                     acknowledgment_status='Pending',
                     reference=request.form.get('reference', '').strip() or None,
                     remarks=request.form.get('remarks', '').strip() or None,
@@ -3757,8 +3769,8 @@ def employee_liabilities():
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
-                if not liability.description or liability.total_amount <= 0:
-                    flash('Description and positive total amount are required.', 'danger')
+                if not liability.description:
+                    flash('Description is required.', 'danger')
                     return redirect(url_for('employee_liabilities'))
                 db.session.add(liability)
                 flash('Employee liability record created.', 'success')
@@ -3771,6 +3783,13 @@ def employee_liabilities():
                     liability.amount_refunded = float(liability.amount_refunded or 0) + min(max(float(request.form.get('amount_refunded') or 0), 0.0), liability.refundable_balance)
                 elif action == 'close':
                     liability.status = 'Closed'
+                elif action == 'set-total':
+                    total_amount = max(float(request.form.get('total_amount') or 0), 0.0)
+                    if total_amount <= 0 or total_amount < float(liability.amount_deducted or 0):
+                        flash('Final total must be positive and cannot be below the amount already deducted.', 'danger')
+                        return redirect(url_for('employee_liabilities'))
+                    liability.total_amount = total_amount
+                    liability.status = 'Fully Paid' if liability.remaining_balance <= 0 else 'Active'
                 liability.remarks = request.form.get('remarks', liability.remarks) or liability.remarks
                 liability.updated_at = datetime.utcnow()
             db.session.commit()
@@ -3791,6 +3810,7 @@ def employee_liabilities():
         'recovered': sum(float(item.amount_recovered or 0) for item in liabilities),
         'refundable': sum(item.refundable_balance for item in liabilities),
         'remaining': sum(item.remaining_balance for item in liabilities),
+        'open': sum(1 for item in liabilities if item.balance_is_open and item.status not in ('Closed', 'Fully Paid')),
     }
     return render_template(
         'employee_liabilities.html',
