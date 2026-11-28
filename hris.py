@@ -5668,7 +5668,7 @@ def is_restday_overtime(attendance):
 
 
 def normalized_overtime_hours(hours):
-    return float(min(max(int(float(hours or 0)), 0), 3))
+    return float(min(max(round(float(hours or 0)), 0), 3))
 
 
 def payroll_overtime_hours_for_attendance(attendance, hours):
