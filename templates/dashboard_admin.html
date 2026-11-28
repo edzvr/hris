@@ -180,7 +180,12 @@
       <div><strong>Dashboard</strong><span>HRIS admin workspace</span></div>
       <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Review payroll</a>
     </div>
-    <input type="text" id="dashboardSearch" placeholder="🔍 Search (e.g., payroll, attendance, loan)..." style="padding: 12px 16px; border: 2px solid #86a9cf; border-radius: 8px; font-size: 18px; width: 100%; max-width: 500px;">
+    <div class="admin-search">
+      <input type="search" id="dashboardSearch" placeholder="🔍 Search payroll, attendance, loan, or any page..." autocomplete="off"
+             aria-label="Search admin pages and dashboard actions" aria-controls="dashboardSearchResults" aria-expanded="false"
+             style="padding: 12px 16px; border: 2px solid #86a9cf; border-radius: 8px; font-size: 18px;">
+      <div id="dashboardSearchResults" class="admin-search-results" role="listbox" aria-label="Search results" hidden></div>
+    </div>
   </header>
   <main class="admin-workspace-content">
   <div class="admin-welcome">
@@ -645,48 +650,111 @@
         }
       });
 
-      // Search functionality
+      // Search every admin route and dashboard workflow without hiding dashboard data.
       const searchInput = document.getElementById('dashboardSearch');
+      const searchResults = document.getElementById('dashboardSearchResults');
       if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-          const query = e.target.value.toLowerCase();
-          const cards = document.querySelectorAll('main > .card, main > details');
-          
-          cards.forEach(card => {
-            const summary = card.querySelector('summary') || card;
-            const text = (summary?.textContent || card.textContent || '').toLowerCase();
-            const shouldShow = !query || text.includes(query);
-            card.style.display = shouldShow ? '' : 'none';
+        const clean = value => value.replace(/\s+/g, ' ').trim();
+        const searchableItems = () => {
+          const items = [];
+          const seen = new Set();
+          document.querySelectorAll('#hris-global-sidebar a, main a, main button.btn').forEach(element => {
+            const label = clean(element.textContent || element.getAttribute('aria-label') || '');
+            const href = element.getAttribute('href');
+            if (!label || (!href && !element.onclick)) return;
+            const group = element.closest('#hris-global-sidebar details')?.getAttribute('aria-label')
+              || element.closest('main details')?.querySelector(':scope > summary')?.textContent
+              || 'Dashboard';
+            const key = `${label}|${href || element.onclick}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            items.push({ element, label, href, group: clean(group) });
           });
-
-          // Also search quick action buttons
-          const actionGrid = document.querySelector('.admin-actions-grid');
-          if (actionGrid) {
-            actionGrid.querySelectorAll('.btn').forEach(btn => {
-              const shouldShow = !query || btn.textContent.toLowerCase().includes(query);
-              btn.style.display = shouldShow ? '' : 'none';
+          return items;
+        };
+        const closeSearchResults = () => {
+          searchResults.hidden = true;
+          searchInput.setAttribute('aria-expanded', 'false');
+        };
+        const openSearchResult = element => {
+          if (element.getAttribute('href')) {
+            window.location.href = element.href;
+          } else {
+            element.click();
+            closeSearchResults();
+          }
+        };
+        const updateSearchResults = () => {
+          const query = clean(searchInput.value).toLowerCase();
+          searchResults.replaceChildren();
+          if (!query) {
+            closeSearchResults();
+            return;
+          }
+          const matches = searchableItems()
+            .filter(item => `${item.label} ${item.group}`.toLowerCase().includes(query))
+            .slice(0, 12);
+          if (!matches.length) {
+            const empty = document.createElement('p');
+            empty.textContent = `No admin pages or actions found for "${searchInput.value.trim()}".`;
+            searchResults.appendChild(empty);
+          } else {
+            matches.forEach((item, index) => {
+              const result = document.createElement('a');
+              result.href = item.href || '#';
+              result.setAttribute('role', 'option');
+              result.setAttribute('id', `dashboard-search-result-${index}`);
+              result.textContent = item.label;
+              const group = document.createElement('small');
+              group.className = 'admin-search-result-group';
+              group.textContent = item.group;
+              result.appendChild(group);
+              result.addEventListener('click', event => {
+                event.preventDefault();
+                openSearchResult(item.element);
+              });
+              searchResults.appendChild(result);
             });
           }
-
-          // Show no results message
-          const main = document.querySelector('main');
-          let noResultsMsg = main.querySelector('.search-no-results');
-          if (query) {
-            const hasVisibleContent = document.querySelectorAll('main > .card:not([style*="display: none"]), main > details:not([style*="display: none"]), .admin-actions-grid .btn:not([style*="display: none"])').length > 0;
-            if (!hasVisibleContent) {
-              if (!noResultsMsg) {
-                noResultsMsg = document.createElement('div');
-                noResultsMsg.className = 'search-no-results';
-                noResultsMsg.style.cssText = 'text-align: center; padding: 40px; color: #999; font-size: 20px;';
-                main.appendChild(noResultsMsg);
-              }
-              noResultsMsg.textContent = `No results found for "${e.target.value}"`;
-            } else if (noResultsMsg) {
-              noResultsMsg.remove();
+          searchResults.hidden = false;
+          searchInput.setAttribute('aria-expanded', 'true');
+        };
+        searchInput.addEventListener('input', updateSearchResults);
+        searchInput.addEventListener('focus', updateSearchResults);
+        searchInput.addEventListener('keydown', event => {
+          if (event.key === 'Escape') {
+            closeSearchResults();
+          } else if (event.key === 'ArrowDown') {
+            const first = searchResults.querySelector('a');
+            if (first) {
+              event.preventDefault();
+              first.focus();
             }
-          } else if (noResultsMsg) {
-            noResultsMsg.remove();
+          } else if (event.key === 'Enter') {
+            const first = searchResults.querySelector('a');
+            if (first) {
+              event.preventDefault();
+              first.click();
+            }
           }
+        });
+        searchResults.addEventListener('keydown', event => {
+          const links = [...searchResults.querySelectorAll('a')];
+          const current = links.indexOf(document.activeElement);
+          if (event.key === 'ArrowDown' && current < links.length - 1) {
+            event.preventDefault();
+            links[current + 1].focus();
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (current > 0) links[current - 1].focus();
+            else searchInput.focus();
+          } else if (event.key === 'Escape') {
+            closeSearchResults();
+            searchInput.focus();
+          }
+        });
+        document.addEventListener('click', event => {
+          if (!event.target.closest('.admin-search')) closeSearchResults();
         });
       }
     });
