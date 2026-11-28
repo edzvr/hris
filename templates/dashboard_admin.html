@@ -662,13 +662,21 @@
             const label = clean(element.textContent || element.getAttribute('aria-label') || '');
             const href = element.getAttribute('href');
             if (!label || (!href && !element.onclick)) return;
-            const group = element.closest('#hris-global-sidebar details')?.getAttribute('aria-label')
+            let group = element.closest('#hris-global-sidebar details')?.getAttribute('aria-label')
               || element.closest('main details')?.querySelector(':scope > summary')?.textContent
               || 'Dashboard';
+            let keywords = '';
+            if (href && href.includes('/profile/')) {
+              const row = element.closest('tr');
+              const companyHeading = element.closest('.card')?.querySelector('h2')?.textContent;
+              const cells = row ? [...row.querySelectorAll('td')].slice(1, 4).map(cell => clean(cell.textContent)) : [];
+              group = ['Employee profile', companyHeading, ...cells].filter(Boolean).join(' · ');
+              keywords = row ? clean(row.textContent) : '';
+            }
             const key = `${label}|${href || element.onclick}`;
             if (seen.has(key)) return;
             seen.add(key);
-            items.push({ element, label, href, group: clean(group) });
+            items.push({ element, label, href, group: clean(group), keywords });
           });
           return items;
         };
@@ -692,7 +700,7 @@
             return;
           }
           const matches = searchableItems()
-            .filter(item => `${item.label} ${item.group}`.toLowerCase().includes(query))
+            .filter(item => `${item.label} ${item.group} ${item.keywords}`.toLowerCase().includes(query))
             .slice(0, 12);
           if (!matches.length) {
             const empty = document.createElement('p');
