@@ -4179,6 +4179,7 @@ def admin_edit_attendance(employee_id):
 @app.route('/attendance/<int:employee_id>')
 @login_required
 def attendance(employee_id):
+    # Fixed: Reverted broken delete button changes
     emp = Employee.query.get_or_404(employee_id)
     if current_user.id != emp.id and 'admin' not in current_user.role.lower():
         flash("❌ You can only view your own attendance record.", "danger")
