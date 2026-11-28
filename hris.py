@@ -5667,8 +5667,17 @@ def is_restday_overtime(attendance):
     return bool(attendance.is_restday_ot or attendance.date.weekday() == 6)
 
 
-def normalized_overtime_hours(hours):
-    return float(min(max(round(float(hours or 0)), 0), 3))
+def normalized_overtime_hours(hours, company=None):
+    # Trece-Uno: round hours (count excess minutes)
+    # Auto Expert: truncate hours (don't count excess minutes)
+    value = float(hours or 0)
+    if company and 'auto' in company.lower():
+        # Auto Expert: truncate (use int)
+        normalized = int(value)
+    else:
+        # Trece-Uno: round (use round)
+        normalized = round(value)
+    return float(min(max(normalized, 0), 3))
 
 
 def payroll_overtime_hours_for_attendance(attendance, hours):
@@ -5677,7 +5686,15 @@ def payroll_overtime_hours_for_attendance(attendance, hours):
         and is_trece_sunday(getattr(attendance, "employee", None), attendance.date)
     ):
         return max(float(hours or 0), 0.0)
-    return normalized_overtime_hours(hours)
+    company = getattr(attendance, "company", None)
+    normalized_value = float(hours or 0)
+    if company and 'auto' in company.lower():
+        # Auto Expert: truncate
+        normalized_value = int(normalized_value)
+    else:
+        # Trece-Uno: round
+        normalized_value = round(normalized_value)
+    return float(min(max(normalized_value, 0), 3))
 
 
 def automatic_trece_sunday_hours(attendance):
