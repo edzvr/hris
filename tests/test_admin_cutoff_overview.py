@@ -92,6 +92,18 @@ def test_cutoff_days_distinguish_absence_missing_out_leave_rest_and_future(cutof
         assert overview['totals']['pending_requests'] == 5
         assert first['requests'] == {'loans': 1, 'overtime': 1, 'corrections': 1, 'skips': 1, 'leaves': 0}
 
+        with app.test_request_context('/dashboard_admin'):
+            from flask import render_template
+            html = render_template(
+                'partials/admin_cutoff_overview.html',
+                selected_company='',
+                cutoff_overview=overview,
+            )
+        assert 'Missing clock-out details' in html
+        assert 'Same Name' in html
+        assert 'Oct 05, 2026' in html
+        assert 'Open Attendance' in html
+
 
 def test_overview_reads_saved_payroll_per_employee_without_mutations(cutoff_people):
     with app.app_context():

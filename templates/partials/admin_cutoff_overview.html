@@ -31,6 +31,36 @@
     </button>
     {% endfor %}
   </div>
+  <details class="cutoff-issue-details" open>
+    <summary>Missing clock-out details — {{ cutoff_overview.totals.missing_out }} past-day occurrence(s)</summary>
+    <div class="cutoff-issue-list">
+      {% set missing_count = namespace(value=0) %}
+      {% for row in cutoff_overview.rows %}
+        {% for day in row.days %}
+          {% if day.status == 'Missing clock-out' %}
+            {% set missing_count.value = missing_count.value + 1 %}
+            {% set record = day.records[0] %}
+            <article class="cutoff-issue-item">
+              <div>
+                <strong>{{ row.employee.full_name() }}</strong>
+                <span>{{ row.employee.company or 'Company not assigned' }} · {{ day.date.strftime('%b %d, %Y') }}</span>
+                <small>Clocked in {{ record.clock_in.strftime('%I:%M %p') if record.clock_in else '—' }} · No clock-out recorded</small>
+              </div>
+              <div class="cutoff-issue-actions">
+                <a href="{{ url_for('attendance', employee_id=row.employee.id, cutoff_start=cutoff_overview.start) }}">Open Attendance</a>
+                {% if row.requests.corrections %}
+                <a href="{{ url_for('admin_attendance_corrections') }}">Review Correction</a>
+                {% endif %}
+              </div>
+            </article>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+      {% if missing_count.value == 0 %}
+        <p class="cutoff-issue-empty">No past-day missing clock-outs for this cutoff.</p>
+      {% endif %}
+    </div>
+  </details>
   <div class="cutoff-payroll-strip">
     <div><span>Saved finalized net pay / selected cutoff</span><strong>PHP {{ cutoff_overview.finalized_net|currency }}</strong></div>
     <p>{{ cutoff_overview.totals.finalized }} finalized · {{ cutoff_overview.totals.draft }} drafts · {{ cutoff_overview.totals.not_prepared }} not prepared <small>(attendance-exempt staff excluded)</small></p>
