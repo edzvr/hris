@@ -56,6 +56,20 @@ def test_admin_has_grouped_top_navigation_and_all_routes():
     assert 'aria-expanded="false"' in html
 
 
+def test_sidebar_selector_text_does_not_prevent_injection():
+    html = navigation_response("admin")
+    assert html.count('id="hris-global-sidebar"') == 1
+    assert 'id="admin-topbar-navigation"' in html
+
+    user = SimpleNamespace(id=123, role="admin", company="Trece-Uno", is_authenticated=True)
+    document = '<html><head></head><body><script>document.querySelectorAll("#hris-global-sidebar a")</script></body></html>'
+    with app.test_request_context("/dashboard_admin"), patch("hris.current_user", user):
+        response = inject_authenticated_sidebar(Response(document, mimetype="text/html"))
+    rendered = response.get_data(as_text=True)
+    assert rendered.count('id="hris-global-sidebar"') == 1
+    assert 'id="admin-topbar-navigation"' in rendered
+
+
 def test_staff_navigation_groups_preserve_routes():
     html = navigation_response("staff", "/dashboard_staff")
     assert 'aria-label="Employee navigation"' in html

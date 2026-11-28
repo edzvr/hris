@@ -1719,7 +1719,7 @@ def inject_authenticated_sidebar(response):
         return response
 
     html = response.get_data(as_text=True)
-    if '</body>' not in html or 'hris-global-sidebar' in html:
+    if '</body>' not in html or 'id="hris-global-sidebar"' in html:
         return response
     if '<meta name="viewport"' not in html.lower() and '</head>' in html:
         html = html.replace('</head>', '<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">\n</head>', 1)
