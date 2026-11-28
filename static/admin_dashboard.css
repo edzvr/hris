@@ -23,8 +23,8 @@
 .admin-welcome { margin-bottom: 20px; }
 .admin-welcome h2 { font-size: 24px; }
 .admin-dashboard-page .card, .admin-dashboard-page .profile {
-  margin: 0 0 20px;
-  padding: 20px;
+  margin: 0 0 12px;
+  padding: 16px;
   background: #fff;
   border: 1px solid #dce5de;
   border-radius: 8px;
@@ -43,11 +43,11 @@
   margin: 4px;
   background: var(--admin-button-color, #2563eb);
 }
-.admin-dashboard-page .admin-actions-grid { grid-template-columns: repeat(var(--admin-buttons-per-row, 3), minmax(0, 1fr)); gap: 10px; }
-.admin-dashboard-page .admin-actions-grid .btn { min-height: 48px; padding: 12px; font-size: 14px; line-height: 1.4; text-align: left; justify-content: flex-start; }
-.admin-dashboard-page #adminActionsCard .admin-actions-grid .btn { min-height: min(var(--admin-button-height, 70px), 94px); font-size: min(var(--admin-button-font-size, 16px), 20px); }
-.admin-dashboard-page summary { cursor: pointer; font-weight: 600; font-size: 17px; min-height: 44px; padding: 10px 0; }
-.admin-dashboard-page details[open] > summary { margin-bottom: 14px; }
+.admin-dashboard-page .admin-actions-grid { grid-template-columns: repeat(var(--admin-buttons-per-row, 3), minmax(0, 1fr)); gap: 8px; }
+.admin-dashboard-page .admin-actions-grid .btn { min-height: 44px; padding: 10px 12px; font-size: 14px; line-height: 1.3; text-align: left; justify-content: flex-start; }
+.admin-dashboard-page #adminActionsCard .admin-actions-grid .btn { min-height: min(var(--admin-button-height, 56px), 68px); font-size: min(var(--admin-button-font-size, 16px), 18px); }
+.admin-dashboard-page summary { cursor: pointer; font-weight: 600; font-size: 16px; min-height: 44px; padding: 8px 0; }
+.admin-dashboard-page details[open] > summary { margin-bottom: 10px; }
 .admin-dashboard-page .profile-layout { grid-template-columns: 120px minmax(0, 1fr); }
 .admin-dashboard-page .profile img { width: 112px; height: 112px; border-width: 2px; }
 .admin-dashboard-page .profile-info p { overflow-wrap: anywhere; }

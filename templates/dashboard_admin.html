@@ -53,9 +53,9 @@
       box-sizing: border-box;
       margin: 0;
       text-align: center;
-      min-height: var(--admin-button-height, 94px);
-      padding: var(--admin-button-padding, 20px) 16px;
-      font-size: var(--admin-button-font-size, 23px);
+      min-height: var(--admin-button-height, 64px);
+      padding: var(--admin-button-padding, 12px) 14px;
+      font-size: var(--admin-button-font-size, 16px);
       line-height: 1.35;
       display: flex;
       align-items: center;
@@ -63,8 +63,6 @@
     }
     .admin-actions-grid .btn[draggable="true"] { cursor: grab; }
     .admin-actions-grid .btn.dragging { opacity: 0.45; cursor: grabbing; }
-    .admin-top-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 10px; }
-    .admin-top-actions .btn { margin: 0; }
     .tabs button {
       flex: 1;
       padding: 18px 24px;
@@ -188,13 +186,6 @@
   <div class="admin-welcome">
     <h2>Welcome, {{ admin.first_name }} {{ admin.last_name }} 👋</h2>
     <p class="active-company"><strong>Active company: {{ selected_company or 'All Companies' }}</strong></p>
-    <div class="company-quick-actions">
-      <a class="btn" href="{{ url_for('dashboard_admin') }}">All Companies</a>
-      <a class="btn" href="{{ url_for('payroll_dashboard', company=selected_company or '') }}">Payroll</a>
-      <a class="btn" href="{{ url_for('holiday_ot_dashboard', company=selected_company or '') }}">Attendance</a>
-      <a class="btn" href="{{ url_for('loan', company=selected_company or '') }}">Loans</a>
-      <a class="btn" href="{{ url_for('government_contributions', company=selected_company or '') }}">Contributions</a>
-    </div>
   </div>
 
   {% include 'partials/admin_cutoff_overview.html' %}
@@ -377,32 +368,16 @@
   <!-- Admin Actions -->
   <div id="adminActionsCard" class="card">
     <details class="dashboard-shortcuts">
-    <summary>Quick Actions</summary>
+    <summary>Frequently used shortcuts</summary>
     <div class="admin-actions-grid">
-      <a href="{{ url_for('manage_job_descriptions') }}" class="btn">📝 Manage Job Descriptions</a>
       <button type="button" class="btn non-draggable" onclick="showTab('employees', this)">👥 Employees</button>
       <a href="{{ url_for('holiday_ot_dashboard') }}" class="btn">🕒 Attendance & OT</a>
-      <a href="{{ url_for('biometric_import') }}" class="btn">📥 QC Biometric Upload</a>
-      <a href="{{ url_for('leave') }}" class="btn">🏖️ Leave Requests</a>
-      <a href="{{ url_for('loan') }}" class="btn">💸 Loan Requests</a>
-      <a href="{{ url_for('evaluation_dashboard') }}" class="btn">📊 Evaluation</a>
-      <a href="{{ url_for('admin_quiz_upload') }}" class="btn">📝 Quiz Questionnaire</a>
-      <a href="{{ url_for('admin_files') }}" class="btn">📁 Upload Company Files</a>
       <a href="{{ url_for('employee_201_selector') }}" class="btn">🗂️ Staff 201 Files</a>
-      <a href="{{ url_for('admin_incidents') }}" class="btn">⚠️ Incident Reports</a>
       <a href="{{ url_for('hr_documents') }}" class="btn">📄 HR Documents</a>
-      <a href="{{ url_for('staff_concerns') }}" class="btn">💬 Staff Concerns</a>
-      <a href="{{ url_for('payroll_dashboard') }}" class="btn">💰 Payroll</a>
-      <a href="{{ url_for('admin_payroll_history') }}" class="btn">📜 Payroll History</a>
-      <a href="{{ url_for('thirteenth_month') }}" class="btn">💰 13th-Month Pay</a>
-      <a href="{{ url_for('monthly_deductions') }}" class="btn">📋 Monthly Deductions</a>
-      <a href="{{ url_for('employee_liabilities') }}" class="btn">🧾 Liabilities / Shortage</a>
-      <a href="{{ url_for('audit_logs') }}" class="btn">🔎 Activity Logs</a>
-      <a href="{{ url_for('download_database_backup') }}" class="btn" title="Download a full copy of all HRIS data. Keep the file private.">💾 Download Backup</a>
       <button type="button" class="btn non-draggable" onclick="showTab('bulletins', this)">📢 Bulletins</button>
       <button type="button" class="btn non-draggable" onclick="showTab('settings', this)">⚙️ Settings</button>
-      <a href="{{ url_for('logout') }}" class="btn btn-red">🚪 Logout</a>
     </div>
+    <p>All other pages remain available from the grouped Admin menu.</p>
     </details>
   </div>
 
@@ -592,9 +567,9 @@
         ? settings.buttonColor : null;
       applyWorkspaceTheme(selectedColor, settings.topbarColor || null);
       const sizes = {
-        small: { height: '70px', padding: '12px', fontSize: '18px' },
-        medium: { height: '94px', padding: '20px', fontSize: '23px' },
-        large: { height: '125px', padding: '28px', fontSize: '27px' }
+        small: { height: '46px', padding: '10px', fontSize: '14px' },
+        medium: { height: '56px', padding: '12px', fontSize: '16px' },
+        large: { height: '68px', padding: '16px', fontSize: '18px' }
       };
       const size = sizes[settings.buttonSize] || sizes.medium;
       document.documentElement.style.setProperty('--admin-button-height', size.height);
@@ -762,10 +737,10 @@
             <option value="4">4</option>
           </select>
         </label>
-        <p>Click a company logo to open its dashboard, totals, employee directory, and quick actions. All Companies restores the combined dashboard. Admin menus stay visible on desktop; on phones, use Admin menu. Monthly Gov Dues Guide is inside Payroll &amp; Contributions. The navigation text size setting applies to the staff sidebar on this browser.</p>
-        <p>On phones, cards stack and wide tables scroll inside their own panel. Quick Actions can be expanded below the employee tables.</p>
+        <p>Click a company logo to filter the dashboard and employee overview. Admin menus stay visible on desktop; on phones, use Admin menu. Monthly Gov Dues Guide is inside Payroll &amp; Contributions. The navigation text size setting applies to the staff sidebar on this browser.</p>
+        <p>On phones, cards stack and wide tables scroll inside their own panel. Common workflows stay on the dashboard while every other route remains in the grouped Admin menu.</p>
         <p>This Cutoff at a Glance is a read-only staff overview. Choose a Saturday cutoff; click a metric or search an employee to filter the cards. Missing clock-outs cover past days only. No record means verify, not automatically absent. Last pay shows the employee's latest finalized payslip before the selected cutoff; drafts are labeled separately. Expand a card for daily times, cutoff requests and actions. Company logo filters apply to this overview; monthly totals remain under Summary &amp; Reports.</p>
-        <p>Drag the Quick Actions buttons to arrange them. Your arrangement is saved on this browser.</p>
+        <p>Drag the frequently used shortcuts to arrange them. Your arrangement is saved on this browser.</p>
         <br><br>
         <button type="button" class="btn" onclick="saveSettings()">Save Settings</button>
         <button type="button" class="btn" onclick="resetDashboardSettings()">Reset Layout</button>

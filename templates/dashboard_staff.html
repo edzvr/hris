@@ -379,11 +379,9 @@
             <a href="{{ url_for('attendance', employee_id=current_user.id) }}" class="btn btn-primary">🕒 My Attendance</a>
             <a href="{{ url_for('payroll', employee_id=current_user.id) }}" class="btn btn-primary">📊 My Payroll</a>
             <a href="{{ url_for('leave') }}" class="btn btn-primary">🏖️ Apply Leave</a>
-            <a href="{{ url_for('apply_ot') }}" class="btn btn-primary">🕒 Apply for OT</a>
-            <a href="{{ url_for('attendance_correction') }}" class="btn btn-primary">📝 Attendance Correction</a>
             <a href="{{ url_for('loan', employee_id=current_user.id) }}" class="btn btn-primary">💸 Apply Loan</a>
         </div>
-        <p class="shortcut-hint">Nasa <strong>Staff menu</strong> (itaas, kaliwa) ang iba pang pages.</p>
+        <p class="shortcut-hint">Nasa grouped <strong>Staff menu</strong> ang OT, Attendance Correction, documents, reports, at iba pang pages.</p>
     </nav>
 
     {% set remaining_loan = (current_user.loan_balance or 0)|float %}
